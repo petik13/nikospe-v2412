@@ -201,11 +201,13 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::updateCoeffs()
 	const scalar rampperiod = params_.rampperiod;
 
 	const scalar v0         = params_.v0;
-	const scalar Ls         = params_.Ls;
-	const scalar xl         = params_.xl;
+	const scalar xdamp      = params_.xdamp;
+	const scalar Lxdamp      = params_.Lxdamp;
+	const scalar ydamp      = params_.ydamp;
+	const scalar Lydamp      = params_.Lydamp;
 
-	
-		
+	const scalar xsponge    = params_.xsponge;
+	const scalar Lsponge    = params_.Lsponge;
 
 	Info << "Update status: " << updated() << endl; 
     const label patchi = patch().index(); // obtain patch index
@@ -266,13 +268,13 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::updateCoeffs()
 		
 		// - damping factor
 		scalarField dampingterm=
-		    // x-side damping active for x > xl
-		    pos(xComponents - xl) * v0 * ((xComponents - xl) / (Ls)) * ((xComponents - xl) / (Ls)) * (nfRef & Wn)
+		    // x-side damping active for x > xdamp
+		    pos(xComponents - xdamp) * v0 * ((xComponents - xdamp) / (Lxdamp)) * ((xComponents - xdamp) / (Lxdamp)) * (nfRef & Wn)
 		    // y-side damping active only when x > 5
-		  + pos(xComponents - 5) * pos(yComponents - 12.5) * v0 * ((yComponents - 12.5) / (Ls)) * ((yComponents - 12.5) / (Ls)) * (nfRef & Wn)
-		  + pos(xComponents - 5) * pos(-yComponents - 12.5) * v0 * ((-yComponents - 12.5) / (Ls)) * ((-yComponents - 12.5) / (Ls)) * (nfRef & Wn)
+		  + pos(xComponents - Lsponge) * pos(yComponents - ydamp) * v0 * ((yComponents - ydamp) / (Lydamp)) * ((yComponents - ydamp) / (Lydamp)) * (nfRef & Wn)
+		  + pos(xComponents - Lsponge) * pos(-yComponents - ydamp) * v0 * ((-yComponents - ydamp) / (Lydamp)) * ((-yComponents - ydamp) / (Lydamp)) * (nfRef & Wn)
 		    // inlet reflection damping: active for x in [0,5], stronger near x=0
-		  + pos(5 - xComponents) * v0 * ((5 - xComponents) / (Ls)) * ((5 - xComponents) / (Ls)) * (nfRef & (Wn - Wn0));
+		  + pos(xsponge - xComponents) * v0 * ((xsponge - xComponents) / (Lsponge)) * ((xsponge - xComponents) / (Lsponge)) * (nfRef & (Wn - Wn0));
 		
 		//From SnGrad BUNU DENICEZ SONRA
 		//const auto& U2 = db().lookupObject<surfaceScalarField>("U2");
@@ -577,8 +579,16 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::readParamsFrom(const di
     params_.hdepth     = readScalar(d.lookup("waterdepth"));
     params_.rampperiod = readScalar(d.lookup("rampperiod"));
     params_.v0         = d.lookupOrDefault<scalar>("v0", 0.0);
-    params_.Ls         = d.lookupOrDefault<scalar>("Ls", 1.0);
-    params_.xl         = d.lookupOrDefault<scalar>("xl", 100.0);
+
+	// damping settings
+	params_.xdamp      = readScalar(d.lookup("xdamp"));
+	params_.Lxdamp      = readScalar(d.lookup("Lxdamp"));
+	params_.ydamp      = readScalar(d.lookup("ydamp"));
+	params_.Lydamp      = readScalar(d.lookup("Lydamp"));
+
+	params_.xsponge    = readScalar(d.lookup("xsponge"));
+	params_.Lsponge    = readScalar(d.lookup("Lsponge"));
+
 
 
     // quick sanity checks (keep minimal)

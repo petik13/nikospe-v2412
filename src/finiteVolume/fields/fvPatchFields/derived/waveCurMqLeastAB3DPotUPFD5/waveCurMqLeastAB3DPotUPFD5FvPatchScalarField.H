@@ -237,7 +237,8 @@ public:
 	mutable autoPtr<IOdictionary> waveCurDictPtr_;
 		struct Params
 		{
-			scalar U0{0}, steepness{0}, wavelength{0}, hdepth{0}, v0{0}, Ls{1}, xl{100}, rampperiod{0};
+			scalar U0{0}, steepness{0}, wavelength{0}, hdepth{0}, v0{0},
+             Lxdamp{0}, xdamp{0}, Lydamp{0}, ydamp{0}, xsponge{0}, Lsponge{0}, rampperiod{0};
 			bool init{false};
 		} mutable params_;
 
