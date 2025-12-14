@@ -1,0 +1,5 @@
+derivedPoint = pointPatchFields/derived
+
+$(derivedPoint)/timeVaryingMotionInterpolation/timeVaryingMotionInterpolationPointPatchFields.C
+
+LIB = $(FOAM_USER_LIBBIN)/libmyFvMotionSolvers

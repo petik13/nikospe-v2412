@@ -1,0 +1,4 @@
+SOURCE = \
+$(derivedPoint)/timeVaryingMotionInterpolation/timeVaryingMotionInterpolationPointPatchFields.C \
+
+# sources
