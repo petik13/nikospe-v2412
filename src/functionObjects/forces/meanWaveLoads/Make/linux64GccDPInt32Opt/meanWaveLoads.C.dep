@@ -869,5 +869,6 @@ $(WM_PROJECT_DIR)/src/transportModels/compressible/lnInclude/compressibleTranspo
 $(WM_PROJECT_DIR)/src/TurbulenceModels/compressible/lnInclude/turbulentFluidThermoModel.C \
 $(WM_PROJECT_DIR)/src/OpenFOAM/lnInclude/cartesianCS.H \
 $(WM_PROJECT_DIR)/src/OpenFOAM/lnInclude/addToRunTimeSelectionTable.H \
+$(WM_PROJECT_DIR)/src/OpenFOAM/lnInclude/processorPolyPatch.H \
 
 #END

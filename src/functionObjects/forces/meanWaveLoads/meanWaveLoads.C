@@ -32,6 +32,7 @@ License
 #include "turbulentFluidThermoModel.H"
 #include "cartesianCS.H"
 #include "addToRunTimeSelectionTable.H"
+#include "processorPolyPatch.H"
 
 // * * * * * * * * * * * * * * Static Data Members * * * * * * * * * * * * * //
 
@@ -669,106 +670,119 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
     {
         const auto& zeta =
             mesh_.lookupObject<volVectorField>(zetaName_);
-
-        const fvMesh& fvm = mesh_;
-        const polyMesh& pm = fvm;
-
-        const faceZone& fz = pm.faceZones()[faceZoneID_];
-
-        const edgeList& edges = pm.edges();
-        const pointField& pts = pm.points();
-        const vectorField& Sf = fvm.Sf();
-        const vectorField& Cf = fvm.Cf();
-
-        const labelListList& edgeFaces = pm.edgeFaces();
-
-        const label nFaces = pm.nFaces();
-        boolList isCVFace(nFaces, false);
-        forAll(fz, i)
-        {
-            isCVFace[fz[i]] = true;
-        }
-
-        const polyBoundaryMesh& pbm = pm.boundaryMesh();
+        const polyBoundaryMesh& pbm = mesh_.boundaryMesh();
         const polyPatch& fsPatch = pbm[freeSurfacePatchID_];
 
-        // Identify free-surface faces
-        boolList isFreeFace(nFaces, false);
+        // Make a quick lookup for “is face in CV zone”
+        const faceZone& fz = mesh_.faceZones()[faceZoneID_];
+        boolList isCVFace(mesh_.nFaces(), false);
+        forAll(fz, i) { isCVFace[fz[i]] = true; }
+
+        // Mark free-surface faces
+        boolList isFSFace(mesh_.nFaces(), false);
         forAll(fsPatch, i)
         {
-            const label facei = fsPatch.start() + i;
-            isFreeFace[facei] = true;
+            isFSFace[fsPatch.start() + i] = true;
         }
 
-        // Free-surface elevation on free-surface patch
-        const fvPatchVectorField& zetaPatch =
-            zeta.boundaryField()[freeSurfacePatchID_];
+        const edgeList& edges = mesh_.edges();
+        const pointField& pts = mesh_.points();
+        const labelList& fsMeshEdges = fsPatch.meshEdges();
 
-        const scalar gMag = gMag_; // provided in controlDict
+        const fvPatchVectorField& zetaPatch = zeta.boundaryField()[freeSurfacePatchID_];
 
         vector Fzeta(Zero);
         vector Mzeta(Zero);
-        // const point& origin = coordSysPtr_->origin();
-        const point& cvP = cvPoint_; // control volume point
 
-        forAll(edges, edgei)
+        forAll(fsMeshEdges, ei)
         {
-            const labelList& eFaces = edgeFaces[edgei]; // faces for this edge
+            const label edgei = fsMeshEdges[ei];
 
-            const label f0 = eFaces[0];
-            const label f1 = eFaces[1];
 
-            const bool cv0 = isCVFace[f0];
-            const bool cv1 = isCVFace[f1];
-            const bool fs0 = isFreeFace[f0];
-            const bool fs1 = isFreeFace[f1];
+            const labelList& eFaces = mesh_.edgeFaces()[edgei];
 
-            if (!((cv0 && fs1) || (cv1 && fs0))) continue; // if one face is CV and other is free-surface
+            // Does this edge touch ANY CV face?
+            bool touchesCV = false;
+            forAll(eFaces, k)
+            {
+                if (isCVFace[eFaces[k]])
+                {
+                    touchesCV = true;
+                    break;
+                }
+            }
+            if (!touchesCV) continue;
+            
 
-            // find which face is on cV and which on free-surface
-            const label cvFace = cv0 ? f0 : f1; //(condition) ? (value_if_true) : (value_if_false)
-            const label fsFace = fs0 ? f0 : f1;
+            // It’s on free-surface patch by construction, now get an averaged zeta
+            scalar zetaZ = 0.0;
+            label nFS = 0;
+            forAll(eFaces, k)
+            {
+                const label facei = eFaces[k];
+                if (!isFSFace[facei]) continue;
+
+                const label fsLocalFace = facei - fsPatch.start();
+                zetaZ += zetaPatch[fsLocalFace].z();
+                ++nFS;
+            }
+            if (nFS == 0) continue;          // should not happen, but safe
+            zetaZ /= nFS;
 
             // Edge geometry
             const edge& e = edges[edgei];
-            const point edgeMid = 0.5*(pts[e[0]] + pts[e[1]]);
+            const point mid = 0.5*(pts[e[0]] + pts[e[1]]);
             const scalar L = mag(pts[e[1]] - pts[e[0]]);
 
-            // Start from CV face area vector
-            vector n = Sf[cvFace];
-            const vector& Cf_f = Cf[cvFace];
-
-            // Flip to point inward with respect to cvPoint
-            const vector d = Cf_f - cvP;
-            if ((n & d) > 0)
+            // Need outward/inward horizontal normal of CV side at that edge:
+            // simplest: grab ANY cv face among eFaces and use its Sf, then project horizontal
+            label cvFace = -1;
+            forAll(eFaces, k) { if (isCVFace[eFaces[k]]) { cvFace = eFaces[k]; break; } }
+            if (cvFace < 0) continue;
+            
+            if (Pstream::parRun())
             {
-                n = -n;
+                // If cvFace is on a processor patch, only integrate on the owner side
+                if (cvFace >= mesh_.nInternalFaces())
+                {
+                    const polyBoundaryMesh& pbm = mesh_.boundaryMesh();
+                    const label patchi = pbm.whichPatch(cvFace);
+
+                    if (isA<processorPolyPatch>(pbm[patchi]))
+                    {
+                        const processorPolyPatch& ppp =
+                            refCast<const processorPolyPatch>(pbm[patchi]);
+
+                        if (!ppp.owner())
+                        {
+                            continue; // skip neighbour side to prevent double counting
+                        }
+                    }
+                }
             }
+            vector n = mesh_.Sf()[cvFace];
 
-            // Make n horizontal and unit
-            n.z() = 0.0;
-            const scalar nMagH = mag(n);
-            if (nMagH > SMALL)
-            {
-                n /= nMagH;
-            }
+            // Flip inward wrt cvPoint_
+            const vector d = mesh_.Cf()[cvFace] - cvPoint_;
+            if ((n & d) > 0) n = -n;
 
-            // zeta at this edge: z-component on free-surface face
-            const label fsLocalFace = fsFace - fsPatch.start();
-            const scalar zetaVal =
-                zetaPatch[fsLocalFace].z();
+            // Make horizontal and unit
+            n.z() = 0;
+            const scalar nm = mag(n);
+            if (nm < SMALL) continue;
+            n /= nm;
 
-            const scalar coeff = -0.5*rhoRef*gMag*sqr(zetaVal);
+            const scalar coeff = -0.5*rhoRef*gMag_*sqr(zetaZ);
+            const vector fEdge = coeff * n * L;
 
-            const vector fEdge = coeff*n*L;
             Fzeta += fEdge;
-
-            const vector Md = edgeMid - origin;
-            Mzeta += Md ^ fEdge;
+            Mzeta += (mid - origin) ^ fEdge;
         }
 
+        // then add + reduce as before
         sumPatchForcesP_  += Fzeta;
         sumPatchMomentsP_ += Mzeta;
+
     }
 
     // ---------------------------------------------------------------------
