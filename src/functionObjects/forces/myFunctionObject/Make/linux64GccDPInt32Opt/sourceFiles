@@ -1,0 +1,4 @@
+SOURCE = \
+myFunctionObject.C \
+
+# sources

@@ -7,11 +7,15 @@ cd src/functionObjects/forces/meanWaveLoads/
 wclean
 wmake
 cd -
-cd src/finiteVolume/fields/fvPatchFields/derived/waveCurMqLeastAB3DPotUPFD5/
+cd src/finiteVolume/fields/fvPatchFields/derived/waveCurrentPotential3D/
 wclean
 wmake
 cd -
 cd src/functionObjects/forces/myMeanForce/
+wclean
+wmake
+cd -
+cd src/functionObjects/forces/myFunctionObject/
 wclean
 wmake
 cd -

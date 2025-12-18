@@ -1,0 +1,118 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2312                                 |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version         2.0;
+    format          ascii;
+    class           dictionary;
+    object          blockMeshDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+xmin	0.0;
+xmax	90.0;
+ymin	-39.0;
+ymax	39.0;
+zmin	-6.0;
+zmax    0;
+
+Nx	300;
+Ny	130;
+Nz	25;
+
+// vertices ((0.0 -5.25 -2.44) (48.84 -5.25 -2.44) (48.84 5.25 -2.44) (0.0 5.25 -2.44) (0.0 -5.25 0) (48.84 -5.25 0) (48.84 5.25 0) (0.0 5.25 0));
+vertices (($xmin $ymin $zmin) ($xmax $ymin $zmin) ($xmax $ymax $zmin) ($xmin $ymax $zmin) ($xmin $ymin $zmax) ($xmax $ymin $zmax) ($xmax $ymax $zmax) ($xmin $ymax $zmax));
+
+blocks
+(
+    
+	
+    // hex (0 1 2 3 4 5 6 7) (800 172 40) simpleGrading (1 1 0.5)
+    hex (0 1 2 3 4 5 6 7) ($Nx $Ny $Nz) simpleGrading (1 1 0.3)
+	
+);
+
+
+
+boundary
+(
+    inlet
+    {
+        type patch;
+        faces
+        (
+            (0 4 7 3)
+        );
+    }
+   
+	 outlet
+    {
+        type patch;
+        faces
+        (
+            (1 5 6 2)
+        );
+    }
+   
+    upper
+    {
+        type patch;
+        faces
+        (
+            (4 5 6 7)
+			
+        );
+    }
+    
+	lower
+	{
+		type patch;
+        faces
+        (
+            
+			(0 1 2 3)
+        );
+	
+	
+	}
+	
+	sphere
+    {
+        type wall;
+        faces
+        (
+        );
+    }
+    
+    front
+    {
+        type wall;
+        faces
+        (
+            (0 1 5 4)
+            
+        );
+    }
+	
+	back
+    {
+        type wall;
+        faces
+        (
+            
+            (3 2 6 7)
+        );
+    }
+	
+);
+
+mergePatchPairs
+(
+);
+
+
+// ************************************************************************* //

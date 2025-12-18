@@ -1,0 +1,24 @@
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "constant";
+    object      waveCurConditions;
+}
+
+// Wave properties
+steepness	0.0069;
+wavelength	6.0;
+currentspeed    0; //0.14174230137824065;
+waterdepth	6.0;
+v0              3.0; // damping parameter
+xdamp	72.0;
+Lxdamp	18.0;
+ydamp	30.0;
+Lydamp	9.0;
+xsponge	12.0;
+Lsponge	12.0;
+xc	42.0;
+R0	0.5;
+rampperiod	3.0;

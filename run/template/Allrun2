@@ -1,0 +1,26 @@
+#!/bin/sh
+cd "${0%/*}" || exit                                # Run from this directory
+. ${WM_PROJECT_DIR:?}/bin/tools/RunFunctions        # Tutorial run functions
+#------------------------------------------------------------------------------
+
+rm log.PHIWaveCurSph2
+
+rm log.reconstructPar
+
+rm log.postProcess
+
+rm log.decomposePar 
+
+rm -r processor*
+
+runApplication decomposePar
+
+runParallel PHIWaveCurSph2 -withFunctionObjects 
+
+runApplication reconstructPar
+
+runApplication postProcess -func writeCellCentres
+
+##python3 zeta_plotter.py
+
+#------------------------------------------------------------------------------

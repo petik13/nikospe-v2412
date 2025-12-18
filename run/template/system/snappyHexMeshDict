@@ -1,0 +1,115 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  2.1.0                                 |
+|   \\  /    A nd           | Web:      www.OpenFOAM.org                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      snappyHexMeshDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+bodyXpos	42.0;
+
+castellatedMesh true;
+snap            true;
+addLayers       false;
+
+// Geometry
+geometry
+{
+	   sphere
+	{
+		type            searchableSphere;
+		centre          ($bodyXpos 0.0 0.0);
+		radius          0.5;
+	}
+		
+	
+	
+}
+
+// Castellated mesh settings
+castellatedMeshControls
+{
+    maxLocalCells 10000000;
+    maxGlobalCells 20000000;
+    minRefinementCells 10;
+    nCellsBetweenLevels 5;
+
+    refinementSurfaces
+    {
+       sphere
+        {
+            level (4 4);   //(2 3 ) idi 
+        }
+    }
+
+    features
+    (
+        // Empty because no explicit feature refinement is required
+    );
+
+    refinementRegions
+    {
+       
+	
+	
+       
+    }
+
+    resolveFeatureAngle 60;
+
+    locationInMesh (0.1 0 -0.1);
+	
+	// Allow free-standing zone faces
+    allowFreeStandingZoneFaces false; // Set to true if needed
+}
+
+// Snap settings
+snapControls
+{
+    nSmoothPatch 3;
+    tolerance 1.0;
+    nSolveIter 30;
+    nRelaxIter 5;
+}
+
+// Add layers controls
+addLayersControls
+{
+    // Empty because addLayers is set to false
+}
+
+// Mesh quality settings
+meshQualityControls
+{
+    maxNonOrtho 65;
+    maxBoundarySkewness 20;
+    maxInternalSkewness 4;
+    minVol 1e-13;
+    minTetQuality 1e-30;
+    minArea -1;
+    minTwist 0.02;
+    minDeterminant 0.001;
+    minFaceWeight 0.05;
+    minVolRatio 0.01;
+	maxConcave 80;
+	//must be >0 for Fluent compatibility
+    minTriangleTwist -1;
+	//- Number of error distribution iterations
+    nSmoothScale 4;
+    //- amount to scale back displacement at error points
+    errorReduction 0.75;
+	
+}
+
+// Advanced settings
+mergeTolerance 1e-6;
+
+
+// ************************************************************************* //

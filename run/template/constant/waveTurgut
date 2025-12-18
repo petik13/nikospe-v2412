@@ -1,0 +1,50 @@
+		
+		IOdictionary myDict(IOobject("waveCurConditions",db().time().constant(),db(),
+            IOobject::MUST_READ_IF_MODIFIED,
+            IOobject::NO_WRITE));
+
+		const scalar steepness = readScalar(myDict.lookup("steepness"));
+		const scalar wavelength = readScalar(myDict.lookup("wavelength"));
+		const scalar currentspeed = readScalar(myDict.lookup("currentspeed"));
+		const scalar hdepth = readScalar(myDict.lookup("waterdepth"));
+		const scalar xc = readScalar(myDict.lookup("xc"));
+		
+		const scalar wavenumber (2.0*Foam::constant::mathematical::pi/wavelength);
+		const scalar amp(0.5*steepness*wavelength);
+		
+		
+		const scalar w(currentspeed * wavenumber + sqrt(9.81 * wavenumber * tanh(wavenumber*hdepth)));
+		const scalar celerity(w/wavenumber); 
+		
+        const fvPatch& myPatch = patch(); // Ensuring the correct type is used
+		const vectorField& faceCenters = myPatch.Cf(); 
+        scalarField& field = *this;
+			
+        const scalar T(2.0*Foam::constant::mathematical::pi/w);
+		const scalar ramp_time(3.0 * T);
+		const scalar ramp_factor = 0.5 * (1 - cos(Foam::constant::mathematical::pi * min(1.0, t / ramp_time)));
+		
+		//Info << "k wavenumber " << wavenumber << endl;   
+        //Info << "w angular frequency " << w << endl;   
+        //Info << "celerity  " << celerity << endl;   
+            
+
+           
+        //Info << "x,z" << endl;    
+		forAll(faceCenters, faceI)
+		{
+				const scalar zcor = faceCenters[faceI].z();
+				const scalar xcor = faceCenters[faceI].x();
+				//Info << "xkor:" << xcor << " " ;
+				scalar x_rel = xcor - xc*wavelength;
+				
+				field[faceI] = - amp * (9.81 / w) *(1.0/(1.0-currentspeed/celerity))*(Foam::cosh(wavenumber *(hdepth+zcor))/Foam::cosh(wavenumber*hdepth)) * Foam::sin(wavenumber * x_rel-w*t)*ramp_factor;
+				
+				//field[faceI] = -currentspeed * x_rel - amp * (9.81 / w) *(1.0/(1.0-currentspeed/celerity))*(Foam::cosh(wavenumber *(hdepth+zcor))/Foam::cosh(wavenumber*hdepth)) * Foam::sin(wavenumber * x_rel-w*t)*ramp_factor;
+				
+				
+				
+				
+				
+		}
+			

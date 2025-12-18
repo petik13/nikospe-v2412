@@ -142,6 +142,7 @@ int main(int argc, char *argv[])
 	#include "readGravitationalAcceleration.H" // self-explanatory
 	#include "createControl.H" // loads custom file by Turgut located in constant dir: turgutFlow. It reads in nNonOrtho
 	pisoControl turgutFlow(mesh, "turgutFlow"); // create pisoControl object. Named: turgutFlow. turgutFlow solver named in fvSolutions
+	pisoControl steadyFlow(mesh, "steadyFlow");
 	// TODO: add control for steady flow?
     #include "createFields.H" // read/init fields: U, Ucur, phi(flux), zeta, zetaDx, p, p2, p3, Phi, PhiCur, PhiDx, PhiDy, PhiCurDz2 (dphi/dz**2)
 	// Also read in waveCurConditions dictionary here
@@ -162,8 +163,8 @@ int main(int argc, char *argv[])
 	scalar wavelength = waveCurConditions.lookupOrDefault<scalar>("wavelength", 2.0);
 	scalar U0 = waveCurConditions.lookupOrDefault<scalar>("currentspeed", 0.0);
 	scalar hdepth = waveCurConditions.lookupOrDefault<scalar>("waterdepth", 1.0);
-	const scalar R0 = readScalar(waveCurConditions.lookup("R0")); // radius of sphere
-	const scalar xc = readScalar(waveCurConditions.lookup("xc")); // x coordinate of sphere center
+	// const scalar R0 = readScalar(waveCurConditions.lookup("R0")); // radius of sphere
+	// const scalar xc = readScalar(waveCurConditions.lookup("xc")); // x coordinate of sphere center
 
 	// derived parameters
 	const scalar wavenumber(2.0 * Foam::constant::mathematical::pi / wavelength); 
@@ -180,163 +181,35 @@ int main(int argc, char *argv[])
 	Info << "C (Celerity) " << celerity << endl;
 	
 	
+	// ---------- Calculation of steady potential PhiCur ---------------------------------
+	Info<< nl << "Calculating steady potential PhiCur" << endl;
+	while (steadyFlow.correctNonOrthogonal())
+    {
+        fvScalarMatrix PhiCurEqn
+        (
+            fvm::laplacian(dimensionedScalar("1", dimless, 1), PhiCur)
+         ==
+            Zero
+        );
 
-	// Access cell center coordinates
-	const volVectorField& C = mesh.C();
-	Info << "Number of cells: " << C.size() << endl;
-	scalar a3by2   = 0.5*Foam::pow3(R0);   //  a³ / 2  – used often
-		// Calculate steady velocity field around sphere and potential: Phi_Cur, Ucur
-		forAll(C, celli)
-		{
-			const scalar xcor = C[celli].x();
-			const scalar ycor = C[celli].y();
-			const scalar zcor = C[celli].z();
+        // PhiCurEqn.setReference(PhiRefCell, PhiRefValue);
+        PhiCurEqn.solve();
 
-			scalar x_rel = xcor - xc*wavelength;
-			scalar y_rel = ycor;// - yc;
-			scalar z_rel = zcor;// - zc;
+        // if (steadyFlow.finalNonOrthogonalIter())
+        // {
+        //     phi -= PhiCurEqn.flux();
+        // }
+    }
 
-			scalar r2 = x_rel*x_rel + y_rel*y_rel + z_rel*z_rel;
-			scalar r  = Foam::sqrt(r2);
-
-			
-			scalar r3_inv = 1.0/(r2*r);          // r⁻³
-			scalar r5_inv = r3_inv/r2;           // r⁻⁵
-
-			// --------- Φ -----------------------------------------------------------
-			scalar Phi_val = -U0 * x_rel * (1.0 + a3by2 * r3_inv); // Phi_s: steady flow around sphere
-			PhiCur[celli]  = Phi_val;
-
-			// --------- velocity components ----------------------------------------
-			scalar common  = 1.0 + a3by2 * r3_inv;
-			scalar coeff   = 1.5 * R0*R0*R0 * r5_inv;   // 3 a³ / (2 r⁵)
-
-			scalar Ux =  U0 * (common - coeff * x_rel*x_rel);
-			scalar Uy = -U0 * coeff * x_rel*y_rel;
-			scalar Uz = -U0 * coeff * x_rel*z_rel;
-
-			Ucur[celli] = vector(Ux, Uy, Uz); // steady Ucur = del PhiCur
-
-			// --------- ∂²Φ/∂z²  ----------------------------------------------------
-			//scalar r7_inv      = r5_inv/r2;                  // r⁻⁷
-			//scalar Phi_z2_val  = 1.5 * U0 * R0*R0*R0* x_rel * (x_rel*x_rel + y_rel*y_rel - 4*z_rel*z_rel)* r7_inv;                  // 3U a³ x (…) / (2 r⁷)
-			//PhiCurDz2[celli] = Phi_z2_val;
-		
-		}
-
-	// ---------- DECLARATION (before the loop, outside any function scope you need it) ----------
-	scalar maxPhiZ2_local = -GREAT;  // Local maximum on this processor GREAT = 1e6
-	vector maxCf_local    = vector::zero;
-
-
-
-	// ---------- BOUNDARY PATCHES ----------------------------------------------
-	// assign steady values to boundary patches
-	// Also calculate dphi/dz^2 on the patches using analytical expression
-	forAll(mesh.boundary(), patchI) // loop over boundary patches
-	{
-		const fvPatch& patch    = mesh.boundary()[patchI];
-		//const word&    patchName= patch.name();
-
-		// If you still need to skip certain 2‑D patches, keep these guards
-		//if (patchName == "frontAndBack" || patchName == "front" || patchName == "back")
-			//continue;
-
-		//Info<< "Processing boundary patch: " << patchName << endl;
-
-		forAll(patch, faceI) // loop over faces in patch
-		{
-			const point& cf = patch.Cf()[faceI]; // obtain face center coordinates relative to the sphere center
-			scalar x_rel = cf.x()- xc*wavelength;  //BU facecenter cekmeleri farkliydi.
-			scalar y_rel = cf.y();// - yc;
-			scalar z_rel = cf.z();// - zc;
-
-			scalar r2 = x_rel*x_rel + y_rel*y_rel + z_rel*z_rel;
-			scalar r  = Foam::sqrt(r2);
-
-			
-
-			scalar r3_inv = 1.0/(r2*r);
-			scalar r5_inv = r3_inv/r2;
-			scalar common = 1.0 + a3by2 * r3_inv;
-			scalar coeff  = 1.5 * R0*R0*R0 * r5_inv;
-			scalar r7_inv = r5_inv/r2;
-
-			// Φ
-			scalar Phi_val = -U0 * x_rel * common;
-			PhiCur.boundaryFieldRef()[patchI][faceI] = Phi_val;
-
-			// velocity
-			scalar Ux =  U0 * (common - coeff * x_rel*x_rel);
-			scalar Uy = -U0 * coeff * x_rel*y_rel;
-			scalar Uz = -U0 * coeff * x_rel*z_rel;
-			Ucur.boundaryFieldRef()[patchI][faceI] = vector(Ux,Uy,Uz);
-
-			// ∂²Φ/∂z²
-			scalar Phi_z2_val = -1.5 * U0 * R0*R0*R0* x_rel * (x_rel*x_rel + y_rel*y_rel - 4.0*z_rel*z_rel)* r7_inv;
-			
-			//scalar Phi_z2_val = 0.5 * U0 * x_rel * pow3(R0) * (3.0 * r5_inv - 15.0 * z_rel * z_rel * r7_inv);
-			
-			
-			PhiCurDz2.boundaryFieldRef()[patchI][faceI] = Phi_z2_val;
-			
-			// Find maximum dphi/dz^2 on this processor
-			 if (Phi_z2_val > maxPhiZ2_local)
-			{
-				if (z_rel==0.0)
-				{maxPhiZ2_local = Phi_z2_val;
-				maxCf_local = cf;
-				}
-			}
-				
-			
-			}
-		}
-	
-	Pout << "Global maximum Phi_z2_val = " << maxPhiZ2_local << nl << "At coordinates (approx.) = " << maxCf_local << nl;
-		
-	scalar maxPhiZ2_global = maxPhiZ2_local;
-	reduce(maxPhiZ2_global, maxOp<scalar>()); // Find global maximum value across all processors. All processors get the result.
-
-	// ---------- OPTIONAL: GATHER LOCATION INFO ----------
-	vector maxCf_global = maxCf_local;
-	if (mag(maxPhiZ2_local - maxPhiZ2_global) > SMALL)
-	{
-		// This proc doesn’t hold the global max
-		maxCf_global = vector::zero;
-	}
-	reduce(maxCf_global, sumOp<vector>());
-
-	// ---------- MASTER OUTPUT ----------
-	
-	Info << "Global maximum Phi_z2_val = " << maxPhiZ2_global << nl << "At coordinates (approx.) = " << maxCf_global << nl;
-			 
-		
-	   
-     
-     
-	
-	
-	Info << "!!!!currentspeed!!!: " << U0 << " !!!water depth:!! " << hdepth << endl;
-	
-	phi = fvc::flux(U); // calc flux from U (isn't that 0 initially?)
-	
-	Info<< "Continuity error  = "
-        << mag(fvc::div(phi))().weightedAverage(mesh.V()).value()
-        << endl;
-	
-	// Output initial fields to 0 folder
-	//runTime.setTime(0, 0); // Set the time to 0 (to overwrite 0/ folder)
-	runTime.write();
-	Phi.write();
-	U.write();
-	zeta.write();
-	Ucur.write(); // steady Ucur= del Ucur
+	// Calculate Ucur
+	Ucur=-fvc::grad(PhiCur);//U = fvc::reconstruct(phi);
+	p3 = -0.5*(Ucur & Ucur);
+	p3.write();
 	PhiCur.write();
-	//PhiDx.write();
-	PhiCurDz2.write(); //second derivative
-	
-	
+	Ucur.write();
+
+	// ---------- End of steady potential calculation ---------------------------------
+
 	while (runTime.run()) // main loop
     {
 		
@@ -348,11 +221,6 @@ int main(int argc, char *argv[])
 		Info << "currentspeed: " << U0 << " water depth: " << hdepth << endl;
 		Info << " \n Current time: " << runTime.timeName() << endl;	
 		
-		//MRF.makeRelative(phi);
-		 //adjustPhi(phi, U, p);phi = fvc::flux(U);
-		 //BU adjust phi ile ayni isi yapiyor mass conservation olmadan
-		
-		Info << "Iterative loop starts \n" << endl;
 		// Non-orthogonal velocity potential corrector loop
 		// while (turgutFlow.correctNonOrthogonal()) // Numer given in fvSolution for turgutFlow
 		// {
@@ -422,11 +290,11 @@ int main(int argc, char *argv[])
 		runTime.printExecutionTime(Info);
 		
     }
-   
-    
+
 	runTime.functionObjects().end();
 
     runTime.printExecutionTime(Info);
+
 
     Info<< "End\n" << endl;
 
