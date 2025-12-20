@@ -889,5 +889,6 @@ $(WM_PROJECT_DIR)/src/finiteVolume/lnInclude/createPimpleControl.H \
 $(WM_PROJECT_DIR)/src/finiteVolume/lnInclude/createSimpleControl.H \
 createFields.H \
 $(WM_PROJECT_DIR)/src/finiteVolume/lnInclude/createMRF.H \
+$(WM_PROJECT_DIR)/src/finiteVolume/lnInclude/CourantNo.H \
 
 #END

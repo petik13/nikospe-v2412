@@ -961,7 +961,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::buildVertexBasedConnections
 		{	scalar x00 = Cf[i].x();  // <-- or .y() or .z() depending on what you want
 			if (x00 > (globalMaxX-limitingX))  //burasi 0.01 idi
 			{
-				Pout << globalIdOfLocalFace_[i] << " stay outside" << endl;
+				Pout << globalIdOfLocalFace_[i] << " stays outside" << endl;
 				ownerHasBodyFace_[i]= false;
 			}
 		}	

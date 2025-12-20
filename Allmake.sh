@@ -19,3 +19,7 @@ cd src/functionObjects/forces/myFunctionObject/
 wclean
 wmake
 cd -
+cd src/finiteVolume/fields/fvPatchFields/derived/rigidTurgutBody/
+wclean
+wmake
+cd -

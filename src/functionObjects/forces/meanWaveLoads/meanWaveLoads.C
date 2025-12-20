@@ -606,6 +606,23 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
         {
             const label facei = faces[i];
 
+            // Avoid double counting on processor patches
+            if (Pstream::parRun() && facei >= mesh_.nInternalFaces())
+            {
+                const polyBoundaryMesh& pbm = mesh_.boundaryMesh();
+                const label patchi = pbm.whichPatch(facei);
+
+                if (isA<processorPolyPatch>(pbm[patchi]))
+                {
+                    const processorPolyPatch& ppp =
+                        refCast<const processorPolyPatch>(pbm[patchi]);
+
+                    if (!ppp.owner())
+                    {
+                        continue; // prevent double counting
+                    }
+                }
+            }
             // Approximate gradPhi on the face
             vector gradPhi_f(Zero);
 

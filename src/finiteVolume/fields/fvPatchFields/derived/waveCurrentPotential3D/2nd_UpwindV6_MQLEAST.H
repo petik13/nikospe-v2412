@@ -629,7 +629,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 		
     }
 
-	for (label i = 0; i < nFaces; ++i)
+	for (label i = 0; i < nFaces; ++i)  // TODO: turn off for slender body
     {
 		
 	    if (ownerHasBodyFace_[i])

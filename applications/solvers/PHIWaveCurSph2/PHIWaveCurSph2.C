@@ -347,15 +347,15 @@ int main(int argc, char *argv[])
 		
 		Info << "currentspeed: " << U0 << " water depth: " << hdepth << endl;
 		Info << " \n Current time: " << runTime.timeName() << endl;	
-		
+		#include "CourantNo.H"
 		//MRF.makeRelative(phi);
 		 //adjustPhi(phi, U, p);phi = fvc::flux(U);
 		 //BU adjust phi ile ayni isi yapiyor mass conservation olmadan
 		
 		Info << "Iterative loop starts \n" << endl;
 		// Non-orthogonal velocity potential corrector loop
-		// while (turgutFlow.correctNonOrthogonal()) // Numer given in fvSolution for turgutFlow
-		// {
+		while (turgutFlow.correctNonOrthogonal()) // Numer given in fvSolution for turgutFlow
+		{
 			
 			fvScalarMatrix PhiEqn
 			(
@@ -370,12 +370,12 @@ int main(int argc, char *argv[])
 
 			
 			
-			//if (turgutFlow.finalNonOrthogonalIter())
-			//{
+			if (turgutFlow.finalNonOrthogonalIter())
+			{
 				
-			//	phi -= PhiEqn.flux();
-		    //}
-		// }
+				phi -= PhiEqn.flux();
+		    }
+		}
 		
 		Info << "Iterative loop ended \n" << endl;
 		//MRF.makeAbsolute(phi);
