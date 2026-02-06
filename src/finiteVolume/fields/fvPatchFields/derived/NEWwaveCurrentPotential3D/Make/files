@@ -1,0 +1,3 @@
+waveCurrentPotential3DFvPatchScalarField.C
+
+LIB = $(FOAM_USER_LIBBIN)/libwaveCurrentPotential3D

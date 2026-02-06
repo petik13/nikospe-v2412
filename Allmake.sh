@@ -3,6 +3,10 @@ cd applications/solvers/PHIWaveCurSph2
 wclean
 wmake
 cd -
+cd applications/solvers/shipFlow
+wclean
+wmake
+cd -
 cd src/functionObjects/forces/meanWaveLoads/
 wclean
 wmake
@@ -23,3 +27,12 @@ cd src/finiteVolume/fields/fvPatchFields/derived/rigidTurgutBody/
 wclean
 wmake
 cd -
+cd src/finiteVolume/fields/fvPatchFields/derived/linearizedRigidBody/
+wclean
+wmake
+cd -
+cd src/finiteVolume/fields/fvPatchFields/derived/myAdvective/
+wclean
+wmake
+cd -
+

@@ -26,6 +26,8 @@ License
 
 \*---------------------------------------------------------------------------*/
 
+#include "fvCFD.H"
+#include "fvMesh.H"
 #include "waveCurrentPotential3DFvPatchScalarField.H"
 #include "addToRunTimeSelectionTable.H"
 #include "fvPatchFieldMapper.H"
@@ -36,7 +38,6 @@ License
 #include "CrankNicolsonDdtScheme.H"
 #include "backwardDdtScheme.H"
 //#include "PrimitivePatchInterpolation.H"
-
 #include "OFstream.H"
 //#include "SVD.H"
 #include "processorPolyPatch.H"
@@ -180,9 +181,9 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
     }
 	
 	if ( db().time().timeIndex() == lastUpdateTimeIndex ){
-	Info << "waveCurrentPotential3DFvPatchScalarField--saved BC applied at : " << lastUpdateTimeIndex << endl;
-	operator==(data_);
-	return;	
+		Info << "waveCurrentPotential3DFvPatchScalarField--saved BC applied at : " << lastUpdateTimeIndex << endl;
+		operator==(data_);
+		return;	
 	}	
 
 	// -- At top of updateCoeffs() after the early returns:
@@ -221,25 +222,21 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 	scalarField yComponents = patchFaceCenters.component(vector::Y);
 	scalarField zComponents = patchFaceCenters.component(vector::Z);
 	
-	
-	
     const scalar dt = db().time().deltaTValue();
 	const scalar tt=db().time().value();
 	
 	Info << "Time in BC : " << tt << endl;
-	
-	
 	Info << "Iteration: " << db().time().timeIndex() << endl;
 	
     // Retrieve non-const access to zeta field from the database
     volVectorField& zeta = db().lookupObjectRef<volVectorField>(zetaName_);
-    vectorField& zetap = zeta.boundaryFieldRef()[patchi];
+    vectorField& zetap = zeta.boundaryFieldRef()[patchi]; // current value on patch
 
 	//Turgut
 	volScalarField& Phi = db().lookupObjectRef<volScalarField>(PHIName_);
 	const volScalarField& Phi0 = Phi.oldTime();
 	//scalarField& PhiPatch = Phi.boundaryFieldRef()[patchi];
-	const scalarField& Phi0Patch = Phi0.boundaryField()[patchi];
+	const scalarField& Phi0Patch = Phi0.boundaryField()[patchi]; // Previous value on patch
 	//Turgut
 	
 	
@@ -255,31 +252,79 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 		
 		
 		const volVectorField& Uvel = db().lookupObjectRef<volVectorField>(UName_);
-		vectorField Wn(nfRef* (Uvel.boundaryField()[patchi] & nfRef));
+		vectorField Wn(nfRef* (Uvel.boundaryField()[patchi] & nfRef)); // vertical velocity component (vectorized)
 		
 		// - Incident wave vertical velocity
 		const scalar amp(0.5*steepness*wavelength);
 		const scalar wavenumber (2.0*Foam::constant::mathematical::pi/wavelength);
-		const scalar w(params_.U0 * wavenumber + sqrt(9.81 * wavenumber * tanh(wavenumber*hdepth)));
+		const scalar w(sqrt(9.81 * wavenumber * tanh(wavenumber*hdepth)));
 		const scalar celerity(w/wavenumber);
 		const scalar T(2.0*Foam::constant::mathematical::pi/w);
 		const scalar ramp_time(3.0 * T);
 		const scalar ramp_factor = 0.5 * (1 - cos(Foam::constant::mathematical::pi * min(1.0, tt / ramp_time)));
 
-		vectorField Wn0(- amp * wavenumber * (9.81 / w) *(1.0/(1.0-params_.U0/celerity))*
-		(Foam::sinh(wavenumber *(hdepth+zComponents))/Foam::cosh(wavenumber*hdepth)) * 
-		Foam::sin(wavenumber * xComponents-w*tt) * ramp_factor * nfRef);
-		
+		Info<< "wavenumber k =" << wavenumber << nl;
+		Info<< "angular frequency w =" << w << nl;
+		Info<< "Current speed U0 =" << U0 << nl;
+
+		// - Incident wave vertical velocity
+		vectorField Wn0
+		(
+			amp * wavenumber * 9.81 / w 
+		 * (Foam::sinh(wavenumber *(hdepth+zComponents))/Foam::cosh(wavenumber*hdepth))
+		 * Foam::sin(wavenumber * xComponents- w*tt) * ramp_factor * nfRef
+		);
+
 		// - damping factor
 		scalarField dampingterm=
 		    // x-side damping active for x > xdamp
-		    pos(xComponents - xdamp) * v0 * ((xComponents - xdamp) / (Lxdamp)) * ((xComponents - xdamp) / (Lxdamp)) * (nfRef & Wn)
+		    pos(xComponents - xdamp) * v0 * ((xComponents - xdamp) / (Lxdamp)) * ((xComponents - xdamp) / (Lxdamp)) * (nfRef & Wn);
 		    // y-side damping active only when x > 5
-		  + pos(xComponents - Lsponge) * pos(yComponents - ydamp) * v0 * ((yComponents - ydamp) / (Lydamp)) * ((yComponents - ydamp) / (Lydamp)) * (nfRef & Wn)
-		  + pos(xComponents - Lsponge) * pos(-yComponents - ydamp) * v0 * ((-yComponents - ydamp) / (Lydamp)) * ((-yComponents - ydamp) / (Lydamp)) * (nfRef & Wn)
+		//    + pos(xComponents-xsponge)*pos(xdamp-xComponents)*pos(yComponents - ydamp) * v0 * ((yComponents - ydamp) / (Lydamp)) * ((yComponents - ydamp) / (Lydamp)) * (nfRef & Wn)
+		//    + pos(xComponents-xsponge)*pos(xdamp-xComponents)*pos(-yComponents - ydamp) * v0 * ((-yComponents - ydamp) / (Lydamp)) * ((-yComponents - ydamp) / (Lydamp)) * (nfRef & Wn)
 		    // inlet reflection damping: active for x in [0,5], stronger near x=0
-		  + pos(xsponge - xComponents) * v0 * ((xsponge - xComponents) / (Lsponge)) * ((xsponge - xComponents) / (Lsponge)) * (nfRef & (Wn - Wn0));
+		//   + pos(xsponge - xComponents) * v0 * ((xsponge - xComponents) / (Lsponge)) * ((xsponge - xComponents) / (Lsponge)) * (nfRef & (Wn - Wn0));
 		
+
+
+		// const scalarField wMeas(nfRef & Wn);
+		// const scalarField wRef (nfRef & Wn0);
+		// const scalarField wErr (wMeas - wRef);
+		// const scalarField m(pos(xsponge - xComponents));
+
+		// const scalar nMasked = gSum(m);
+
+		// if (nMasked > SMALL && db().time().timeIndex() % 1 == 0)
+		// {
+		// 	const scalar maxAbsMeas = gMax(mag(m*wMeas));
+		// 	const scalar maxAbsRef  = gMax(mag(m*wRef));
+		// 	const scalar maxAbsErr  = gMax(mag(m*wErr));
+
+		// 	const scalar rmsMeas = Foam::sqrt(gSum(m*sqr(wMeas))/nMasked);
+		// 	const scalar rmsRef  = Foam::sqrt(gSum(m*sqr(wRef ))/nMasked);
+		// 	const scalar rmsErr  = Foam::sqrt(gSum(m*sqr(wErr ))/nMasked);
+		// 	const scalar meanErr = gSum(m*wErr)/nMasked;
+		// 	const scalar meanAbsErr = gSum(m*mag(wErr))/nMasked;
+
+		// 	Info<< "Sponge diag t=" << tt
+		// 		<< "  max|meas|=" << maxAbsMeas
+		// 		<< "  max|ref|="  << maxAbsRef
+		// 		<< "  max|err|="  << maxAbsErr
+		// 		<< "  rms(meas/ref/err)=" << rmsMeas << " " << rmsRef << " " << rmsErr
+		// 		<< "  err/ref(max)=" << (maxAbsErr/(maxAbsRef + VSMALL))
+		// 		<< "Mean abs error:" << meanAbsErr
+		// 		<< nl;
+		// }
+
+		// const scalar corr =
+		// gSum(m*wMeas*wRef) /
+		// (Foam::sqrt(gSum(m*sqr(wMeas))*gSum(m*sqr(wRef))) + VSMALL);
+
+		// Info<< "corr(meas,ref)=" << corr << nl;
+
+
+
+
 		//From SnGrad BUNU DENICEZ SONRA
 		//const auto& U2 = db().lookupObject<surfaceScalarField>("U2");
 		//vectorField Wn(nf()*U2.boundaryField()[patchi]);
@@ -289,16 +334,16 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 		//vectorField dZetap(dt*nf()*phi.boundaryField()[patchi]/patch().magSf());
 		
 		const volVectorField& zeta0 = zeta.oldTime(); 
-		const vectorField& zeta0p = zeta0.boundaryField()[patchi];
+		const vectorField& zeta0p = zeta0.boundaryField()[patchi]; // Previous value on patch
 		
 		scalarField turgut(Phi0Patch.size(), 0.0);
 		vectorField UetaDx(Phi0Patch.size(), vector::zero);
 		vectorField Wcurdz_zeta0p(Phi0Patch.size(), vector::zero);
 		
-		if (std::fabs(U0) > SMALL)
+		if (std::fabs(U0) > SMALL) // if current speed is non-zero
 		{
-			calcNeigboursV3();
-			if (neigboursCalculated_)
+			calcNeigboursV3(); // calc neighboors if not yet calculated (PrePar)
+			if (neigboursCalculated_) // set in calcNeigboursV3
 			{
 				findUpwindDownwindNodesV2();
 				

@@ -1,0 +1,4 @@
+SOURCE = \
+linearizedRigidBodyFvPatchScalarField.C \
+
+# sources

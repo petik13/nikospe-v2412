@@ -26,7 +26,9 @@ License
 
 \*---------------------------------------------------------------------------*/
 
-#include "waveCurMqLeastAB3DPotUPFD5FvPatchScalarField.H"
+#include "fvCFD.H"
+#include "fvMesh.H"
+#include "waveCurrentPotential3DFvPatchScalarField.H"
 #include "addToRunTimeSelectionTable.H"
 #include "fvPatchFieldMapper.H"
 #include "volFields.H"
@@ -36,7 +38,6 @@ License
 #include "CrankNicolsonDdtScheme.H"
 #include "backwardDdtScheme.H"
 //#include "PrimitivePatchInterpolation.H"
-
 #include "OFstream.H"
 //#include "SVD.H"
 #include "processorPolyPatch.H"
@@ -47,9 +48,9 @@ License
 
 const Foam::Enum
 <
-    Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::ddtSchemeType
+    Foam::waveCurrentPotential3DFvPatchScalarField::ddtSchemeType
 >
-Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::ddtSchemeTypeNames_
+Foam::waveCurrentPotential3DFvPatchScalarField::ddtSchemeTypeNames_
 ({
     {
         ddtSchemeType::tsEuler,
@@ -73,27 +74,27 @@ Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::ddtSchemeTypeNames_
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::
-waveCurMqLeastAB3DPotUPFD5FvPatchScalarField
-( // input
+Foam::waveCurrentPotential3DFvPatchScalarField::
+waveCurrentPotential3DFvPatchScalarField
+(
     const fvPatch& p,
     const DimensionedField<scalar, volMesh>& iF
 )
-: // initializations
+:
     fixedValueFvPatchScalarField(p, iF),
-    phiName_("phi"), // just naming (type word)
+    phiName_("phi"),
     zetaName_("zeta"),
     rhoName_("rho"),
 	PHIName_("Phi"),
 	UName_("U"),
-	shape_(100.0) // what is this?
+	shape_(100.0)
 	
 	
 {}
 
-// Load from dictionary (value uniform 0)
-Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::
-waveCurMqLeastAB3DPotUPFD5FvPatchScalarField
+
+Foam::waveCurrentPotential3DFvPatchScalarField::
+waveCurrentPotential3DFvPatchScalarField
 (
     const fvPatch& p,
     const DimensionedField<scalar, volMesh>& iF,
@@ -114,10 +115,10 @@ waveCurMqLeastAB3DPotUPFD5FvPatchScalarField
     Info<< "waveCurConditions loaded in constructor." << nl;}}
 
 
-Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::
-waveCurMqLeastAB3DPotUPFD5FvPatchScalarField
+Foam::waveCurrentPotential3DFvPatchScalarField::
+waveCurrentPotential3DFvPatchScalarField
 (
-    const waveCurMqLeastAB3DPotUPFD5FvPatchScalarField& ptf,
+    const waveCurrentPotential3DFvPatchScalarField& ptf,
     const fvPatch& p,
     const DimensionedField<scalar, volMesh>& iF,
     const fvPatchFieldMapper& mapper
@@ -134,10 +135,10 @@ waveCurMqLeastAB3DPotUPFD5FvPatchScalarField
 {}
 
 
-Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::
-waveCurMqLeastAB3DPotUPFD5FvPatchScalarField
+Foam::waveCurrentPotential3DFvPatchScalarField::
+waveCurrentPotential3DFvPatchScalarField
 (
-    const waveCurMqLeastAB3DPotUPFD5FvPatchScalarField& wspsf
+    const waveCurrentPotential3DFvPatchScalarField& wspsf
 )
 :
     fixedValueFvPatchScalarField(wspsf),
@@ -150,10 +151,10 @@ waveCurMqLeastAB3DPotUPFD5FvPatchScalarField
 {}
 
 
-Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::
-waveCurMqLeastAB3DPotUPFD5FvPatchScalarField
+Foam::waveCurrentPotential3DFvPatchScalarField::
+waveCurrentPotential3DFvPatchScalarField
 (
-    const waveCurMqLeastAB3DPotUPFD5FvPatchScalarField& wspsf,
+    const waveCurrentPotential3DFvPatchScalarField& wspsf,
     const DimensionedField<scalar, volMesh>& iF
 )
 :
@@ -172,7 +173,7 @@ waveCurMqLeastAB3DPotUPFD5FvPatchScalarField
 // * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
 
 
-void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::updateCoeffs()
+void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 {
     if (updated())
     {
@@ -180,13 +181,13 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::updateCoeffs()
     }
 	
 	if ( db().time().timeIndex() == lastUpdateTimeIndex ){
-	Info << "waveCurMqLeastAB3DPotUPFD5FvPatchScalarField--saved BC applied at : " << lastUpdateTimeIndex << endl;
-	operator==(data_);
-	return;	
+		Info << "waveCurrentPotential3DFvPatchScalarField--saved BC applied at : " << lastUpdateTimeIndex << endl;
+		operator==(data_);
+		return;	
 	}	
 
 	// -- At top of updateCoeffs() after the early returns:
-	ensureDictLoaded(); // If the dictionary has changed on disk, reload it
+	ensureDictLoaded();
 	if (waveCurDictPtr_->readIfModified() || !params_.init)
 	{
 		readParamsFrom(*waveCurDictPtr_);
@@ -209,49 +210,49 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::updateCoeffs()
 	const scalar xsponge    = params_.xsponge;
 	const scalar Lsponge    = params_.Lsponge;
 
+	
+		
+
 	Info << "Update status: " << updated() << endl; 
-    const label patchi = patch().index(); // obtain patch index
-	const label nFaces = patch().size(); // number of faces in the patch
+    const label patchi = patch().index();
+	const label nFaces = patch().size();
 	
-	const vectorField& patchFaceCenters = patch().Cf(); // face centers of the patch
-	scalarField xComponents = patchFaceCenters.component(vector::X); // X components of face centers
-	scalarField yComponents = patchFaceCenters.component(vector::Y); // Y components of face centers
-	scalarField zComponents = patchFaceCenters.component(vector::Z); // Z components of face centers
+	const vectorField& patchFaceCenters = patch().Cf();
+	scalarField xComponents = patchFaceCenters.component(vector::X);
+	scalarField yComponents = patchFaceCenters.component(vector::Y);
+	scalarField zComponents = patchFaceCenters.component(vector::Z);
 	
-	
-    const scalar dt = db().time().deltaTValue(); // time step size
-	const scalar tt=db().time().value(); // current time
+    const scalar dt = db().time().deltaTValue();
+	const scalar tt=db().time().value();
 	
 	Info << "Time in BC : " << tt << endl;
-	
-	
 	Info << "Iteration: " << db().time().timeIndex() << endl;
 	
     // Retrieve non-const access to zeta field from the database
-    volVectorField& zeta = db().lookupObjectRef<volVectorField>(zetaName_); // zeta field
-    vectorField& zetap = zeta.boundaryFieldRef()[patchi]; // zeta values at the patch faces
+    volVectorField& zeta = db().lookupObjectRef<volVectorField>(zetaName_);
+    vectorField& zetap = zeta.boundaryFieldRef()[patchi]; // current value on patch
 
 	//Turgut
-	volScalarField& Phi = db().lookupObjectRef<volScalarField>(PHIName_); // Phi field at current time
-	const volScalarField& Phi0 = Phi.oldTime(); // Phi field at previous time
+	volScalarField& Phi = db().lookupObjectRef<volScalarField>(PHIName_);
+	const volScalarField& Phi0 = Phi.oldTime();
 	//scalarField& PhiPatch = Phi.boundaryFieldRef()[patchi];
-	const scalarField& Phi0Patch = Phi0.boundaryField()[patchi]; // Phi values at the patch faces at previous time
+	const scalarField& Phi0Patch = Phi0.boundaryField()[patchi]; // Previous value on patch
 	//Turgut
 	
 	
 		// Lookup d/dt scheme from database for zeta
 		const word ddtSchemeName(zeta.mesh().ddtScheme(zeta.name()));
-		ddtSchemeType ddtScheme(ddtSchemeTypeNames_[ddtSchemeName]); // map to enum
+		ddtSchemeType ddtScheme(ddtSchemeTypeNames_[ddtSchemeName]);
 
 		
 		// Cache the patch face-normal vectors
 		//tmp<vectorField> nf(patch().nf());
 		//const vectorField& nfRef = nf.ref();  // Store the reference safely
-		const vectorField nfRef(nFaces, vector(0.0,0.0,1.0)); // assuming horizontal patch faces only
+		const vectorField nfRef(nFaces, vector(0.0,0.0,1.0));
 		
 		
 		const volVectorField& Uvel = db().lookupObjectRef<volVectorField>(UName_);
-		vectorField Wn(nfRef* (Uvel.boundaryField()[patchi] & nfRef)); // normal component of velocity at the patch faces
+		vectorField Wn(nfRef* (Uvel.boundaryField()[patchi] & nfRef)); // vertical velocity component (vectorized)
 		
 		// - Incident wave vertical velocity
 		const scalar amp(0.5*steepness*wavelength);
@@ -266,13 +267,23 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::updateCoeffs()
 		(Foam::sinh(wavenumber *(hdepth+zComponents))/Foam::cosh(wavenumber*hdepth)) * 
 		Foam::sin(wavenumber * xComponents-w*tt) * ramp_factor * nfRef);
 		
+		// // - damping factor
+		// scalarField dampingterm=
+		//     // x-side damping active for x > xdamp
+		//     pos(xComponents - xdamp) * v0 * ((xComponents - xdamp) / (Lxdamp)) * ((xComponents - xdamp) / (Lxdamp)) * (nfRef & Wn)
+		//     // y-side damping active only when x > 5
+		//   + pos(xComponents - Lsponge) * pos(yComponents - ydamp) * v0 * ((yComponents - ydamp) / (Lydamp)) * ((yComponents - ydamp) / (Lydamp)) * (nfRef & Wn)
+		//   + pos(xComponents - Lsponge) * pos(-yComponents - ydamp) * v0 * ((-yComponents - ydamp) / (Lydamp)) * ((-yComponents - ydamp) / (Lydamp)) * (nfRef & Wn)
+		//     // inlet reflection damping: active for x in [0,5], stronger near x=0
+		//   + pos(xsponge - xComponents) * v0 * ((xsponge - xComponents) / (Lsponge)) * ((xsponge - xComponents) / (Lsponge)) * (nfRef & (Wn - Wn0));
+
 		// - damping factor
 		scalarField dampingterm=
 		    // x-side damping active for x > xdamp
 		    pos(xComponents - xdamp) * v0 * ((xComponents - xdamp) / (Lxdamp)) * ((xComponents - xdamp) / (Lxdamp)) * (nfRef & Wn)
 		    // y-side damping active only when x > 5
-		  + pos(xComponents - Lsponge) * pos(yComponents - ydamp) * v0 * ((yComponents - ydamp) / (Lydamp)) * ((yComponents - ydamp) / (Lydamp)) * (nfRef & Wn)
-		  + pos(xComponents - Lsponge) * pos(-yComponents - ydamp) * v0 * ((-yComponents - ydamp) / (Lydamp)) * ((-yComponents - ydamp) / (Lydamp)) * (nfRef & Wn)
+		   + pos(xComponents-xsponge)*pos(xdamp-xComponents)*pos(yComponents - ydamp) * v0 * ((yComponents - ydamp) / (Lydamp)) * ((yComponents - ydamp) / (Lydamp)) * (nfRef & Wn)
+		   + pos(xComponents-xsponge)*pos(xdamp-xComponents)*pos(-yComponents - ydamp) * v0 * ((-yComponents - ydamp) / (Lydamp)) * ((-yComponents - ydamp) / (Lydamp)) * (nfRef & Wn)
 		    // inlet reflection damping: active for x in [0,5], stronger near x=0
 		  + pos(xsponge - xComponents) * v0 * ((xsponge - xComponents) / (Lsponge)) * ((xsponge - xComponents) / (Lsponge)) * (nfRef & (Wn - Wn0));
 		
@@ -284,28 +295,27 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::updateCoeffs()
         //const auto& phi = db().lookupObject<surfaceScalarField>(phiName_);
 		//vectorField dZetap(dt*nf()*phi.boundaryField()[patchi]/patch().magSf());
 		
-		const volVectorField& zeta0 = zeta.oldTime(); // previous time level zeta field
-		const vectorField& zeta0p = zeta0.boundaryField()[patchi]; // previous time level zeta values at the patch faces
+		const volVectorField& zeta0 = zeta.oldTime(); 
+		const vectorField& zeta0p = zeta0.boundaryField()[patchi]; // Previous value on patch
 		
-		scalarField turgut(Phi0Patch.size(), 0.0); // turgut scalarField with zeros
-		vectorField UetaDx(Phi0Patch.size(), vector::zero); // U0*deta/dx term in KFSBC
-		vectorField Wcurdz_zeta0p(Phi0Patch.size(), vector::zero); // dpsi/dz
+		scalarField turgut(Phi0Patch.size(), 0.0);
+		vectorField UetaDx(Phi0Patch.size(), vector::zero);
+		vectorField Wcurdz_zeta0p(Phi0Patch.size(), vector::zero);
 		
 		if (std::fabs(U0) > SMALL) // if current speed is non-zero
 		{
-			calcNeigboursV3();
-			if (neigboursCalculated_)
+			calcNeigboursV3(); // calc neighboors if not yet calculated (PrePar)
+			if (neigboursCalculated_) // set in calcNeigboursV3
 			{
 				findUpwindDownwindNodesV2();
 				
 				detectFDSchemes();
 				
-				// Initialize terms that depend on current U0
-				zetaDx_.setSize(nFaces, vector::zero); //deta/dx
-				PhiDx_.setSize(nFaces, Zero); // dPhi/dx
-				PhiDy_.setSize(nFaces, Zero); // dPhi/dy (?)
 				
-				UPFDV2(); // What does this do?
+				zetaDx_.setSize(nFaces, vector::zero);
+				PhiDx_.setSize(nFaces, Zero);PhiDy_.setSize(nFaces, Zero);
+				
+				UPFDV2();
 				
 					
 			}
@@ -315,12 +325,12 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::updateCoeffs()
 			// Lookup Ucur and compute UetaDx
 			const volVectorField& Ucur = db().lookupObjectRef<volVectorField>("Ucur");
 			const vectorField& Ucur_p = Ucur.boundaryField()[patchi];
-			UetaDx = nfRef * (Ucur_p & zetaDx_); // 
+			UetaDx = nfRef * (Ucur_p & zetaDx_);
 
 			// Lookup PhiCurDz2 and compute Wcurdz_zeta0p
-			const volScalarField& PhiCurDz2 = db().lookupObjectRef<volScalarField>("PhiCurDz2"); // dpsi/dz^2
-			const scalarField& PhiCurDz2_p = PhiCurDz2.boundaryField()[patchi]; // same but on patch
-			Wcurdz_zeta0p = PhiCurDz2_p * zeta0p; 
+			const volScalarField& PhiCurDz2 = db().lookupObjectRef<volScalarField>("PhiCurDz2");
+			const scalarField& PhiCurDz2_p = PhiCurDz2.boundaryField()[patchi];
+			Wcurdz_zeta0p = PhiCurDz2_p * zeta0p;
 
 			
 			
@@ -543,13 +553,13 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::updateCoeffs()
 
 #include "InterpolationsHelpers.H"
 #include "2nd_UpwindV6_MQLEAST.H" //numerical scheme
-#include "PreParV13D.H"  // neighbours upwind down wind , scheme detection
+#include "PreParV16D.H"  // neighbours upwind down wind , scheme detection
 
 
 
 
 
-void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::ensureDictLoaded() const
+void Foam::waveCurrentPotential3DFvPatchScalarField::ensureDictLoaded() const
 {
     if (!waveCurDictPtr_.valid())
     {
@@ -570,7 +580,7 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::ensureDictLoaded() cons
     }
 }
 
-void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::readParamsFrom(const dictionary& d)
+void Foam::waveCurrentPotential3DFvPatchScalarField::readParamsFrom(const dictionary& d)
 {
 
     params_.U0         = readScalar(d.lookup("currentspeed"));
@@ -590,7 +600,6 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::readParamsFrom(const di
 	params_.Lsponge    = readScalar(d.lookup("Lsponge"));
 
 
-
     // quick sanity checks (keep minimal)
     if (params_.wavelength <= 0 || params_.hdepth <= 0 || params_.rampperiod <= 0)
         FatalIOErrorInFunction(d) << "Invalid waveCurConditions values." << exit(FatalIOError);
@@ -599,7 +608,7 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::readParamsFrom(const di
 }
 
 
-void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::write(Ostream& os) const
+void Foam::waveCurrentPotential3DFvPatchScalarField::write(Ostream& os) const
 {
     fvPatchField<scalar>::write(os);
     os.writeEntryIfDifferent<word>("phi", "phi", phiName_);
@@ -620,7 +629,7 @@ namespace Foam
     makePatchTypeField
     (
         fvPatchScalarField,
-        waveCurMqLeastAB3DPotUPFD5FvPatchScalarField
+        waveCurrentPotential3DFvPatchScalarField
     );
 }
 

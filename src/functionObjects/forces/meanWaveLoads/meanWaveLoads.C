@@ -542,19 +542,19 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
 
     const point& origin = coordSysPtr_->origin();
 
-    // Potential and its gradient
-    const auto& Phi = lookupObject<volScalarField>(PhiName_);
-    // tmp<volVectorField> tgradPhi = fvc::grad(Phi);
-    // const volVectorField& gradPhi = tgradPhi();
-    // const volVectorField& gradPhi = lookupObject<volScalarField>("U");
-
+    // Total velocity Potential = Phi + PhiCur
+    const auto& Phi_ = lookupObject<volScalarField>(PhiName_);
+    const auto& PhiCur = mesh_.lookupObject<volScalarField>("PhiCur");
+    const volScalarField Phi = Phi_ + PhiCur;
 
     const auto& Sfb = mesh_.Sf().boundaryField();
     const auto& Cb  = mesh_.C().boundaryField();
 
     const scalar rhoRef = rho(Phi);
 
-    const auto& U = lookupObject<volVectorField>("U");  // or UName_ from dict
+    const auto& U_ = lookupObject<volVectorField>("U");  // or UName_ from dict
+    const auto& Ucur = lookupObject<volVectorField>("Ucur");
+    const volVectorField U = U_ + Ucur;
     tmp<surfaceVectorField> tUf = fvc::interpolate(U);
     const surfaceVectorField& Uf = tUf();
 

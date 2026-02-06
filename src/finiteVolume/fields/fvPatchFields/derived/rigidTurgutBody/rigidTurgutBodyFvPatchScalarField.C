@@ -29,6 +29,7 @@ License
 #include "rigidTurgutBodyFvPatchScalarField.H"
 #include "volFields.H"
 #include "addToRunTimeSelectionTable.H"
+#include "fvcGrad.H"
  
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
@@ -127,7 +128,43 @@ void Foam::rigidTurgutBodyFvPatchScalarField::updateCoeffs()
 	const scalar aRelax_=0.3;
 	const scalar aDamp_  = 1.0;  // like accelerationDamping (<1 adds damping)
 
-	
+	// -- Load Ucur 
+    const volVectorField& Ucur = db().lookupObject<volVectorField>("Ucur");
+
+    // current patch index
+    const label patchi = patch().index();
+
+    // patch unit normals
+    const vectorField np(patch().nf());
+
+    // Gradient of U on the patch as a tensorField (per face)
+    tmp<volTensorField> tGradU = fvc::grad(Ucur);   // tmp<volTensorField>
+    const volTensorField& gradU = tGradU();         // unwrap tmp -> volTensorField
+
+    const fvPatchTensorField& gradUpP = gradU.boundaryField()[patchi];
+
+    // hard checks
+    if (gradUpP.size() != patch().size() || np.size() != patch().size())
+    {
+        FatalErrorInFunction
+            << "Patch size mismatch on patch " << patch().name()
+            << " patch.size=" << patch().size()
+            << " gradUpP.size=" << gradUpP.size()
+            << " np.size=" << np.size()
+            << abort(FatalError);
+    }
+
+    // make plain Fields (owned storage, no patch refs)
+    tensorField gradUp(gradUpP);          // copy
+    tensorField gradUpT(gradUp.T());      // transpose into a real field
+    vectorField nGradU(patch().size());   // allocate
+
+    forAll(nGradU, i)
+    {
+        nGradU[i] = gradUpT[i] & np[i];   // Tensor & Vector -> Vector (no temps)
+    }
+
+
 	if (!masscomputed_) computeMass();
 	if (!C33computed_)  computeC33();
 	if (runTime.timeIndex() == 1)
@@ -178,9 +215,12 @@ void Foam::rigidTurgutBodyFvPatchScalarField::updateCoeffs()
      << " | Fnew = " << Fnew.z() << endl;
 
 	
+    // mj term: (n · ∇)U & Xb_new_ on patch faces
+    scalarField mj = nGradU & Xb_new_;
+
 	// --- Apply Neumann BC: ∂Φ/∂n = n·Ub
     tmp<vectorField> n = patch().nf();
-	scalarField rhs = -(n() & Ub_new_);
+	scalarField rhs = -(n() & Ub_new_) + mj;
 	
 	
 	this->gradient() = rhs;
@@ -190,8 +230,6 @@ void Foam::rigidTurgutBodyFvPatchScalarField::updateCoeffs()
 	
     fixedGradientFvPatchField<scalar>::updateCoeffs();  // ✅ call parent
 	
-
-
 }
 
 

@@ -33,7 +33,7 @@ centered FD bu TURGUT
 \*---------------------------------------------------------------------------*/
 	
 	//if ( db().time().timeIndex() == 1 )	Pout << "proc " << Pstream::myProcNo() << " Schemes implemented : " << schemeCode <<nl;
-void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::UPFDV2()
+void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 {
     const vectorField& Cf = patch().Cf();
     const scalarField x = Cf.component(vector::X);
@@ -52,13 +52,13 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::UPFDV2()
     //const volScalarField& PhiCur = db().lookupObjectRef<volScalarField>("PhiCur");
     //const scalarField& PhiCur_p = PhiCur.boundaryField()[patchi];
 	
-	// scalarField zetaZ(nFaces, 0.0);
-	// const scalar L= 4;
+	//scalarField zetaZ(nFaces, 0.0);
+	//const scalar L= 4;
     
 	for (label i = 0; i < nFaces; i++)
     {
         PhiPatch[i] = PhiPatch_p[i];// - PhiCur_p[i];
-		// zetaZ[i] = sin(2*Foam::constant::mathematical::pi*x[i]/L) + cos(2*Foam::constant::mathematical::pi*y[i]/L);//zetaZ[i] = x[i]*x[i] + y[i]*y[i];
+		//zetaZ[i] = sin(2*Foam::constant::mathematical::pi*x[i]/L) + cos(2*Foam::constant::mathematical::pi*y[i]/L);//zetaZ[i] = x[i]*x[i] + y[i]*y[i];
 		
 		
 	}
@@ -641,7 +641,7 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::UPFDV2()
 			
 			const scalar dist =  shalpeVal/patch().deltaCoeffs()[i];
 			scalar fx = 0, fy = 0, gx = 0, gy = 0;	
-			// DerivativeMqRBFxy(dist,Cf,globalIdToPackedIdx_,globalIdToCf_,getWp,getPhip,selfGid,lsMergedCandidates_[i],fx,fy,gx,gy);
+			//DerivativeMqRBFxy(dist,Cf,globalIdToPackedIdx_,globalIdToCf_,getWp,getPhip,selfGid,lsMergedCandidates_[i],fx,fy,gx,gy);
 			DerivativeLSTaylor(Cf,globalIdToPackedIdx_,globalIdToCf_,getWp,getPhip,selfGid,lsMergedCandidates_[i],fx,fy,gx,gy);
       
 			DzetaZdx[i] = fx;
@@ -668,9 +668,9 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::UPFDV2()
 	//Pout << "proc " << Pstream::myProcNo() << " DzetaZdy " << DzetaZdy - 2.0*y << nl;
 	//Pout << "proc " << Pstream::myProcNo() << " DzetaZdx " << DzetaZdx - 2.0*x << nl;
 	
-		/*---------------------------------------------------------------------------*\	
+	
 
-
+	/*---------------------------------------------------------------------------*\	
 	const vectorField& patchFaceCenters = patch().Cf();
     scalarField xComponents = patchFaceCenters.component(vector::X);
     scalarField yComponents = patchFaceCenters.component(vector::Y);
@@ -681,8 +681,8 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::UPFDV2()
 	OFstream faceXYOS(
 		faceXYFile,
 		Foam::IOstreamOption::ASCII,
-		Foam::IOstreamOption::UNCOMPRESSED
-		// Foam::IOstreamOption::NON_APPEND // commented out
+		Foam::IOstreamOption::UNCOMPRESSED,
+		Foam::IOstreamOption::NON_APPEND
 	);
 
 	if (faceXYOS.opened())
@@ -702,25 +702,13 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::UPFDV2()
 
 
 
-void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::exchangeWpGhostField(const scalarField& zetaZ,const scalarField& Phi)
+void Foam::waveCurrentPotential3DFvPatchScalarField::exchangeWpGhostField(const scalarField& zetaZ,const scalarField& Phi)
 {
     if (!Pstream::parRun()) return;
 
     globalIdToWp_.clear();
 	globalIdToPhi_.clear();
-    // --- Identify processors to communicate with
-    labelHashSet sendTo;
-    for (label i = 0; i < patch().size(); ++i)
-    {
-        if (!procBoundaryFace_[i]) continue;
-
-        forAll(neighbProcNos_[i], j)
-        {
-            label proc = neighbProcNos_[i][j];
-            if (proc >= 0)
-                sendTo.insert(proc);
-        }
-    }
+    
 
 
 
@@ -760,18 +748,7 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::exchangeWpGhostField(co
 		Foam::Map<scalar> zetaSendMap;
 		Foam::Map<scalar> phiSendMap;
 
-		 // Send your own boundary faces
-        for (label i = 0; i < patch().size(); ++i)
-        {
-            if (!procBoundaryFace_[i]) continue;
-
-            if (neighbProcNos_[i].found(tgt)) // ✅ NEW: check if tgt is one of the neighbors
-            {
-                const label gid = globalIdOfLocalFace_[i];
-                zetaSendMap.insert(gid, zetaZ[i]);
-                phiSendMap.insert(gid, Phi[i]);
-            }
-        }
+		
 
 		// NEW: Also send what processor tgt requested
 		const labelHashSet& targetNeeds = neededByProc[tgt];

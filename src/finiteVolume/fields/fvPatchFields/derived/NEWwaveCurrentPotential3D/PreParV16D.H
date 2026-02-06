@@ -12,7 +12,7 @@ neigbouring and scheme FD bu TURGUT
 \*---------------------------------------------------------------------------*/
 
 
-void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::calcNeigboursV3()
+void Foam::waveCurrentPotential3DFvPatchScalarField::calcNeigboursV3()
 {
 	if (neigboursCalculated_) return;
 	
@@ -403,7 +403,7 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::calcNeigboursV3()
     neigboursCalculated_ = true;
 }
 
-void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::findInletFaces()
+void Foam::waveCurrentPotential3DFvPatchScalarField::findInletFaces()
 {
     const fvMesh& mesh = this->patch().boundaryMesh().mesh();
 
@@ -455,7 +455,7 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::findInletFaces()
 
 
 
-void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::findSphereFaces()
+void Foam::waveCurrentPotential3DFvPatchScalarField::findSphereFaces()
 {
     const fvMesh& mesh = this->patch().boundaryMesh().mesh();
 	const word& patchName = patch().name();
@@ -678,7 +678,7 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::findSphereFaces()
    
 }
 
-void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::buildVertexBasedConnections()
+void Foam::waveCurrentPotential3DFvPatchScalarField::buildVertexBasedConnections()
 {
     const fvMesh& mesh = this->patch().boundaryMesh().mesh();
     const label startFace = patch().start();
@@ -973,7 +973,7 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::buildVertexBasedConnect
 
 #include "Outputter.H" 
 
-void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::findUpwindDownwindNodesV2()
+void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
 {
     if (windsCalculated_)
     {
@@ -1207,6 +1207,10 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::findUpwindDownwindNodes
 						{
 							os << patchFaceCenters[globalIdToPackedIdx_[gU]];
 						}
+						else if (globalIdToCf_.found(gU))
+						{
+								os << globalIdToCf_[gU];
+						}
 						else
 							os << vector::zero;
 					}
@@ -1216,6 +1220,10 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::findUpwindDownwindNodes
 						if (globalIdToPackedIdx_.found(gD))
 						{
 							os << patchFaceCenters[globalIdToPackedIdx_[gD]];
+						}
+						else if (globalIdToCf_.found(gD))
+						{
+								os << globalIdToCf_[gD];
 						}
 						else
 							os << vector::zero;
@@ -1227,6 +1235,10 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::findUpwindDownwindNodes
 						{
 							os << patchFaceCenters[globalIdToPackedIdx_[gU]];
 						}
+						else if (globalIdToCf_.found(gU))
+						{
+								os << globalIdToCf_[gU];
+						}
 						else
 							os << vector::zero;
 					}
@@ -1236,6 +1248,10 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::findUpwindDownwindNodes
 						if (globalIdToPackedIdx_.found(gD))
 						{
 							os << patchFaceCenters[globalIdToPackedIdx_[gD]];
+						}
+						else if (globalIdToCf_.found(gD))
+						{
+								os << globalIdToCf_[gD];
 						}
 						else
 							os << vector::zero;
@@ -1363,175 +1379,307 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::findUpwindDownwindNodes
 	
 	remoteNeighbours2_.clear();
 	
+	//VERSION 14 IMPLEMENTATION (EXTENSION OF remoteNeighbours2_)
+	
+	
 	if (Pstream::parRun())
 	{
-    // ----------------------
-    // Build sendTo / recvFrom
-    // ----------------------
-    labelHashSet sendTo;
-    for (label i = 0; i < patch().size(); ++i)
-    {
-        if (!procBoundaryFace_[i]) continue;
-
-        forAll(neighbProcNos_[i], j)
-        {
-            label proc = neighbProcNos_[i][j];
-            if (proc >= 0) sendTo.insert(proc);
-        }
-    }
-
-    List<labelList> sendToLists(Pstream::nProcs());
-    sendToLists[Pstream::myProcNo()] = sendTo.toc();
-    Pstream::gatherList(sendToLists);
-    Pstream::scatterList(sendToLists);
-
-    labelHashSet recvFrom;
-    for (label src = 0; src < Pstream::nProcs(); ++src)
-    {
-        if (src == Pstream::myProcNo()) continue;
-        const labelList& lst = sendToLists[src];
-        if (lst.found(Pstream::myProcNo())) recvFrom.insert(src);
-    }
-
-    // ----------------------
-    // Send phase (2nd ring)
-    // ----------------------
-    PstreamBuffers pBuf(Pstream::commsTypes::nonBlocking);
-
-    forAllConstIter(labelHashSet, sendTo, it)
-	{
-		const label tgt = it.key();
-		UOPstream os(tgt, pBuf);
-
-		// count how many faces we’ll send
-		label n = 0;
-		forAll(procBoundaryFace_, i)
-			if (procBoundaryFace_[i] && neighbProcNos_[i].found(tgt)) ++n;
-		os << n;
-
-		forAll(procBoundaryFace_, i)
+		// ----------------------
+		// Build sendTo / recvFrom
+		// ----------------------
+		labelHashSet sendTo;
+		for (label i = 0; i < patch().size(); ++i)
 		{
-			if (procBoundaryFace_[i] && neighbProcNos_[i].found(tgt))
+			if (!procBoundaryFace_[i]) continue;
+
+			forAll(neighbProcNos_[i], j)
 			{
-				label gid = globalIdOfLocalFace_[i];   // my global face ID
-				const List<label>& firstRingLocal = neighbours_[i];
-
-				// Send gid + number of first-ring neighbours
-				os << gid << firstRingLocal.size();
-
-				forAll(firstRingLocal, jj)
-				{
-					label locId1 = firstRingLocal[jj];
-					label gid1 = globalIdOfLocalFace_[locId1];
-
-					const List<label>& upX = upwindNodesX_[locId1];
-					const List<label>& downX = downwindNodesX_[locId1];
-					const List<label>& upY = upwindNodesY_[locId1];
-					const List<label>& downY = downwindNodesY_[locId1];
-
-					os << gid1 << upX << downX << upY << downY;
-				}
-
+				label proc = neighbProcNos_[i][j];
+				if (proc >= 0) sendTo.insert(proc);
 			}
 		}
-	}
 
+		List<labelList> sendToLists(Pstream::nProcs());
+		sendToLists[Pstream::myProcNo()] = sendTo.toc();
+		Pstream::gatherList(sendToLists);
+		Pstream::scatterList(sendToLists);
 
-    pBuf.finishedSends();
+		labelHashSet recvFrom;
+		for (label src = 0; src < Pstream::nProcs(); ++src)
+		{
+			if (src == Pstream::myProcNo()) continue;
+			const labelList& lst = sendToLists[src];
+			if (lst.found(Pstream::myProcNo())) recvFrom.insert(src);
+		}
 
-    // ----------------------
-    // Receive phase (2nd ring)
-    // ----------------------
-    forAllConstIter(labelHashSet, recvFrom, it)
-    {
-        const label src = it.key();
-        UIPstream is(src, pBuf);
+		// ----------------------
+		// Send phase (2nd ring)
+		// ----------------------
+		PstreamBuffers pBuf(Pstream::commsTypes::nonBlocking);
 
-        label nRecv; is >> nRecv;
+		forAllConstIter(labelHashSet, sendTo, it)
+		{
+			const label tgt = it.key();
+			UOPstream os(tgt, pBuf);
 
-        for (label j = 0; j < nRecv; ++j)
-        {
-            label gid; 
-            is >> gid;
+			// count how many faces we’ll send
+			label n = 0;
+			forAll(procBoundaryFace_, i)
+				if (procBoundaryFace_[i] && neighbProcNos_[i].found(tgt)) ++n;
+			os << n;
 
-            label nFirst; 
-            is >> nFirst;
+			forAll(procBoundaryFace_, i)
+			{
+				if (procBoundaryFace_[i] && neighbProcNos_[i].found(tgt))
+				{
+					label gid = globalIdOfLocalFace_[i];   // my global face ID
+					const List<label>& firstRingLocal = neighbours_[i];
 
-            for (label jj = 0; jj < nFirst; ++jj)
-            {
-                label gid1;
-				List<label> upX, downX, upY, downY;
-				is >> gid1 >> upX >> downX >> upY >> downY;
-				
-				
+					// Send gid + number of first-ring neighbours
+					os << gid << firstRingLocal.size();
 
-				
-				if (!remoteNeighbours_.found(gid1))
-                { //store as 2nd ring neighbours
-					if (!remoteNeighbours2_.found(gid1))
+					forAll(firstRingLocal, jj)
 					{
-						remoteNeighbours2_.insert(gid1, List<label>());
+						label locId1 = firstRingLocal[jj];
+						label gid1   = globalIdOfLocalFace_[locId1];
+
+						const List<label>& upX   = upwindNodesX_[locId1];
+						const List<label>& downX = downwindNodesX_[locId1];
+						const List<label>& upY   = upwindNodesY_[locId1];
+						const List<label>& downY = downwindNodesY_[locId1];
+
+						// center of gid1 on this proc (we know locId1 is local)
+						const vector& Cf_gid1 = patchFaceCenters[locId1];
+
+						// Send basic lists + Cf(gid1)
+						os << gid1 << upX << downX << upY << downY << Cf_gid1;
+
+						// Now send Cf for each candidate in upX/downX/upY/downY,
+						// if we know it; otherwise send vector::zero as placeholder.
+						forAll(upX, k)
+							{
+							const label cand = upX[k];
+							if (globalIdToPackedIdx_.found(cand))
+							{
+								os << patchFaceCenters[globalIdToPackedIdx_[cand]];
+							}
+							else if (globalIdToCf_.found(cand))
+							{
+								os << globalIdToCf_[cand];
+							}
+							else
+							{
+								os << vector::zero;
+							}
+							}
+
+						forAll(downX, k)
+							{
+							const label cand = downX[k];
+							if (globalIdToPackedIdx_.found(cand))
+							{
+								os << patchFaceCenters[globalIdToPackedIdx_[cand]];
+							}
+							else if (globalIdToCf_.found(cand))
+							{
+								os << globalIdToCf_[cand];
+							}
+							else
+							{
+								os << vector::zero;
+							}
+							}
+
+						forAll(upY, k)
+							{
+							const label cand = upY[k];
+							if (globalIdToPackedIdx_.found(cand))
+							{
+								os << patchFaceCenters[globalIdToPackedIdx_[cand]];
+							}
+							else if (globalIdToCf_.found(cand))
+							{
+								os << globalIdToCf_[cand];
+							}
+							else
+							{
+								os << vector::zero;
+							}
+							}
+
+						forAll(downY, k)
+							{
+							const label cand = downY[k];
+							if (globalIdToPackedIdx_.found(cand))
+							{
+								os << patchFaceCenters[globalIdToPackedIdx_[cand]];
+							}
+							else if (globalIdToCf_.found(cand))
+							{
+								os << globalIdToCf_[cand];
+							}
+							else
+							{
+								os << vector::zero;
+							}
+							}
 					}
-					
-					forAll(upX, kk)
-					{
-						label cand = upX[kk];
 
-						// avoid duplicates
-						if  (globalIdToCf_.found(cand))  //BURDA BILGISI OLMAYANI EXLUDE ETTIK
-						{remoteNeighbours2_[gid1].append(cand);}
-							
-					}	
-					
-					forAll(downX, kk)
-					{
-						label cand = downX[kk];
-
-						// avoid duplicates
-						if (globalIdToCf_.found(cand))  //BURDA BILGISI OLMAYANI EXLUDE ETTIK
-						{remoteNeighbours2_[gid1].append(cand);}
-							
-					}	
-					
-					forAll(upY, kk)
-					{
-						label cand = upY[kk];
-
-						// avoid duplicates
-						if (globalIdToCf_.found(cand))  //BURDA BILGISI OLMAYANI EXLUDE ETTIK
-						{remoteNeighbours2_[gid1].append(cand);}
-							
-					}	
-					
-					
-					forAll(downY, kk)
-					{
-						label cand = downY[kk];
-
-						// avoid duplicates
-						if (globalIdToCf_.found(cand))  //BURDA BILGISI OLMAYANI EXLUDE ETTIK
-						{remoteNeighbours2_[gid1].append(cand);}
-							
-					}	
-					
-					//remoteNeighbours2_[gid1].append(upX);
-					//remoteNeighbours2_[gid1].append(downX);
-					//remoteNeighbours2_[gid1].append(upY);
-					//remoteNeighbours2_[gid1].append(downY);
-					remIdToUpwindNewX_.insert(gid1, upX);
-					remIdToDownwindNewX_.insert(gid1, downX);
-					remIdToUpwindNewY_.insert(gid1, upY);
-					remIdToDownwindNewY_.insert(gid1, downY);
-				
 				}
-				
-				
-				
-				
 			}
-        }
-    }
-	
+			
+			
+			
+			
+			
+			
+		}
+
+
+		pBuf.finishedSends();
+
+		// ----------------------
+		// Receive phase (2nd ring)
+		// ----------------------
+		forAllConstIter(labelHashSet, recvFrom, it)
+		{
+			const label src = it.key();
+			UIPstream is(src, pBuf);
+
+			label nRecv; 
+			is >> nRecv;
+
+			for (label j = 0; j < nRecv; ++j)
+			{
+				label gid; 
+				is >> gid;
+
+				label nFirst; 
+				is >> nFirst;
+
+				for (label jj = 0; jj < nFirst; ++jj)
+				{
+					label gid1;
+					List<label> upX, downX, upY, downY;
+					vector Cf_gid1;
+
+					is >> gid1 >> upX >> downX >> upY >> downY >> Cf_gid1;
+
+					// Make sure we store Cf for this first-ring neighbour (gid1)
+					if (!globalIdToCf_.found(gid1))
+					{
+						globalIdToCf_.insert(gid1, Cf_gid1);
+					}
+
+					// Read Cf for all candidates in upX/downX/upY/downY
+					// in the same order they were sent:
+
+					// upX
+					List<vector> Cf_upX(upX.size());
+					forAll(upX, k)
+					{
+						is >> Cf_upX[k];
+						const label cand = upX[k];
+						if (!globalIdToCf_.found(cand) && (mag(Cf_upX[k]) > VSMALL) && !globalIdToPackedIdx_.found(cand))
+						{
+							globalIdToCf_.insert(cand, Cf_upX[k]);
+						}
+					}
+
+					// downX
+					List<vector> Cf_downX(downX.size());
+					forAll(downX, k)
+					{
+						is >> Cf_downX[k];
+						const label cand = downX[k];
+						if (!globalIdToCf_.found(cand) && (mag(Cf_downX[k]) > VSMALL) && !globalIdToPackedIdx_.found(cand))
+						{
+							globalIdToCf_.insert(cand, Cf_downX[k]);
+						}
+					}
+
+					// upY
+					List<vector> Cf_upY(upY.size());
+					forAll(upY, k)
+					{
+						is >> Cf_upY[k];
+						const label cand = upY[k];
+						if (!globalIdToCf_.found(cand) && (mag(Cf_upY[k]) > VSMALL) && !globalIdToPackedIdx_.found(cand))
+						{
+							globalIdToCf_.insert(cand, Cf_upY[k]);
+						}
+					}
+
+					// downY
+					List<vector> Cf_downY(downY.size());
+					forAll(downY, k)
+					{
+						is >> Cf_downY[k];
+						const label cand = downY[k];
+						if (!globalIdToCf_.found(cand) && (mag(Cf_downY[k]) > VSMALL) && !globalIdToPackedIdx_.found(cand))
+						{
+							globalIdToCf_.insert(cand, Cf_downY[k]);
+						}
+					}
+
+					// Now build 2nd-ring neighbour lists, WITHOUT filtering by globalIdToCf_
+					if (!remoteNeighbours_.found(gid1))
+					{   // store as 2nd-ring neighbours
+						if (!remoteNeighbours2_.found(gid1))
+						{
+							remoteNeighbours2_.insert(gid1, List<label>());
+						}
+
+						// upX
+						forAll(upX, kk)
+						{
+							label cand = upX[kk];
+							if (!remoteNeighbours2_[gid1].found(cand))
+							{
+								remoteNeighbours2_[gid1].append(cand);
+							}
+						}
+
+						// downX
+						forAll(downX, kk)
+						{
+							label cand = downX[kk];
+							if (!remoteNeighbours2_[gid1].found(cand))
+							{
+								remoteNeighbours2_[gid1].append(cand);
+							}
+						}
+
+						// upY
+						forAll(upY, kk)
+						{
+							label cand = upY[kk];
+							if (!remoteNeighbours2_[gid1].found(cand))
+							{
+								remoteNeighbours2_[gid1].append(cand);
+							}
+						}
+
+						// downY
+						forAll(downY, kk)
+						{
+							label cand = downY[kk];
+							if (!remoteNeighbours2_[gid1].found(cand))
+							{
+								remoteNeighbours2_[gid1].append(cand);
+							}
+						}
+
+						// Also store directional lists for gid1
+						remIdToUpwindNewX_.insert(gid1, upX);
+						remIdToDownwindNewX_.insert(gid1, downX);
+						remIdToUpwindNewY_.insert(gid1, upY);
+						remIdToDownwindNewY_.insert(gid1, downY);
+					}
+				}
+			}
+		}
+		
 	
 	}
 
@@ -1545,33 +1693,77 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::findUpwindDownwindNodes
 	
 	
 
-
-
-	 if (Pstream::parRun())
-    {
-		neededGIDs_.clear();
-
-		using TableType = HashTable<labelList, label>;
-		forAllConstIter(TableType, remoteNeighbours_, it)
+	
+	labelHashSet myLocalGIDs;
+	if (Pstream::parRun())
+	{
+		// 0) build sendTo (neighbor procs)
+		labelHashSet sendTo;
+		forAll(procBoundaryFace_, i)
 		{
-			const labelList& myGIDs = it();  // Faces that remote proc expects from me
-			forAll(myGIDs, i)
+			if (!procBoundaryFace_[i]) continue;
+
+			forAll(neighbProcNos_[i], j)
 			{
-				neededGIDs_.insert(myGIDs[i]);
+				const label p = neighbProcNos_[i][j];
+				if (p >= 0) sendTo.insert(p);
 			}
 		}
 
-		// Communicate to all processors
+		// 1) build neededGIDs_ from globalIdToCf_
+		neededGIDs_.clear();
+		forAllConstIter(Foam::Map<Foam::vector>, globalIdToCf_, it)
+		{
+			const label gid = it.key();
+			const vector& cf = it();
+
+			if (mag(cf) <= VSMALL) continue;
+			if (globalIdToPackedIdx_.found(gid)) continue;   // if this means “local”, keep it
+
+			neededGIDs_.insert(gid);
+		}
+
+		// 2) gather/scatter so everyone knows everyone's needed set
 		neededByProc_.setSize(Pstream::nProcs());
 		neededByProc_[Pstream::myProcNo()] = neededGIDs_;
-
 		Pstream::gatherList(neededByProc_);
 		Pstream::scatterList(neededByProc_);
+
+		// 3) Build my local gid membership (safer)
+		
+		forAll(globalIdOfLocalFace_, i) myLocalGIDs.insert(globalIdOfLocalFace_[i]);
+
+		
 	}
 	
-		//WRITING pART
+	procBoundaryFace_.clear();
 	
 
+	
+
+	for (label p = 0; p < Pstream::nProcs(); ++p)
+	{
+		if (p == Pstream::myProcNo()) continue;
+
+		const labelHashSet& pNeeds = neededByProc_[p];
+
+		bool talk = false;
+		forAllConstIter(labelHashSet, pNeeds, it)
+		{
+			const label gid = it.key();
+			if (myLocalGIDs.found(gid))
+			{
+				talk = true;
+				break;
+			}
+		}
+
+		if (talk) sendTo.insert(p);
+	}
+		
+		//WRITING pART
+	
+     Pout << "sendTo :" <<  sendTo << endl;
 	/*---------------------------------------------------------------------------*\
 	if (Pstream::myProcNo() == 2) 
 	{
@@ -1596,7 +1788,7 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::findUpwindDownwindNodes
     windsCalculated_ = true;
 }
 
-void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::detectFDSchemes()
+void Foam::waveCurrentPotential3DFvPatchScalarField::detectFDSchemes()
 {
     if (schemesDetected_) return;
 
@@ -1736,7 +1928,7 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::detectFDSchemes()
 }
 
 
-void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::initCandidates()
+void Foam::waveCurrentPotential3DFvPatchScalarField::initCandidates()
 {
     // If both already built, return
     if (candidatesCalculated_)
@@ -1786,7 +1978,7 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::initCandidates()
 	};
 
 	// ---- Utility: remove candidates based on Uy criterion ----
-	auto removeCandidatesByUx_13D = [&](const List<label>& candidates,
+	auto removeCandidatesByUx_16D = [&](const List<label>& candidates,
 									scalar UxRef,
 									label selfGid) -> List<label>
 	{
@@ -2361,7 +2553,7 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::initCandidates()
 	}	
   
     //outputter();               
-    Info << "PreParV13D used " << endl;               
+    Info << "PrePar16D is used " << endl;               
 	candidatesCalculated_ = true;
     Info << "Candidates for Mq built on " << patch().name() << endl;
          

@@ -201,12 +201,17 @@ int main(int argc, char *argv[])
         // }
     }
 
+    // Calculate d²PhiCur/dz²
+    const volTensorField PhiCurD2 = fvc::grad(fvc::grad(PhiCur));
+    PhiCurDz2 = PhiCurD2.component(tensor::ZZ);
+
 	// Calculate Ucur
 	Ucur=-fvc::grad(PhiCur);//U = fvc::reconstruct(phi);
 	p3 = -0.5*(Ucur & Ucur);
 	p3.write();
 	PhiCur.write();
 	Ucur.write();
+    PhiCurDz2.write();
 
 	// ---------- End of steady potential calculation ---------------------------------
 
@@ -220,10 +225,11 @@ int main(int argc, char *argv[])
 		
 		Info << "currentspeed: " << U0 << " water depth: " << hdepth << endl;
 		Info << " \n Current time: " << runTime.timeName() << endl;	
+        #include "CourantNo.H"
 		
 		// Non-orthogonal velocity potential corrector loop
-		// while (turgutFlow.correctNonOrthogonal()) // Numer given in fvSolution for turgutFlow
-		// {
+		while (turgutFlow.correctNonOrthogonal()) // Numer given in fvSolution for turgutFlow
+		{
 			
 			fvScalarMatrix PhiEqn
 			(
@@ -238,12 +244,12 @@ int main(int argc, char *argv[])
 
 			
 			
-			//if (turgutFlow.finalNonOrthogonalIter())
-			//{
+			if (turgutFlow.finalNonOrthogonalIter())
+			{
 				
-			//	phi -= PhiEqn.flux();
-		    //}
-		// }
+				phi -= PhiEqn.flux();
+		    }
+		}
 		
 		Info << "Iterative loop ended \n" << endl;
 		//MRF.makeAbsolute(phi);

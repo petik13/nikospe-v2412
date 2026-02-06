@@ -24,7 +24,7 @@ License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
 Class
-    Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField
+    Foam::waveCurrentPotential3DFvPatchScalarField
 
 Group
     grpInletBoundaryConditions
@@ -73,29 +73,28 @@ See also
     Foam::fixedValueFvPatchField
 
 SourceFiles
-    waveCurMqLeastAB3DPotUPFD5FvPatchScalarField.C
+    waveCurrentPotential3DFvPatchScalarField.C
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef waveCurMqLeastAB3DPotUPFD5FvPatchScalarField_H
-#define waveCurMqLeastAB3DPotUPFD5FvPatchScalarField_H
+#ifndef waveCurrentPotential3DFvPatchScalarField_H
+#define waveCurrentPotential3DFvPatchScalarField_H
 
 #include "fixedValueFvPatchFields.H"
 #include "Enum.H"
-// Enum is a wrapper around a list of names/values that represent particular
-    // enumeration (or int) values.
+
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 namespace Foam
 {
 
 /*---------------------------------------------------------------------------*\
-            Class waveCurMqLeastAB3DPotUPFD5FvPatchScalarField Declaration
+            Class waveCurrentPotential3DFvPatchScalarField Declaration
 \*---------------------------------------------------------------------------*/
 
-class waveCurMqLeastAB3DPotUPFD5FvPatchScalarField
+class waveCurrentPotential3DFvPatchScalarField
 :
-    public fixedValueFvPatchScalarField // inherits from fixedValueFvPatchScalarField
+    public fixedValueFvPatchScalarField
 {
 public:
 
@@ -203,7 +202,7 @@ private:
 		Foam::HashTable<labelList, label> remIdToDownwindNewY_;
 		
 		
-		
+	    labelHashSet sendTo; // 16D	
 		Foam::List<labelList> neighbours_;
 		Foam::List<labelList> neighboursGlobal_;
 		
@@ -231,7 +230,7 @@ private:
 public:
 
     //- Runtime type information
-    TypeName("waveCurMqLeastAB3DPotUPFD5");
+    TypeName("waveCurrentPotential3D");
 
 	
 	mutable autoPtr<IOdictionary> waveCurDictPtr_;
@@ -247,34 +246,34 @@ public:
     // Constructors
 
         //- Construct from patch and internal field
-        waveCurMqLeastAB3DPotUPFD5FvPatchScalarField
+        waveCurrentPotential3DFvPatchScalarField
         (
             const fvPatch&,
             const DimensionedField<scalar, volMesh>&
         );
 
         //- Construct from patch, internal field and dictionary
-        waveCurMqLeastAB3DPotUPFD5FvPatchScalarField
+        waveCurrentPotential3DFvPatchScalarField
         (
             const fvPatch&,
             const DimensionedField<scalar, volMesh>&,
             const dictionary&
         );
 
-        //- Construct by mapping given waveCurMqLeastAB3DPotUPFD5FvPatchScalarField
+        //- Construct by mapping given waveCurrentPotential3DFvPatchScalarField
         //  onto a new patch
-        waveCurMqLeastAB3DPotUPFD5FvPatchScalarField
+        waveCurrentPotential3DFvPatchScalarField
         (
-            const waveCurMqLeastAB3DPotUPFD5FvPatchScalarField&,
+            const waveCurrentPotential3DFvPatchScalarField&,
             const fvPatch&,
             const DimensionedField<scalar, volMesh>&,
             const fvPatchFieldMapper&
         );
 
         //- Construct as copy
-        waveCurMqLeastAB3DPotUPFD5FvPatchScalarField
+        waveCurrentPotential3DFvPatchScalarField
         (
-            const waveCurMqLeastAB3DPotUPFD5FvPatchScalarField&
+            const waveCurrentPotential3DFvPatchScalarField&
         );
 
         //- Construct and return a clone
@@ -282,14 +281,14 @@ public:
         {
             return tmp<fvPatchScalarField>
             (
-                new waveCurMqLeastAB3DPotUPFD5FvPatchScalarField(*this)
+                new waveCurrentPotential3DFvPatchScalarField(*this)
             );
         }
 
         //- Construct as copy setting internal field reference
-        waveCurMqLeastAB3DPotUPFD5FvPatchScalarField
+        waveCurrentPotential3DFvPatchScalarField
         (
-            const waveCurMqLeastAB3DPotUPFD5FvPatchScalarField&,
+            const waveCurrentPotential3DFvPatchScalarField&,
             const DimensionedField<scalar, volMesh>&
         );
 
@@ -301,7 +300,7 @@ public:
         {
             return tmp<fvPatchScalarField>
             (
-                new waveCurMqLeastAB3DPotUPFD5FvPatchScalarField(*this, iF)
+                new waveCurrentPotential3DFvPatchScalarField(*this, iF)
             );
         }
 

@@ -54,7 +54,8 @@ volVectorField zeta
         runTime.timeName(),
         mesh,
         IOobject::READ_IF_PRESENT,
-        IOobject::AUTO_WRITE
+        IOobject::AUTO_WRITE,
+        IOobject::REGISTER
     ),
     mesh,
     dimensionedVector(dimLength, Zero)
@@ -68,7 +69,8 @@ volVectorField zetaDx
         runTime.timeName(),
         mesh,
         IOobject::READ_IF_PRESENT,
-        IOobject::AUTO_WRITE
+        IOobject::AUTO_WRITE,
+        IOobject::REGISTER
     ),
     mesh,
     dimensionedVector(dimLength, Zero)

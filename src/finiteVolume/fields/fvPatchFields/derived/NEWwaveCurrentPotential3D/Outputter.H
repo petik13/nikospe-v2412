@@ -1,4 +1,4 @@
-void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::outputter()
+void Foam::waveCurrentPotential3DFvPatchScalarField::outputter()
 {
 	const vectorField& patchFaceCenters = patch().Cf();
     scalarField xComponents = patchFaceCenters.component(vector::X);
@@ -12,8 +12,9 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::outputter()
 	OFstream faceXYOS(
 		faceXYFile,
 		Foam::IOstreamOption::ASCII,
-		Foam::IOstreamOption::UNCOMPRESSED
-	); // 
+		Foam::IOstreamOption::UNCOMPRESSED,
+		Foam::IOstreamOption::NON_APPEND
+	);
 
 	if (faceXYOS.opened())
 	{
@@ -57,7 +58,7 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::outputter()
     }
 	
 	fileName upwindFile = "upwindX_" + Foam::name(Pstream::myProcNo()) + ".dat";
-	OFstream upwindOS(upwindFile,Foam::IOstreamOption::ASCII, Foam::IOstreamOption::UNCOMPRESSED, Foam::IOstreamOption::NON_APPEND); // , Foam::IOstreamOption::NON_APPEND
+	OFstream upwindOS(upwindFile,Foam::IOstreamOption::ASCII, Foam::IOstreamOption::UNCOMPRESSED, Foam::IOstreamOption::NON_APPEND);
 
 	if (upwindOS.opened())
 	{
@@ -74,7 +75,7 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::outputter()
 	}
 	
 	fileName downwindFile = "downwindX_" + Foam::name(Pstream::myProcNo()) + ".dat";
-	OFstream downwindOS(downwindFile,Foam::IOstreamOption::ASCII,Foam::IOstreamOption::UNCOMPRESSED, Foam::IOstreamOption::NON_APPEND); // 
+	OFstream downwindOS(downwindFile,Foam::IOstreamOption::ASCII,Foam::IOstreamOption::UNCOMPRESSED,Foam::IOstreamOption::NON_APPEND);
 
 	if (downwindOS.opened())
 	{
@@ -97,7 +98,7 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::outputter()
 	
 	
 	fileName upwindFileY = "upwindY_" + Foam::name(Pstream::myProcNo()) + ".dat";
-	OFstream upwindYOS(upwindFileY,Foam::IOstreamOption::ASCII, Foam::IOstreamOption::UNCOMPRESSED, Foam::IOstreamOption::NON_APPEND); // 
+	OFstream upwindYOS(upwindFileY,Foam::IOstreamOption::ASCII, Foam::IOstreamOption::UNCOMPRESSED, Foam::IOstreamOption::NON_APPEND);
 
 	if (upwindYOS.opened())
 	{
@@ -114,7 +115,7 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::outputter()
 	}
 	
 	fileName downwindFileY = "downwindY_" + Foam::name(Pstream::myProcNo()) + ".dat";
-	OFstream downwindYOS(downwindFileY,Foam::IOstreamOption::ASCII,Foam::IOstreamOption::UNCOMPRESSED, Foam::IOstreamOption::NON_APPEND); 
+	OFstream downwindYOS(downwindFileY,Foam::IOstreamOption::ASCII,Foam::IOstreamOption::UNCOMPRESSED,Foam::IOstreamOption::NON_APPEND);
 
 	if (downwindYOS.opened())
 	{
@@ -143,8 +144,7 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::outputter()
 		Foam::IOstreamOption::ASCII,
 		Foam::IOstreamOption::UNCOMPRESSED,
 		Foam::IOstreamOption::NON_APPEND
-	); // ,
-		// Foam::IOstreamOption::NON_APPEND
+	);
 
 	if (neighOS.opened())
 	{
@@ -178,8 +178,7 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::outputter()
 		Foam::IOstreamOption::ASCII,
 		Foam::IOstreamOption::UNCOMPRESSED,
 		Foam::IOstreamOption::NON_APPEND
-	); // ,
-		// IOstreamOption::NON_APPEND
+	);
 
 	if (remNeighOS.opened())
 	{
@@ -212,8 +211,7 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::outputter()
 		Foam::IOstreamOption::ASCII,
 		Foam::IOstreamOption::UNCOMPRESSED,
 		Foam::IOstreamOption::NON_APPEND
-	); // ,
-        // IOstreamOption::NON_APPEND
+	);
 
 	if (remNeighOS2.opened())
 	{
@@ -248,8 +246,7 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::outputter()
 		Foam::IOstreamOption::ASCII,
 		Foam::IOstreamOption::UNCOMPRESSED,
 		Foam::IOstreamOption::NON_APPEND
-	);// ,
-        // IOstreamOption::NON_APPEND
+	);
 
 	if (interpOS.opened())
 	{
@@ -274,8 +271,7 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::outputter()
 		Foam::IOstreamOption::ASCII,
 		Foam::IOstreamOption::UNCOMPRESSED,
 		Foam::IOstreamOption::NON_APPEND
-	); // ,
-		// Foam::IOstreamOption::NON_APPEND
+	);
 
 	if (cfOS.opened())
 	{
@@ -297,10 +293,9 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::outputter()
 	OFstream RemupwindOS(
 		RemUpwindFile,
 		IOstreamOption::ASCII,
-		IOstreamOption::UNCOMPRESSED,	
+		IOstreamOption::UNCOMPRESSED,
 		IOstreamOption::NON_APPEND
-	); // ,
-        // IOstreamOption::NON_APPEND
+	);
 
 	if (RemupwindOS.opened())
 	{
@@ -323,7 +318,7 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::outputter()
 // === RemdownwindX ===
 {
     fileName file = "RemdownwindX_" + Foam::name(Pstream::myProcNo()) + ".dat";
-    OFstream os(file, IOstreamOption::ASCII, IOstreamOption::UNCOMPRESSED, IOstreamOption::NON_APPEND); // , IOstreamOption::NON_APPEND
+    OFstream os(file, IOstreamOption::ASCII, IOstreamOption::UNCOMPRESSED, IOstreamOption::NON_APPEND);
 
     if (os.opened())
     {
@@ -346,7 +341,7 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::outputter()
 // === RemupwindY ===
 {
     fileName file = "RemupwindY_" + Foam::name(Pstream::myProcNo()) + ".dat";
-    OFstream os(file, IOstreamOption::ASCII, IOstreamOption::UNCOMPRESSED, IOstreamOption::NON_APPEND); // , IOstreamOption::NON_APPEND
+    OFstream os(file, IOstreamOption::ASCII, IOstreamOption::UNCOMPRESSED, IOstreamOption::NON_APPEND);
 
     if (os.opened())
     {
@@ -369,7 +364,7 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::outputter()
 // === RemdownwindY ===
 {
     fileName file = "RemdownwindY_" + Foam::name(Pstream::myProcNo()) + ".dat";
-    OFstream os(file, IOstreamOption::ASCII, IOstreamOption::UNCOMPRESSED, IOstreamOption::NON_APPEND); // , IOstreamOption::NON_APPEND
+    OFstream os(file, IOstreamOption::ASCII, IOstreamOption::UNCOMPRESSED, IOstreamOption::NON_APPEND);
 
     if (os.opened())
     {
@@ -396,9 +391,8 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::outputter()
         outFile,
         IOstreamOption::ASCII,
         IOstreamOption::UNCOMPRESSED,
-		IOstreamOption::NON_APPEND
-    ); // ,
-        // IOstreamOption::NON_APPEND
+        IOstreamOption::NON_APPEND
+    );
 
     if (os.opened())
     {
@@ -431,8 +425,7 @@ void Foam::waveCurMqLeastAB3DPotUPFD5FvPatchScalarField::outputter()
 		Foam::IOstreamOption::ASCII,
 		Foam::IOstreamOption::UNCOMPRESSED,
 		Foam::IOstreamOption::NON_APPEND
-	); // ,
-		// Foam::IOstreamOption::NON_APPEND
+	);
 
 	if (candsOS.opened())
 	{

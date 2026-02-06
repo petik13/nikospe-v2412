@@ -18,13 +18,14 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::calcNeigboursV3()
 	
 	struct RemoteInfo
 	{
-		label  globalId;
-		vector remoteCc;
-		vector localCf;
+		label  globalId; // global ID of the local patch face (sender’s face)
+		vector remoteCc; // the neighbour cell centre on the other side of a processor patch
+		vector localCf; // the sender’s patch face centre Cf[i]
 	};
 
-	HashTable<List<RemoteInfo>, label> sendBuffer_;
-	HashTable<List<RemoteInfo>, label> recvBuffer_;	
+	// list of packets I want to send/receive to procNo
+	HashTable<List<RemoteInfo>, label> sendBuffer_; // label: processor number (np), 
+	HashTable<List<RemoteInfo>, label> recvBuffer_;	// List<RemoteInfo> → all RemoteInfo packets you want to send to that processor
 	
 	
 	const fvMesh& mesh = this->patch().boundaryMesh().mesh();
@@ -96,8 +97,8 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::calcNeigboursV3()
 		// ---- (A) Flag processor-boundary using ONLY the owner cell faces
 		const face& fCurrent = mesh.faces()[currentFace];
 		// build a lookup set of current face’s vertices
-		labelHashSet currentVerts;
-		forAll(fCurrent, vI)
+		labelHashSet currentVerts; // vertices (points) of current face
+		forAll(fCurrent, vI) // store vertices of current face on currentVerts
 		{
 			currentVerts.insert(fCurrent[vI]);  // store point label, not coordinate
 		}
@@ -114,30 +115,31 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::calcNeigboursV3()
 
 			const label patchi = mesh.boundaryMesh().whichPatch(faceID);
 
+			// Only consider faces on processor patches. -1: internal face
 			if (patchi != -1 && isA<processorPolyPatch>(mesh.boundaryMesh()[patchi]))
 			{
-				const face& fOther = mesh.faces()[faceID];
+				const face& fOther = mesh.faces()[faceID]; // get face's vertices
 
 				// count how many vertices are shared by label
 				label shared = 0;
-				forAll(fOther, vJ)
+				forAll(fOther, vJ) // 
 				{
 					if (currentVerts.found(fOther[vJ]))
-						++shared;
+						++shared; //
 				}
 
-				// decide adjacency criterion
+				// decide adjacency criterion: if the processor face shares at least one vertex with the current patch face, treat it as relevant.
 				if (shared < 1) continue;  // edge-based adjacency (safer than just 1)
 
 				// ---- at this point, faceID is a relevant proc neighbour
 				const processorPolyPatch& pp =
 					refCast<const processorPolyPatch>(mesh.boundaryMesh()[patchi]);
 
-				label np = pp.neighbProcNo();
-				procBoundaryFace_[i] = true;
+				label np = pp.neighbProcNo(); // neighbour processor number
+				procBoundaryFace_[i] = true; // this patch face touches a proc boundary
 
 				if (!neighbProcNos_[i].found(np))
-					neighbProcNos_[i].append(np);
+					neighbProcNos_[i].append(np); // store neighbour proc number. Could be multiple
 
 
 				// local face index on this processor patch
@@ -152,11 +154,14 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::calcNeigboursV3()
 				else
 				{
 					 neighboursPerProc[i][np] += 1;  // increment count
-				}
+				} // expected number of remote neighbor faces from that proc
 				//label localCell  = pp.faceCells()[localFaceI];
 				//const vector& nbrCf = pp.neighbFaceCentres()[localFaceI];
+				// Grab the neighbour-side cell centre across the processor patch
 				const vector& nbrCc = pp.neighbFaceCellCentres()[localFaceI];
 				
+				// Build and enqueue the packet
+				// it sends the other side a “match me by your cell-centre position” message
 				label gid = globalIdOfLocalFace_[i];
 				RemoteInfo ri;
 				ri.globalId = gid;
@@ -174,32 +179,33 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::calcNeigboursV3()
 		
 
 		// ---- (B) Build local neighbour list using neighbour cells
-		labelHashSet uniqNei; // avoid duplicates
+		labelHashSet uniqNei; // avoid duplicates (hashed for this reason)
 
-		const labelList& nCells = mesh.cellCells()[ownerCell];
+		const labelList& nCells = mesh.cellCells()[ownerCell]; // list of lists: cells next to ownerCell
 		forAll(nCells, ncI)
 		{
-			const label nbrCell = nCells[ncI];
-			const cell& nbrCellFaces = mesh.cells()[nbrCell];
+			const label nbrCell = nCells[ncI]; // actual owner cell index
+			const cell& nbrCellFaces = mesh.cells()[nbrCell]; // get faces of neighbour cell: list of face labels
 
 			forAll(nbrCellFaces, fJ)
 			{
-				const label faceID = nbrCellFaces[fJ];
+				const label faceID = nbrCellFaces[fJ]; // faceID is a global mesh face index.
 
 				// Only faces on THIS patch (excluding self)
+				// Patch faces are stored contiguously in the mesh face list.
 				if (faceID >= startFace && faceID < endFace && faceID != currentFace) //if (mesh.boundaryMesh().whichPatch(faceID) == patchID) why nnot
 				{
-					const label localNeighbour = faceID - startFace;
-					uniqNei.insert(localNeighbour);
+					const label localNeighbour = faceID - startFace; // local index on this patch
+					uniqNei.insert(localNeighbour); // insert into hash to avoid duplicates
 				}
 			}
 		}
 
 		// Write back unique neighbours (local and global)
-		const labelList uniq = uniqNei.toc();
+		const labelList uniq = uniqNei.toc(); // .toc() = “to compact list” (turn set into a list)
 		neighbours_[i] = uniq;
 
-		neighboursGlobal_[i].setSize(uniq.size());
+		neighboursGlobal_[i].setSize(uniq.size()); // set the size of list i
 		forAll(uniq, jj)
 		{
 			neighboursGlobal_[i][jj] = globalIdOfLocalFace_[uniq[jj]];
@@ -238,18 +244,18 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::calcNeigboursV3()
 	
 	
 	//paralell part
-		if (Pstream::parRun())
+	if (Pstream::parRun())
 	{
-		// --- Prepare communication
-		PstreamBuffers pBuf(Pstream::commsTypes::nonBlocking);
+
+		PstreamBuffers pBuf(Pstream::commsTypes::nonBlocking); // This is OpenFOAM’s message manager.
 		using RemoteInfoTable = HashTable<List<RemoteInfo>, label>;
 		// --- Send phase
-		forAllConstIter(RemoteInfoTable, sendBuffer_, it)
+		forAllConstIter(RemoteInfoTable, sendBuffer_, it) // Iterate over all key/value pairs in the hash table
 		{
-			const label neighbProc = it.key();
-			const List<RemoteInfo>& infos = it();
+			const label neighbProc = it.key(); // the neighbour processor number
+			const List<RemoteInfo>& infos = it(); // // the value (the list of packets)
 
-			UOPstream os(neighbProc, pBuf);
+			UOPstream os(neighbProc, pBuf); // Creates an output stream “to processor neighbProc”, using pBuf as the underlying buffer.
 
 			// Send number of entries
 			os << infos.size();
@@ -268,7 +274,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::calcNeigboursV3()
 
 
 		// --- Receive phase
-		forAllConstIter(RemoteInfoTable, sendBuffer_, it)
+		forAllConstIter(RemoteInfoTable, sendBuffer_, it) // (assume a “symmetric communication pattern”)
 		{
 			const label neighbProc = it.key();
 			UIPstream is(neighbProc, pBuf);
@@ -309,7 +315,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::calcNeigboursV3()
 		
 		\*---------------------------------------------------------------------------*/	
 		
-		
+		// Loop over received buffers and match to local faces
 		forAllConstIter(RemoteInfoTable, recvBuffer_, it)
 		{
 			label srcProc = it.key();
@@ -329,17 +335,19 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::calcNeigboursV3()
 			// Loop over my local faces
 			for (label i = 0; i < nFaces; ++i)
 			{
+				// skip non-relevant faces
 				if (!procBoundaryFace_[i] || !neighbProcNos_[i].found(srcProc)) continue;
-				const vector& myCc = localCellCentres[i];
+				const vector& myCc = localCellCentres[i]; // owner cell centre of relevant patch face
 
 				// track already matched remote indices
 				labelHashSet matched;
 
-				// Get number of expected matches with this srcProc
+				// Get number of expected matches with this srcProc (neighboursPerProc built in A, so we know how many to expect)
 				label N_neighbor = 0;
 				if (neighboursPerProc[i].found(srcProc))
 					N_neighbor = neighboursPerProc[i][srcProc];
 				
+				// Greedy nearest-neighbour matching - get the N_neighbor closest remoteCcs
 				for (label kk = 0; kk < N_neighbor; ++kk)
 				{
 					scalar bestDist = GREAT;
@@ -377,7 +385,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::calcNeigboursV3()
 						}
 					}
 				}
-			}
+			} 
 
 		
 		
@@ -385,7 +393,8 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::calcNeigboursV3()
 
 		
 		
-	}
+	} // Finally construct neighboursGlobal_: neigbour global IDs, and 
+	// globalIdToCf_ map: keys: global face IDs, values: Cf coordinates of that face
 
 	
 	
@@ -973,6 +982,12 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::buildVertexBasedConnections
 
 #include "Outputter.H" 
 
+// For each local patch face i (on this processor), it builds:
+// upwindNodesX_[i] and downwindNodesX_[i]
+// upwindNodesY_[i] and downwindNodesY_[i]
+// Then, in parallel, it also builds maps so you can ask things like:
+//“For my face with global ID G, what are the upwind/downwind lists of some remote face
+// that is involved in my stencil?
 void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
 {
     if (windsCalculated_)
@@ -1003,10 +1018,12 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
         List<label> upwindY, downwindY;
 		 
 		//const face& f = mesh.faces()[globalIdOfLocalFace_[i]];
-		const face& f = mesh.faces()[startFace + i];
+		const face& f = mesh.faces()[startFace + i]; // the current face (list of point labels)
 		scalar minX = GREAT, maxX = -GREAT;
 		scalar minY = GREAT, maxY = -GREAT;
 
+		// Build a bounding box of the face in X/Y from its vertices
+		// Why? They want to decide whether a neighbour is “meaningfully aligned” in X or Y.
 		forAll(f, vI)
 		{
 		const point& pt = mesh.points()[f[vI]];
@@ -1014,7 +1031,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
 		maxX = max(maxX, pt.x());
 		minY = min(minY, pt.y());
 		maxY = max(maxY, pt.y());
-						}
+		}
 
 		
         for (label j = 0; j < neighbours_[i].size(); j++)
@@ -1043,6 +1060,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
 			if (dy > VSMALL && centerInX) {upwindY.append(globalIdOfLocalFace_[neighborLocal]);foundneighbor = true;}
 			if (dy < -VSMALL && centerInX) {downwindY.append(globalIdOfLocalFace_[neighborLocal]);foundneighbor = true;}
 			
+			// If foundneighbor is false, they compute the neighbour face’s bounding box and test whether my centre lies inside it:
 			if (!foundneighbor){
 				const face& fj = mesh.faces()[startFace + neighborLocal];
 				scalar minXj = GREAT, maxXj = -GREAT;
@@ -1073,7 +1091,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
 	 
 	   }
 		
-
+	    // Now do the same for global neighbours:
         for (label j = 0; j < neighboursGlobal_[i].size(); j++)
         {
             const label globalNei = neighboursGlobal_[i][j];
@@ -1082,7 +1100,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
 			
 			bool foundneighbor = false; 
 			
-            const vector& CfNei = globalIdToCf_[globalNei];
+            const vector& CfNei = globalIdToCf_[globalNei]; // globalIdToCf_: from calcNeigbors. Have to use this as only local face positions are known
             scalar x_neighbor = CfNei.x();
             scalar y_neighbor = CfNei.y();
 
@@ -1128,7 +1146,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
         downwindNodesY_[i] = downwindY;
     }
 
-    //BURAYI EKLIYORUK VERSION 5
+    //BURAYI EKLIYORUK VERSION 5 Big paralle exchange
 	/*---------------------------------------------------------------------------*\
 	
 	
@@ -1141,7 +1159,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
 	
     if (Pstream::parRun())
     {
-        labelHashSet sendTo;
+        labelHashSet sendTo; // the set of procs that share proc-boundary adjacency with any of my patch faces
 		for (label i = 0; i < patch().size(); ++i)
 		{
 			if (!procBoundaryFace_[i]) continue;
@@ -1161,7 +1179,8 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
         sendToLists[Pstream::myProcNo()] = sendTo.toc();
         Pstream::gatherList(sendToLists);
         Pstream::scatterList(sendToLists);
-
+		// gather all sendTo lists from all procs
+		// then infer recvFrom as: those procs that included me in their sendTo list
         labelHashSet recvFrom;
         for (label src = 0; src < Pstream::nProcs(); ++src)
         {
@@ -1172,7 +1191,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
         }
 
         PstreamBuffers pBuf(Pstream::commsTypes::nonBlocking);
-
+		// Send phase: send my boundary-face directional lists to neighbor procs
         forAllConstIter(labelHashSet, sendTo, it)
         {
             const label tgt = it.key();
@@ -1248,7 +1267,8 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
         }
 
         pBuf.finishedSends();
-
+		// Receive phase: incorporate remote lists and build “reverse maps”
+		// So now you can look up “for remote face gid, what does that proc consider upwind/downwind?”
         forAllConstIter(labelHashSet, recvFrom, it)
         {
             const label src = it.key();
@@ -1305,6 +1325,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
 					remoteNeighbours_.insert(gid, List<label>());
 				}
 
+				// So remoteNeighbours_[gid] becomes the union of all those directional candidate IDs for that remote face.
 				remoteNeighbours_[gid].append(upListX);
 				remoteNeighbours_[gid].append(downListX);
 				remoteNeighbours_[gid].append(upListY);
@@ -1365,7 +1386,10 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
 	
 	//VERSION 14 IMPLEMENTATION (EXTENSION OF remoteNeighbours2_)
 	
-	
+	// 2nd pass
+	// first pass gave you remote face’s own directional lists
+	// second pass asks for the directional lists of your first-ring neighbours 
+	// (the neighbours of remote neighbours) — i.e. a “2-ring” stencil expansion.
 	if (Pstream::parRun())
 	{
 		// ----------------------
@@ -1677,8 +1701,9 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
 	
 	
 
-
-
+	// neededGIDs_ = union of all IDs appearing in:
+	// remoteNeighbours_ (first ring)
+	// remoteNeighbours2_ (second ring)
 	if (Pstream::parRun())
 	{
 		neededGIDs_.clear();
