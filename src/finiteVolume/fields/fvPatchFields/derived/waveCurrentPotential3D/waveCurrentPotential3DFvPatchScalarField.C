@@ -196,6 +196,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 	
 	// Use locals for readability & no overhead in hot loop
 	const scalar U0         = params_.U0;
+	const scalar head_ang   = params_.head_ang;
 	const scalar steepness  = params_.steepness;
 	const scalar wavelength = params_.wavelength;
 	const scalar hdepth     = params_.hdepth;
@@ -272,7 +273,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 		(
 			amp * wavenumber * 9.81 / w 
 		 * (Foam::sinh(wavenumber *(hdepth+zComponents))/Foam::cosh(wavenumber*hdepth))
-		 * Foam::sin(wavenumber * xComponents- w*tt) * ramp_factor * nfRef
+		 * Foam::sin(wavenumber * xComponents- (w + wavenumber * U0 * cos(head_ang))*tt) * ramp_factor * nfRef
 		);
 
 		// - damping factor
@@ -281,7 +282,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 		    pos(xComponents - xdamp) * v0 * ((xComponents - xdamp) / (Lxdamp)) * ((xComponents - xdamp) / (Lxdamp)) * (nfRef & Wn);
 		    // y-side damping active only when x > 5
 		//    + pos(xComponents-xsponge)*pos(xdamp-xComponents)*pos(yComponents - ydamp) * v0 * ((yComponents - ydamp) / (Lydamp)) * ((yComponents - ydamp) / (Lydamp)) * (nfRef & Wn)
-		//    + pos(xComponents-xsponge)*pos(xdamp-xComponents)*pos(-yComponents - ydamp) * v0 * ((-yComponents - ydamp) / (Lydamp)) * ((-yComponents - ydamp) / (Lydamp)) * (nfRef & Wn)
+		//    + pos(xComponents-xsponge)*pos(xdamp-xComponents)*pos(-yComponents - ydamp) * v0 * ((-yComponents - ydamp) / (Lydamp)) * ((-yComponents - ydamp) / (Lydamp)) * (nfRef & Wn);
 		    // inlet reflection damping: active for x in [0,5], stronger near x=0
 		//   + pos(xsponge - xComponents) * v0 * ((xsponge - xComponents) / (Lsponge)) * ((xsponge - xComponents) / (Lsponge)) * (nfRef & (Wn - Wn0));
 		
@@ -340,6 +341,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 		vectorField UetaDx(Phi0Patch.size(), vector::zero);
 		vectorField Wcurdz_zeta0p(Phi0Patch.size(), vector::zero);
 		
+		
 		if (std::fabs(U0) > SMALL) // if current speed is non-zero
 		{
 			calcNeigboursV3(); // calc neighboors if not yet calculated (PrePar)
@@ -348,6 +350,10 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 				findUpwindDownwindNodesV2();
 				
 				detectFDSchemes();
+
+				findSphereEdgeVertexFaces();
+
+				
 				
 				
 				zetaDx_.setSize(nFaces, vector::zero);
@@ -371,6 +377,8 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 			Wcurdz_zeta0p = PhiCurDz2_p * zeta0p;
 
 			
+
+			
 			
 			forAll(turgut, i)
 			{
@@ -379,7 +387,6 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 		}
 
 		
-	
 
 		
 		//BUNLAR PARALLELDE CALISMIYOR
@@ -396,7 +403,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 		
 		scalarField phiCalc(nFaces, 0.0);
 		
-	   
+
 		
 		
 		switch (ddtScheme)
@@ -415,7 +422,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 					
 					zetap = zeta0p + dt*(Wn+Wcurdz_zeta0p-UetaDx);
 					Info << "Turgut ayri applied" << endl;
-					phiCalc = ((gVal & zeta0p)+turgut + dampingterm)*dt + Phi0Patch;
+					phiCalc = ((gVal & zeta0p)+turgut + dampingterm)*dt + Phi0Patch; // shouldn't turgut term have a minus?
 					//phiCalc = ((gVal & zetap))*dt + Phi0Patch;
 					
 				}
@@ -502,33 +509,101 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 				{
 					if ( std::fabs(U0) > 0.0 ){
 									
-					//zetaInt = zeta0p+0.5*dt*((Wn-UetaDx)+WnOld_);
-					//phiInt = (1.5*((gVal & zeta0p)+(0.5)*turgut)-0.5*DPhiold_)*dt + Phi0Patch;
-					
-					Info << "Current speed is nonzero " << endl;
-					zetap=zeta0p+dt*((23.0/12.0)*(Wn+Wcurdz_zeta0p-UetaDx)-(16.0/12.0)*WnOld_+(5.0/12.0)*WnOld2_);
-					phiCalc = ((23.0/12.0)*((gVal & zeta0p)+turgut + dampingterm)-(16.0/12.0)*DPhiold_+(5.0/12.0)*DPhiold2_)*dt + Phi0Patch;
-					
-					
-					WnOld2_=WnOld_;
-					DPhiold2_=DPhiold_;
-					
-					
-					WnOld_=(Wn+Wcurdz_zeta0p-UetaDx);
-					DPhiold_=((gVal & zeta0p)+turgut + dampingterm);
+						//zetaInt = zeta0p+0.5*dt*((Wn-UetaDx)+WnOld_);
+						//phiInt = (1.5*((gVal & zeta0p)+(0.5)*turgut)-0.5*DPhiold_)*dt + Phi0Patch;
+						
+						Info << "Current speed is nonzero " << endl;
+						zetap=zeta0p+dt*((23.0/12.0)*(Wn+Wcurdz_zeta0p-UetaDx)-(16.0/12.0)*WnOld_+(5.0/12.0)*WnOld2_);
+						phiCalc = ((23.0/12.0)*((gVal & zeta0p)+turgut + dampingterm)-(16.0/12.0)*DPhiold_+(5.0/12.0)*DPhiold2_)*dt + Phi0Patch;
+						
+						// Only on faces near body
+						// 1) Build mask: body faces + their (local) merged-candidate neighbours
+						boolList dampMask(nFaces, false);
+
+						// for (label i = 0; i < nFaces; ++i)
+						// {
+						// 	if (ownerHasBodyFace_[i] || ownerHasBodyEdge_[i] || ownerHasBodyVertex_[i]){
+
+						// 		// include the face itself
+						// 		dampMask[i] = true;
+
+						// 		// // include its neighbours (candidates) if they are local on this proc
+						// 		// const List<label>& cands = lsMergedCandidates_[i];
+						// 		// forAll(cands, j)
+						// 		// {
+						// 		// 	const label gid = cands[j];
+
+						// 		// 	if (globalIdToPackedIdx_.found(gid))
+						// 		// 	{
+						// 		// 		const label loc = globalIdToPackedIdx_[gid]; // patch-local index on this proc
+						// 		// 		if (loc >= 0 && loc < nFaces) dampMask[loc] = true;
+						// 		// 	}
+						// 		// }
+						// 	}
+						// }
+
+						// Catch bad faces
+						for (label i = 0; i < nFaces; ++i)
+						{
+							if (!ownerHasBodyFace_[i] && (ownerHasBodyEdge_[i] || ownerHasBodyVertex_[i])){
+
+								// include the face itself
+								dampMask[i] = true;
+
+								// // include its neighbours (candidates) if they are local on this proc
+								// const List<label>& cands = lsMergedCandidates_[i];
+								// forAll(cands, j)
+								// {
+								// 	const label gid = cands[j];
+
+								// 	if (globalIdToPackedIdx_.found(gid))
+								// 	{
+								// 		const label loc = globalIdToPackedIdx_[gid]; // patch-local index on this proc
+								// 		if (loc >= 0 && loc < nFaces) dampMask[loc] = true;
+								// 	}
+								// }
+							}
+						}
+
+
+						// 2) Apply damping on all marked faces (skip inlet)
+						const scalar sigma = 1.0/dt;            // try 0.2/dt .. 2/dt
+						const scalar denom = 1.0 + sigma*dt;
+
+						for (label i = 0; i < nFaces; ++i)
+						{
+							if (!dampMask[i]) continue;
+
+							// Relax to rest (zeta->0, Phi->0 since Phi is unsteady part)
+							zetap[i]   /= denom;
+							phiCalc[i] /= denom;
+
+							// IMPORTANT for AB3: also damp the history terms on the same set
+							WnOld_[i]    /= denom;
+							WnOld2_[i]   /= denom;
+							DPhiold_[i]  /= denom;
+							DPhiold2_[i] /= denom;
+						}
+						
+						WnOld2_=WnOld_;
+						DPhiold2_=DPhiold_;
+						
+						
+						WnOld_=(Wn+Wcurdz_zeta0p-UetaDx);
+						DPhiold_=((gVal & zeta0p)+turgut + dampingterm);
 					
 					}
 					else{
 					
 					
-					Info << "Current speed U0 is zero " << endl;
-					zetap=zeta0p+dt*((23.0/12.0)*Wn-(16.0/12.0)*WnOld_+(5.0/12.0)*WnOld2_);
-					phiCalc = ((23.0/12.0)*((gVal & zeta0p) + dampingterm)-(16.0/12.0)*DPhiold_+(5.0/12.0)*DPhiold2_)*dt + Phi0Patch;
-					
-					WnOld2_=WnOld_;
-					DPhiold2_=DPhiold_;
-					WnOld_=Wn;
-					DPhiold_=((gVal & zeta0p) + dampingterm);
+						Info << "Current speed U0 is zero " << endl;
+						zetap=zeta0p+dt*((23.0/12.0)*Wn-(16.0/12.0)*WnOld_+(5.0/12.0)*WnOld2_);
+						phiCalc = ((23.0/12.0)*((gVal & zeta0p) + dampingterm)-(16.0/12.0)*DPhiold_+(5.0/12.0)*DPhiold2_)*dt + Phi0Patch;
+						
+						WnOld2_=WnOld_;
+						DPhiold2_=DPhiold_;
+						WnOld_=Wn;
+						DPhiold_=((gVal & zeta0p) + dampingterm);
 					
 					} 
 					 
@@ -568,13 +643,13 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 	//BUNLAR PARALLELDE CALISMIYOR
 	//Info << "zetap[1]:" << zetap[1] << endl;
 	if (gMax(zetap & nfRef) > 100.0)
-  {
-      FatalErrorInFunction
-          << "Surface elevation (zetap) exceeded limit of 100 at time = "
-          << db().time().value() << nl
-          << "  max(zetap) = " << gMax(zetap & nfRef) << nl
-          << abort(FatalError);
-  }
+	{
+		FatalErrorInFunction
+			<< "Surface elevation (zetap) exceeded limit of 100 at time = "
+			<< db().time().value() << nl
+			<< "  max(zetap) = " << gMax(zetap & nfRef) << nl
+			<< abort(FatalError);
+	}
 	
 	// Now assign the computed values using operator==
 	data_=phiCalc;
@@ -591,7 +666,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 
 #include "InterpolationsHelpers.H"
 #include "2nd_UpwindV6_MQLEAST.H" //numerical scheme
-#include "PreParV14D.H"  // neighbours upwind down wind , scheme detection
+#include "PreParV17D.H"  // neighbours upwind down wind , scheme detection
 
 
 
@@ -622,11 +697,13 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::readParamsFrom(const dictio
 {
 
     params_.U0         = readScalar(d.lookup("currentspeed"));
+	params_.head_ang         = readScalar(d.lookup("head_ang"));
     params_.steepness  = readScalar(d.lookup("steepness"));
     params_.wavelength = readScalar(d.lookup("wavelength"));
     params_.hdepth     = readScalar(d.lookup("waterdepth"));
     params_.rampperiod = readScalar(d.lookup("rampperiod"));
     params_.v0         = d.lookupOrDefault<scalar>("v0", 0.0);
+
 
 	// damping settings
 	params_.xdamp      = readScalar(d.lookup("xdamp"));
@@ -656,7 +733,61 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::write(Ostream& os) const
     fvPatchField<scalar>::writeValueEntry(os);
 }
 
+void Foam::waveCurrentPotential3DFvPatchScalarField::findSphereEdgeVertexFaces()
+{
+    const fvMesh& mesh = patch().boundaryMesh().mesh();
 
+    const label nFaces   = patch().size();
+    const label startFS  = patch().start();
+
+    ownerHasBodyEdge_.setSize(nFaces, false);
+    ownerHasBodyVertex_.setSize(nFaces, false);
+
+    const label spherePatchID = mesh.boundaryMesh().findPatchID("sphere");
+    if (spherePatchID == -1)
+    {
+        FatalErrorInFunction << "Patch 'sphere' not found." << abort(FatalError);
+    }
+
+    const polyPatch& spherePatch = mesh.boundaryMesh()[spherePatchID];
+
+    // 1) Collect all point labels used by local 'sphere' faces on this proc
+    labelHashSet spherePts;
+    spherePts.reserve(4*spherePatch.size()); // heuristic
+
+    forAll(spherePatch, sfI)
+    {
+        const label faceID = spherePatch.start() + sfI;
+        const face& f = mesh.faces()[faceID];
+        forAll(f, vI)
+        {
+            spherePts.insert(f[vI]);
+        }
+    }
+
+    // 2) For each free-surface face, count shared point labels with spherePts
+    for (label i = 0; i < nFaces; ++i)
+    {
+        const label faceID = startFS + i;
+        const face& f = mesh.faces()[faceID];
+
+        label shared = 0;
+        forAll(f, vI)
+        {
+            if (spherePts.found(f[vI]))
+            {
+                ++shared;
+                if (shared >= 2) break; // early exit: edge-touch satisfied
+            }
+        }
+
+        if (shared >= 1) ownerHasBodyVertex_[i] = true;
+        if (shared >= 2) ownerHasBodyEdge_[i]   = true;
+    }
+
+    // Optional: merge into existing mask if you want
+    // for (label i=0;i<nFaces;++i) ownerHasBodyFace_[i] = ownerHasBodyFace_[i] || ownerHasBodyEdge_[i];
+}
 
 
 

@@ -203,8 +203,39 @@ int main(int argc, char *argv[])
 
     // Calculate d²PhiCur/dz²
     const volTensorField PhiCurD2 = fvc::grad(fvc::grad(PhiCur));
-    PhiCurDz2 = PhiCurD2.component(tensor::ZZ);
+    // PhiCurDz2 = PhiCurD2.component(tensor::ZZ);
 
+    // ---------- Set PhiCur instead using NKL everywhere in the domain (as a freestream undisturbed potential) ---------------------------------
+    // scalar heading	=  -30.0;
+    // // scalar U0	=  0.387;
+    // scalar head_ang = heading*constant::mathematical::pi/180.0;
+
+    // scalar Ux = U0*Foam::cos(head_ang);
+    // scalar Uy = U0*Foam::sin(head_ang);
+
+    // const volVectorField& C = mesh.C();
+    // forAll(C, celli)
+    // {
+    //     const scalar xcor = C[celli].x();
+    //     const scalar ycor = C[celli].y();
+
+    //     PhiCur[celli] = -Ux*xcor - Uy*ycor;
+    //     Ucur[celli] = vector(Ux, Uy, 0.0);
+    // }
+
+    // forAll(PhiCur.boundaryFieldRef(), patchI)
+    // {
+    //     auto& pPhi = PhiCur.boundaryFieldRef()[patchI];
+
+    //     forAll(pPhi, faceI)
+    //     {
+    //         // use face-centres for boundary faces
+    //         const vector& cf = mesh.Cf().boundaryField()[patchI][faceI];
+    //         PhiCur.boundaryFieldRef()[patchI][faceI] = -Ux*cf.x() - Uy*cf.y();
+    //         Ucur.boundaryFieldRef()[patchI][faceI] = vector(Ux, Uy, 0.0);
+    //     }
+    // }
+    
 	// Calculate Ucur
 	Ucur=-fvc::grad(PhiCur);//U = fvc::reconstruct(phi);
 	p3 = -0.5*(Ucur & Ucur);
@@ -215,18 +246,35 @@ int main(int argc, char *argv[])
 
 	// ---------- End of steady potential calculation ---------------------------------
 
-	while (runTime.run()) // main loop
-    {
-		
-		
 
-		++runTime; // why is this needed? -> because runtime.run() is used not .loop(). So only checks if it should finish.
+    
+    
+    // Initial conditions for Phi
+    const vectorField& cellCenters = mesh.C();
+    forAll(cellCenters, cellI)
+    {
+        const scalar xc = cellCenters[cellI].x();
+        const scalar zc = cellCenters[cellI].z();
+
+        Phi[cellI] = - amp * (9.81 / w)
+            *(Foam::cosh(wavenumber *(hdepth+zc))/Foam::cosh(wavenumber*hdepth))
+            * Foam::sin(wavenumber * xc);
+    }
+    // Phi.correctBoundaryConditions(); // it's crashing with this.
+    Phi.write();
+    
+
+    // -- Main time loop
+	while (runTime.loop()) // main loop
+    {
+		// ++runTime; // why is this needed? -> because runtime.run() is used not .loop(). So only checks if it should finish.
 		// no auto update of time
 		
-		Info << "currentspeed: " << U0 << " water depth: " << hdepth << endl;
-		Info << " \n Current time: " << runTime.timeName() << endl;	
-        #include "CourantNo.H"
-		
+		Info << "Time = " << runTime.timeName()
+         << "  deltaT = " << runTime.deltaTValue() << endl;	
+        
+		#include "CourantNo.H"
+
 		// Non-orthogonal velocity potential corrector loop
 		while (turgutFlow.correctNonOrthogonal()) // Numer given in fvSolution for turgutFlow
 		{
@@ -241,30 +289,25 @@ int main(int argc, char *argv[])
 			
 			PhiEqn.setReference(PhiRefCell, PhiRefValue); // Set reference to fix the potential level at give sel in fvSolution
 			PhiEqn.solve();
-
-			
 			
 			if (turgutFlow.finalNonOrthogonalIter())
 			{
-				
 				phi -= PhiEqn.flux();
 		    }
 		}
 		
 		Info << "Iterative loop ended \n" << endl;
-		//MRF.makeAbsolute(phi);
 
 		Info<< "Continuity error from phi = "
 			<< mag(fvc::div(phi))().weightedAverage(mesh.V()).value()
 			<< endl;
 		
 		p = fvc::ddt(Phi)-(Ucur & U); // integrated U**2 term should be 0
-		U=-fvc::grad(Phi);//U = fvc::reconstruct(phi);
-		//U2=-fvc::snGrad(Phi);
+		U=-fvc::grad(Phi);
 		p2 = fvc::ddt(Phi)-(Ucur & U);
 		p3 = 0.5*(U & U);
-		
 		phi = fvc::flux(U);
+
 		
 		Info<< "Continuity error from U = "
 			<< mag(fvc::div(U))().weightedAverage(mesh.V()).value()

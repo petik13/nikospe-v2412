@@ -293,7 +293,7 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
     const scalar dt = runTime.deltaTValue();
 
     const scalar aRelax_ = 0.3;
-    const scalar aDamp_  = 1.0;
+    const scalar aDamp_  = 0.9;
 
     // Newmark parameters
     const scalar gamma = 0.5;
@@ -350,7 +350,7 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
         Ub_old_ = Ub_new_;
         a_old_  = a_new_;
 
-        writeMotion(Xb_old_);  // (this is your motion output)
+        writeMotion(Xb_old_);  // motion output
     }
 
     // --- Build 6x6 matrices (order: [x y z phi theta psi])
@@ -376,11 +376,18 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
     K[4][2] = C35_;
 
     // - Soft Mooring
-    K[0][0] = 60.0;
-    K[1][1] = 60.0;
-    K[5][5] = 180.0;
+    // K[0][0] = 60.0;
+    // K[1][1] = 60.0;
+    // K[5][5] = 180.0;
 
     Mat6 C = zero66();  // no damping yet
+    // Add roll damping
+    C[0][0] = 50.0;
+    C[1][1] = 50.0;
+    C[2][2] = 50.0;
+    C[3][3] = 50.0;
+    C[4][4] = 50.0;
+    C[5][5] = 50.0;
 
     // --- External load at n+1: wrench W=(M,F) -> f=[F,M]
     const spatialVector W = computeForce();
@@ -513,10 +520,13 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
 
         mj[i] = (mTrans & Xg) + (mRot & thg);
     }
-	
+	// Info << "mj sample: " << mj[0] << endl;
     scalarField rhsBC = -(n & UbFace) + mj;
     this->gradient() = rhsBC;
-
+    // Info<< "Updated linearized rigid body BC on patch " << patch().name()
+    //     << " Xb_new " << Xb_new_
+    //     << " (timeIndex=" << runTime.timeIndex() << ")"
+    //     << endl;
     lastUpdateTimeIndex_ = runTime.timeIndex();
 
     fixedGradientFvPatchField<scalar>::updateCoeffs();

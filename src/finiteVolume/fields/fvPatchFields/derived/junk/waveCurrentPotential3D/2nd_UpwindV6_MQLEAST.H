@@ -146,8 +146,8 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 	
     for (label i = 0; i < nFaces; ++i)
     {
-        if (!ownerHasBodyFace_[i])
-		{	
+        // if (!ownerHasBodyFace_[i])
+		// {	
 			const scalar dist =  shalpeVal/patch().deltaCoeffs()[i];
 			const scalar x0 = x[i];
 			const scalar y0 = y[i];
@@ -220,9 +220,43 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 				////INTERPOLATION CHECK
 			   
 				h1 = mag(dx(up1, x0)); h2 = mag(dx(up2, x0));
+                
+                // SAFETY CHECK
+                if (h1 < 1e-6 || h2 < 1e-6 || mag(h2-h1) < 1e-6)
+                {
+                     WarningInFunction << "Algorithm Failure (Scheme 6 X): Zero/Small denominator detected."
+                         << " Face=" << i << " (GlobalID=" << globalIdOfLocalFace_[i] << ")"
+                         << "\n h1=" << h1 << " h2=" << h2 
+                         << "\n up1=" << up1 << " up2=" << up2
+                         << "\n x0=" << x0 
+                         << "\n Falling back to Scheme 100 (ZeroGrad)." << endl;
+                         
+                     schemeCodeX_[i] = 100;
+                     DzetaZdx[i] = 0.0;
+                     DPhidx[i] = 0.0;
+                     continue;
+                }
+
 				DzetaZdx[i] = (-sqr(h2)*f1 + sqr(h1)*f2 - (sqr(h1)-sqr(h2))*f0) / (h1*h2*(h2 - h1));
 				DPhidx[i] = (-sqr(h2)*g1 + sqr(h1)*g2 - (sqr(h1)-sqr(h2))*g0) / (h1*h2*(h2 - h1));
-				
+
+                // Stability Check X (Scheme 6)
+                if (mag(DzetaZdx[i]) > 10000.0)
+                {
+                     WarningInFunction << "Unstable X-derivative at face " << i 
+                         << " (Global " << globalIdOfLocalFace_[i] << ")"
+                         << "\n Pos: (" << x0 << " " << y0 << ")"
+                         << "\n Scheme 6 (Upwind2) -> Val: " << DzetaZdx[i]
+                         << "\n h1=" << h1 << " h2=" << h2 << " f0=" << f0 << " f1=" << f1 << " f2=" << f2
+                         << "\n Falling back to 1st order Upwind." << endl;
+                     
+                     if (h1 > VSMALL) {
+                         DzetaZdx[i] = (f0 - f1) / h1;
+                         DPhidx[i] = (g0 - g1) / h1;
+                     } else {
+                         DzetaZdx[i] = 0; DPhidx[i] = 0;
+                     }
+                }
 							 
 			}
 			else if (s == 1)
@@ -271,8 +305,34 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 				h1 = mag(dx(L[0], x0));
 				h2 = mag(dx(R[0], x0));
 			   
-				DzetaZdx[i] = (-sqr(h2)*f1 + sqr(h1)*f2 - (sqr(h1)-sqr(h2))*f0) / (h1*h2*(h1 + h2));
-				DPhidx[i] = (-sqr(h2)*g1 + sqr(h1)*g2 - (sqr(h1)-sqr(h2))*g0) / (h1*h2*(h1 + h2));
+                // SAFETY CHECK
+                bool safe = true;
+                if (h1 < VSMALL || h2 < VSMALL || (h1+h2) < VSMALL) safe = false;
+                
+                if (safe)
+                {
+                    DzetaZdx[i] = (-sqr(h2)*f1 + sqr(h1)*f2 - (sqr(h1)-sqr(h2))*f0) / (h1*h2*(h1 + h2));
+                    DPhidx[i] = (-sqr(h2)*g1 + sqr(h1)*g2 - (sqr(h1)-sqr(h2))*g0) / (h1*h2*(h1 + h2));
+                }
+                else
+                {
+                    // Fallback Logic
+                    if (h1 > VSMALL) 
+                    {
+                        // Fallback to Backward (Scheme 4)
+                         DzetaZdx[i] = (f0 - f1) / h1; DPhidx[i] = (g0 - g1) / h1;
+                    }
+                    else if (h2 > VSMALL)
+                    {
+                        // Fallback to Forward (Scheme 5)
+                         DzetaZdx[i] = (f2 - f0) / h2; DPhidx[i] = (g2 - g0) / h2;
+                    }
+                    else
+                    {
+                        // Complete failure
+                        DzetaZdx[i] = 0.0; DPhidx[i] = 0.0;
+                    }
+                }
 			}
 			else if (s == 7)
 			{
@@ -338,6 +398,15 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 				
 				
 				h1 = mag(dx(down1, x0)); h2 = mag(dx(down2, x0));
+                
+                // SAFETY CHECK
+                if (h1 < VSMALL || h2 < VSMALL || mag(h1-h2) < VSMALL)
+                {
+                     FatalErrorInFunction << "Algorithm Failure (Scheme 7 X): Zero denominator detected."
+                         << " Face=" << i << "\n h1=" << h1 << " h2=" << h2 
+                         << abort(FatalError);
+                }
+
 				DzetaZdx[i] = (-sqr(h2)*f1 + sqr(h1)*f2 - (sqr(h1)-sqr(h2))*f0) / (h1*h2*(h1 - h2));
 				DPhidx[i] = (-sqr(h2)*g1 + sqr(h1)*g2 - (sqr(h1)-sqr(h2))*g0) / (h1*h2*(h1 - h2));
 				
@@ -345,14 +414,25 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 			else if (s == 4 && L.size())
 			{
 				h1 = mag(dx(L[0], x0));f1 = getWp(L[0]);g1 = getPhip(L[0]);
-				DzetaZdx[i] = (f0 - f1) / h1;DPhidx[i] = (g0 - g1) / h1;
-				
+				if (h1 > VSMALL) {
+					DzetaZdx[i] = (f0 - f1) / h1;DPhidx[i] = (g0 - g1) / h1;
+				} else {
+					DzetaZdx[i] = 0.0; DPhidx[i] = 0.0;
+				}
 			}
 			else if (s == 5 && R.size())
 			{
 				h1 = mag(dx(R[0], x0));f1 = getWp(R[0]);g1 = getPhip(R[0]);
-				DzetaZdx[i] = (f1 - f0) / h1;DPhidx[i] = (g1 - g0) / h1;
+				if (h1 > VSMALL) {
+					DzetaZdx[i] = (f1 - f0) / h1;DPhidx[i] = (g1 - g0) / h1;
+				} else {
+					DzetaZdx[i] = 0.0; DPhidx[i] = 0.0;
+				}
 			}
+            else if (s == 100)
+            {
+                DzetaZdx[i] = 0.0; DPhidx[i] = 0.0;
+            }
 			else
 			{
 				 FatalErrorInFunction
@@ -375,7 +455,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 				
 				const scalar wavenumber(2.0 * Foam::constant::mathematical::pi / wavelength);
 				const scalar amp(0.5 * steepness * wavelength);
-				const scalar w(U0 * wavenumber + Foam::sqrt(9.81 * wavenumber * Foam::tanh(wavenumber*hdepth)));
+				const scalar w(U0 * wavenumber*0.867 + Foam::sqrt(9.81 * wavenumber * Foam::tanh(wavenumber*hdepth)));
 				const scalar celerity(w/wavenumber); 
 				
 				//Info << "Input wave given on:" << x0 << endl; 
@@ -397,7 +477,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 				//Pout << "Input is given x0   " << x0 << endl;
 			}	
 	
-		}
+		//}
 	
 	}
 	
@@ -412,8 +492,8 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 
 	for (label i = 0; i < nFaces; ++i)
     {
-		if (!ownerHasBodyFace_[i])
-		{	
+		//if (!ownerHasBodyFace_[i])
+		// {	
 			const scalar dist =  shalpeVal/patch().deltaCoeffs()[i];
 			
 			const scalar x0 = x[i];
@@ -486,6 +566,15 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 
 				
 				h1 = mag(dy(up1, y0)); h2 = mag(dy(up2, y0));
+
+                if (h1 < VSMALL || h2 < VSMALL || mag(h2-h1) < VSMALL)
+                {
+                     FatalErrorInFunction << "Algorithm Failure (Scheme 6 Y): Zero denominator detected."
+                         << " Face=" << i 
+                         << "\n h1=" << h1 << " h2=" << h2 
+                         << abort(FatalError);
+                }
+
 				DzetaZdy[i] = (-sqr(h2)*f1 + sqr(h1)*f2 - (sqr(h1)-sqr(h2))*f0) / (h1*h2*(h2 - h1));
 				DPhidy[i] = (-sqr(h2)*g1 + sqr(h1)*g2 - (sqr(h1)-sqr(h2))*g0) / (h1*h2*(h2 - h1));
 			}
@@ -533,8 +622,24 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 				h1 = mag(dy(L[0], y0));
 				h2 = mag(dy(R[0], y0));
 				
-				DzetaZdy[i] = (-sqr(h2)*f1 + sqr(h1)*f2 - (sqr(h1)-sqr(h2))*f0) / (h1*h2*(h1 + h2));
-				DPhidy[i] = (-sqr(h2)*g1 + sqr(h1)*g2 - (sqr(h1)-sqr(h2))*g0) / (h1*h2*(h1 + h2));
+                bool safe = true;
+                if (h1 < VSMALL || h2 < VSMALL || (h1+h2) < VSMALL) safe = false;
+
+                if (safe)
+                {
+				    DzetaZdy[i] = (-sqr(h2)*f1 + sqr(h1)*f2 - (sqr(h1)-sqr(h2))*f0) / (h1*h2*(h1 + h2));
+				    DPhidy[i] = (-sqr(h2)*g1 + sqr(h1)*g2 - (sqr(h1)-sqr(h2))*g0) / (h1*h2*(h1 + h2));
+                }
+                else
+                {
+                    if (h1 > VSMALL) {
+                        DzetaZdy[i] = (f0 - f1) / h1; DPhidy[i] = (g0 - g1) / h1;
+                    } else if (h2 > VSMALL) {
+                        DzetaZdy[i] = (f2 - f0) / h2; DPhidy[i] = (g2 - g0) / h2;
+                    } else {
+                        DzetaZdy[i] = 0.0; DPhidy[i] = 0.0;
+                    }
+                }
 			}
 			else if (s == 7)
 			{
@@ -598,23 +703,63 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 				
 				
 				h1 = mag(dy(down1, y0)); h2 = mag(dy(down2, y0));
+                
+                if (h1 < VSMALL || h2 < VSMALL || mag(h1-h2) < VSMALL)
+                {
+                     FatalErrorInFunction << "Algorithm Failure (Scheme 7 Y): Zero denominator detected."
+                         << " Face=" << i << "\n h1=" << h1 << " h2=" << h2 
+                         << abort(FatalError);
+                }
+
 				DzetaZdy[i] = (-sqr(h2)*f1 + sqr(h1)*f2 - (sqr(h1)-sqr(h2))*f0) / (h1*h2*(h1 - h2));
 				DPhidy[i] = (-sqr(h2)*g1 + sqr(h1)*g2 - (sqr(h1)-sqr(h2))*g0) / (h1*h2*(h1 - h2));
+
+                // Stability Check Y (Scheme 7)
+                if (mag(DzetaZdy[i]) > 10000.0)
+                {
+                     WarningInFunction << "Unstable Y-derivative at face " << i 
+                         << " (Global " << globalIdOfLocalFace_[i] << ")"
+                         << "\n Pos: (" << x0 << " " << y0 << ")"
+                         << "\n Scheme 7 (Downwind2) -> Val: " << DzetaZdy[i]
+                         << "\n h1=" << h1 << " h2=" << h2 << " f0=" << f0 << " f1=" << f1 << " f2=" << f2
+                         << "\n Falling back to 1st order Downwind." << endl;
+                     
+                     // 1st order downwind uses node 1 (h1)
+                     if (h1 > VSMALL) {
+                         // Downwind: (f1 - f0) / h1
+                         DzetaZdy[i] = (f1 - f0) / h1;
+                         DPhidy[i] = (g1 - g0) / h1;
+                     } else {
+                         DzetaZdy[i] = 0; DPhidy[i] = 0;
+                     }
+                }
 			}
 			else if (s == 4 && L.size())
 			{
 				h1 = mag(dy(L[0], y0));
 				f1 = getWp(L[0]); g1 = getPhip(L[0]);
-				DzetaZdy[i] = (f0 - f1) / h1;
-				DPhidy[i] = (g0 - g1) / h1;
+				if (h1 > VSMALL) {
+				    DzetaZdy[i] = (f0 - f1) / h1;
+				    DPhidy[i] = (g0 - g1) / h1;
+                } else {
+                    DzetaZdy[i] = 0.0; DPhidy[i] = 0.0;
+                }
 			}
 			else if (s == 5 && R.size())
 			{
 				h1 = mag(dy(R[0], y0));
 				f1 = getWp(R[0]); g1 = getPhip(R[0]);
-				DzetaZdy[i] = (f1 - f0) / h1;
-				DPhidy[i] = (g1 - g0) / h1;
+                if (h1 > VSMALL) {
+				    DzetaZdy[i] = (f1 - f0) / h1;
+				    DPhidy[i] = (g1 - g0) / h1;
+                } else {
+                    DzetaZdy[i] = 0.0; DPhidy[i] = 0.0;
+                }
 			}
+            else if (s == 100)
+            {
+                DzetaZdy[i] = 0.0; DPhidy[i] = 0.0;
+            }
 			else
 			{
 				FatalErrorInFunction << "Face " << i << ": Invalid schemeCodeY = " << s << nl << abort(FatalError);
@@ -625,10 +770,11 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 			DPhidy[i] = 0.0;
 			}
 		
-		}
+		//}
 		
     }
 
+	/*
 	for (label i = 0; i < nFaces; ++i)
     {
 		
@@ -653,6 +799,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 		}
 		
 	}	
+	*/
 
     for (label j = 0; j < nFaces; ++j)
     {

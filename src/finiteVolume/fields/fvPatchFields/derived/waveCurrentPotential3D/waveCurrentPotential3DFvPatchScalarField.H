@@ -202,7 +202,7 @@ private:
 		Foam::HashTable<labelList, label> remIdToDownwindNewY_;
 		
 		
-		
+	    labelHashSet sendTo; // 16D	
 		Foam::List<labelList> neighbours_;
 		Foam::List<labelList> neighboursGlobal_;
 		
@@ -236,7 +236,7 @@ public:
 	mutable autoPtr<IOdictionary> waveCurDictPtr_;
 		struct Params
 		{
-			scalar U0{0}, steepness{0}, wavelength{0}, hdepth{0}, v0{0},
+			scalar U0{0}, head_ang{0}, steepness{0}, wavelength{0}, hdepth{0}, v0{0},
              Lxdamp{0}, xdamp{0}, Lydamp{0}, ydamp{0}, xsponge{0}, Lsponge{0}, rampperiod{0};
 			bool init{false};
 		} mutable params_;
@@ -329,6 +329,8 @@ public:
 			//- Write
 			virtual void write(Ostream&) const;
 
+            void findSphereEdgeVertexFaces();
+
 	
 	
 		//- Safe getters for accessing internal fields
@@ -355,6 +357,14 @@ public:
 
 		template<class PatchField>
 		friend bool tryDownwind2nd(const PatchField&, label, label&, const vectorField&, const scalarField&, const scalarField&, const List<List<label>>&, const HashTable<List<label>, label>&);
+
+
+        mutable scalarField DzetaZdxOld_, DzetaZdyOld_;
+        mutable scalarField DPhidxOld_,   DPhidyOld_;
+        mutable bool gradOldInit_ = false;
+
+        boolList ownerHasBodyEdge_;
+        boolList ownerHasBodyVertex_;
 
 		
 

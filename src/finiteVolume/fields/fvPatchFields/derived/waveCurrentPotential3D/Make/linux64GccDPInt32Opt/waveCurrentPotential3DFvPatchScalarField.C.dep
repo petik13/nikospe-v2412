@@ -878,7 +878,7 @@ $(WM_PROJECT_DIR)/src/OpenFOAM/lnInclude/processorPolyPatch.H \
 waveCurPar3DPotUPFD5InlineHelpersInt.H \
 InterpolationsHelpers.H \
 2nd_UpwindV6_MQLEAST.H \
-PreParV14D.H \
+PreParV17D.H \
 Outputter.H \
 
 #END
