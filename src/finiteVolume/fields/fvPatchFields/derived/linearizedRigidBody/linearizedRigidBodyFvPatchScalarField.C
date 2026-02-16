@@ -293,7 +293,7 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
     const scalar dt = runTime.deltaTValue();
 
     const scalar aRelax_ = 0.3;
-    const scalar aDamp_  = 0.9;
+    const scalar aDamp_  = 1.0;
 
     // Newmark parameters
     const scalar gamma = 0.5;
@@ -382,12 +382,12 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
 
     Mat6 C = zero66();  // no damping yet
     // Add roll damping
-    C[0][0] = 50.0;
-    C[1][1] = 50.0;
-    C[2][2] = 50.0;
-    C[3][3] = 50.0;
-    C[4][4] = 50.0;
-    C[5][5] = 50.0;
+    // C[0][0] = 50.0;
+    // C[1][1] = 50.0;
+    // C[2][2] = 50.0;
+    // C[3][3] = 50.0;
+    // C[4][4] = 50.0;
+    // C[5][5] = 50.0;
 
     // --- External load at n+1: wrench W=(M,F) -> f=[F,M]
     const spatialVector W = computeForce();

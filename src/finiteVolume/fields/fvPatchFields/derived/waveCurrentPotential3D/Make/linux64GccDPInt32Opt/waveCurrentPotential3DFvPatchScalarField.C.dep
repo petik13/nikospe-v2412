@@ -876,9 +876,10 @@ $(WM_PROJECT_DIR)/src/finiteVolume/lnInclude/backwardDdtScheme.H \
 $(WM_PROJECT_DIR)/src/finiteVolume/lnInclude/backwardDdtScheme.C \
 $(WM_PROJECT_DIR)/src/OpenFOAM/lnInclude/processorPolyPatch.H \
 waveCurPar3DPotUPFD5InlineHelpersInt.H \
+$(WM_PROJECT_DIR)/src/finiteVolume/lnInclude/processorFvPatch.H \
 InterpolationsHelpers.H \
 2nd_UpwindV6_MQLEAST.H \
-PreParV17D.H \
+PreParV14D.H \
 Outputter.H \
 
 #END

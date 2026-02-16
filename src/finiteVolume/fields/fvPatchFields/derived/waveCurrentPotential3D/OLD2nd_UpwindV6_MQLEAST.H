@@ -44,12 +44,24 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
     const volVectorField& zeta = db().lookupObjectRef<volVectorField>(zetaName_);
     const scalarField zetaZ = zeta.boundaryField()[patchi].component(vector::Z); //scalarField zetaZ(nFaces, 0.0); zetaZ[i] = x[i]*0.99;
 	
-	const volVectorField& Ucur = db().lookupObjectRef<volVectorField>("Ucur");
-	const vectorField& Ucur_p = Ucur.boundaryField()[patchi];
+	if (!gradOldInit_ || DzetaZdxOld_.size() != nFaces)
+	{
+		DzetaZdxOld_.setSize(nFaces, 0.0);
+		DzetaZdyOld_.setSize(nFaces, 0.0);
+		DPhidxOld_.setSize(nFaces, 0.0);
+		DPhidyOld_.setSize(nFaces, 0.0);
+		gradOldInit_ = true;
+	}
 	
     const volScalarField& Phi = db().lookupObjectRef<volScalarField>(PHIName_);
     const scalarField& PhiPatch_p = Phi.boundaryField()[patchi];
     scalarField PhiPatch(nFaces, 0.0);
+
+    //const volScalarField& PhiCur = db().lookupObjectRef<volScalarField>("PhiCur");
+    //const scalarField& PhiCur_p = PhiCur.boundaryField()[patchi];
+	
+	//scalarField zetaZ(nFaces, 0.0);
+	//const scalar L= 4;
     
 	for (label i = 0; i < nFaces; i++)
     {
@@ -385,12 +397,54 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 				
 				}
 				
+				
+				
 				DzetaZdx[i] = -amp * wavenumber * Foam::sin(wavenumber * x0 -(w + U0 * wavenumber * Foam::cos(head_ang)) * db().time().value())*ramp_factor;
 				DPhidx[i] =  amp * wavenumber * (9.81 / w) * Foam::cos(wavenumber * x0 - (w + U0 * wavenumber * Foam::cos(head_ang)) * db().time().value())*ramp_factor;
 			}
+			
+			// 		if (ownerHasInletFace_[i]){
+				
+			// 	const scalar rampperiod =  params_.rampperiod;
+			// 	const scalar U0          = params_.U0;
+			// 	const scalar wavelength  = params_.wavelength;
+			// 	const scalar steepness  = params_.steepness;
+			// 	const scalar hdepth  = params_.hdepth;
+				
+			// 	const scalar wavenumber(2.0 * Foam::constant::mathematical::pi / wavelength);
+			// 	const scalar amp(0.5 * steepness * wavelength);
+			// 	const scalar w(U0 * wavenumber + Foam::sqrt(9.81 * wavenumber * Foam::tanh(wavenumber*hdepth)));
+			// 	const scalar celerity(w/wavenumber); 
+				
+			// 	//Info << "Input wave given on:" << x0 << endl; 
+			// 	scalar ramp_factor = 1.0;
+			// 	if (rampperiod > 0){
+			// 	const scalar T(2.0*Foam::constant::mathematical::pi/w);
+			// 	const scalar ramp_time(rampperiod * T);
+			// 	ramp_factor = 0.5 * (1 - cos(Foam::constant::mathematical::pi * min(1.0, db().time().value() / ramp_time)));
+			// 	//Info << "Ramp implemented for nPeriod:" << rampperiod << endl;
+				
+			// 	}
+				
+				
+				
+			// 	DzetaZdx[i] = -amp * wavenumber * Foam::sin(wavenumber * x0 -w * db().time().value())*ramp_factor;
+			// 	DPhidx[i] =  amp * wavenumber * (9.81 / w) * (1.0 / (1.0 - U0/ celerity)) * Foam::cos(wavenumber * x0 - w * db().time().value())*ramp_factor;
+				
+				
+			// 	//Pout << "Input is given x0   " << x0 << endl;
+			// }
+	
 		}
+	
 	}
 	
+	
+	/*---------------------------------------------------------------------------*\
+		
+			
+	
+	\*---------------------------------------------------------------------------*/
 		
 			
 
@@ -625,28 +679,41 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 				 << i << " GlobalID : " << globalIdOfLocalFace_[i] << nl << endl;
 				 continue;
 			}
+			// if (lsMergedCandidates_[i].size() < 5)
+			// {
+			// 	Pout << "Few candidates provided. Only:    " << lsMergedCandidates_[i].size() 
+			// 	<< " GlobalID=" << globalIdOfLocalFace_[i]<< endl;
+			// }
+
+			// if (lsMergedCandidates_[i].empty() || lsMergedCandidates_[i].size() < 5)
+			// {
+			// 	// const point& fc = patch().Cf()[i];   // face centre (x,y,z)
+
+			// 	// Pout<< "Proc " << Pstream::myProcNo()
+			// 	// 	<< " lsMergedCandidates_ empty/too small:"
+			// 	// 	<< " localFaceI=" << i
+			// 	// 	<< " GlobalID=" << globalIdOfLocalFace_[i]
+			// 	// 	<< " size=" << lsMergedCandidates_[i].size()
+			// 	// 	<< " faceCentre=" << fc
+			// 	// 	<< nl << flush;
+
+			// 	DzetaZdx[i] = 0.0;
+			// 	DPhidx[i] = 0.0;
+			// 	DzetaZdy[i] = 0.0;
+			// 	DPhidy[i] = 0.0;
+			// 	continue;
+			// }
+
+			
 			
 			const scalar dist =  shalpeVal/patch().deltaCoeffs()[i];
 			scalar fx = 0, fy = 0, gx = 0, gy = 0;	
 			// DerivativeMqRBFxy(dist,Cf,globalIdToPackedIdx_,globalIdToCf_,getWp,getPhip,selfGid,lsMergedCandidates_[i],fx,fy,gx,gy);
 			// DerivativeLSTaylor(Cf,globalIdToPackedIdx_,globalIdToCf_,getWp,getPhip,selfGid,lsMergedCandidates_[i],fx,fy,gx,gy);
-			// DerivativeLSRobustTaylor(
-			// 	Cf, globalIdToPackedIdx_, globalIdToCf_,
-			// 	getWp, getPhip,
-			// 	selfGid, lsMergedCandidates_[i],
-			// 	fx, fy, gx, gy
-			// );
-
-			GreenGaussUpwindXY
-			(
-				patch(),                 // fvPatch
-				i,                       // face index on patch
-				selfGid,
-				edgeNeighbours_[i],
-				edgeNormals2D_[i],
-				Ucur_p[i],               // advecting velocity at this patch face
-				getWp,
-				getPhip,
+			DerivativeLSRobustTaylor(
+				Cf, globalIdToPackedIdx_, globalIdToCf_,
+				getWp, getPhip,
+				selfGid, lsMergedCandidates_[i],
 				fx, fy, gx, gy
 			);
 
@@ -654,16 +721,109 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 			DPhidx[i] = gx;
 			DzetaZdy[i] = fy;
 			DPhidy[i] = gy;
+
+			// const scalar alpha = 0.2; // start 0.1–0.3; smaller near body if needed
+
+			// DzetaZdx[i] = (1-alpha)*DzetaZdxOld_[i] + alpha*fx;
+			// DzetaZdy[i] = (1-alpha)*DzetaZdyOld_[i] + alpha*fy;
+			// DPhidx[i]   = (1-alpha)*DPhidxOld_[i]   + alpha*gx;
+			// DPhidy[i]   = (1-alpha)*DPhidyOld_[i]   + alpha*gy;
 		}
+		
 	}
+
+	// ---- diffuse gradients ONLY at body faces ----
+
+	// const scalar mu = 0.3;
+	// const label sweeps = 3;
+
+	// diffuseBodyGradientsCandidates(
+	// 	DzetaZdx,
+	// 	ownerHasBodyFace_,
+	// 	lsMergedCandidates_,
+	// 	globalIdToPackedIdx_,
+	// 	mu,
+	// 	sweeps
+	// );
+
+	// diffuseBodyGradientsCandidates(
+	// 	DzetaZdy,
+	// 	ownerHasBodyFace_,
+	// 	lsMergedCandidates_,
+	// 	globalIdToPackedIdx_,
+	// 	mu,
+	// 	sweeps
+	// );
+
+	// diffuseBodyGradientsCandidates(
+	// 	DPhidx,
+	// 	ownerHasBodyFace_,
+	// 	lsMergedCandidates_,
+	// 	globalIdToPackedIdx_,
+	// 	mu,
+	// 	sweeps
+	// );
+
+	// diffuseBodyGradientsCandidates(
+	// 	DPhidy,
+	// 	ownerHasBodyFace_,
+	// 	lsMergedCandidates_,
+	// 	globalIdToPackedIdx_,
+	// 	mu,
+	// 	sweeps
+	// );
+
+
+
 
     for (label j = 0; j < nFaces; ++j)
     {
         zetaDx_[j][vector::X] = DzetaZdx[j];
 		zetaDx_[j][vector::Y] = DzetaZdy[j];
+        //zetaDx_[j][vector::Z] = DzetaZdx[j]; // optional for visualization
         PhiDx_[j] = -DPhidx[j];
 		PhiDy_[j] = -DPhidy[j];
     }
+
+	// DzetaZdxOld_ = DzetaZdx;
+	// DzetaZdyOld_ = DzetaZdy;
+	// DPhidxOld_   = DPhidx;
+	// DPhidyOld_   = DPhidy;
+	
+	//for (label i = 0; i < nFaces; ++i)Pout << "Face " << i << ": x = " << x[i] << " Error = " << DzetaZdx[i] - (2* Foam::constant::mathematical::pi/L) * cos(2* Foam::constant::mathematical::pi*x[i]/L) << nl;
+	
+	//Pout << "proc " << Pstream::myProcNo() << " DzetaZdy " << DzetaZdy - 2.0*y << nl;
+	//Pout << "proc " << Pstream::myProcNo() << " DzetaZdx " << DzetaZdx - 2.0*x << nl;
+	
+	
+
+	/*---------------------------------------------------------------------------*\	
+	const vectorField& patchFaceCenters = patch().Cf();
+    scalarField xComponents = patchFaceCenters.component(vector::X);
+    scalarField yComponents = patchFaceCenters.component(vector::Y);
+
+	
+	
+	fileName faceXYFile = "DzetaZdx_" + Foam::name(Pstream::myProcNo()) + ".dat";
+	OFstream faceXYOS(
+		faceXYFile,
+		Foam::IOstreamOption::ASCII,
+		Foam::IOstreamOption::UNCOMPRESSED,
+		Foam::IOstreamOption::NON_APPEND
+	);
+
+	if (faceXYOS.opened())
+	{
+		for (label i = 0; i < patch().size(); ++i)
+		{
+			faceXYOS 
+				<< globalIdOfLocalFace_[i] << "    "  // Global face ID
+				<< xComponents[i] << "    "          // X component of face center
+				<< yComponents[i] << "    " <<  DzetaZdx[i] << "    " << DzetaZdy[i] << endl;           // Y component of face center
+		}
+	}
+	
+	\*---------------------------------------------------------------------------*/
 
 }
 
@@ -675,6 +835,9 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::exchangeWpGhostField(const 
 
     globalIdToWp_.clear();
 	globalIdToPhi_.clear();
+    
+
+
 
     // --- Gather communication partners
     List<labelList> sendToLists(Pstream::nProcs());
@@ -742,6 +905,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::exchangeWpGhostField(const 
 	
     pBuf.finishedSends();
 
+    // --- Receive phase
     // --- Receive phase
     forAllConstIter(labelHashSet, recvFrom, it)
     {

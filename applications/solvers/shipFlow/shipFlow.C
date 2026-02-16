@@ -203,7 +203,7 @@ int main(int argc, char *argv[])
 
     // Calculate d²PhiCur/dz²
     const volTensorField PhiCurD2 = fvc::grad(fvc::grad(PhiCur));
-    // PhiCurDz2 = PhiCurD2.component(tensor::ZZ);
+    PhiCurDz2 = PhiCurD2.component(tensor::ZZ);
 
     // ---------- Set PhiCur instead using NKL everywhere in the domain (as a freestream undisturbed potential) ---------------------------------
     // scalar heading	=  -30.0;
@@ -307,6 +307,7 @@ int main(int argc, char *argv[])
 		p2 = fvc::ddt(Phi)-(Ucur & U);
 		p3 = 0.5*(U & U);
 		phi = fvc::flux(U);
+        
 
 		
 		Info<< "Continuity error from U = "
@@ -331,6 +332,8 @@ int main(int argc, char *argv[])
 		{
 			Phi.write();
 		}
+
+        
 		
 		
 		

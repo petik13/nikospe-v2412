@@ -223,6 +223,7 @@ private:
 		
 		// Flag indicating if the matrix has been computed already
 		 bool neigboursCalculated_{false};
+         bool sphereEdgeVertexFacesCalculated_{false};
 		 bool windsCalculated_{false};
 		 bool schemesDetected_{false};
 		 bool candidatesCalculated_{false};
@@ -330,6 +331,7 @@ public:
 			virtual void write(Ostream&) const;
 
             void findSphereEdgeVertexFaces();
+            void buildEdgeNeighbours();
 
 	
 	
@@ -365,6 +367,8 @@ public:
 
         boolList ownerHasBodyEdge_;
         boolList ownerHasBodyVertex_;
+        List<labelList> edgeNeighbours_;
+        List<List<vector>> edgeNormals2D_;
 
 		
 
@@ -372,6 +376,22 @@ public:
 
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 } // End namespace Foam
 

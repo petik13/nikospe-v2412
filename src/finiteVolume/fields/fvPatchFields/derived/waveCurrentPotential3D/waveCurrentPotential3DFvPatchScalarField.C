@@ -42,7 +42,7 @@ License
 //#include "SVD.H"
 #include "processorPolyPatch.H"
 #include "waveCurPar3DPotUPFD5InlineHelpersInt.H"
-
+#include "processorFvPatch.H"
 
 // * * * * * * * * * * * * * * Static Data Members * * * * * * * * * * * * * //
 
@@ -233,6 +233,8 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
     volVectorField& zeta = db().lookupObjectRef<volVectorField>(zetaName_);
     vectorField& zetap = zeta.boundaryFieldRef()[patchi]; // current value on patch
 
+	
+
 	//Turgut
 	volScalarField& Phi = db().lookupObjectRef<volScalarField>(PHIName_);
 	const volScalarField& Phi0 = Phi.oldTime();
@@ -279,12 +281,12 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 		// - damping factor
 		scalarField dampingterm=
 		    // x-side damping active for x > xdamp
-		    pos(xComponents - xdamp) * v0 * ((xComponents - xdamp) / (Lxdamp)) * ((xComponents - xdamp) / (Lxdamp)) * (nfRef & Wn);
+		    pos(xComponents - xdamp) * v0 * ((xComponents - xdamp) / (Lxdamp)) * ((xComponents - xdamp) / (Lxdamp)) * (nfRef & Wn)
 		    // y-side damping active only when x > 5
 		//    + pos(xComponents-xsponge)*pos(xdamp-xComponents)*pos(yComponents - ydamp) * v0 * ((yComponents - ydamp) / (Lydamp)) * ((yComponents - ydamp) / (Lydamp)) * (nfRef & Wn)
-		//    + pos(xComponents-xsponge)*pos(xdamp-xComponents)*pos(-yComponents - ydamp) * v0 * ((-yComponents - ydamp) / (Lydamp)) * ((-yComponents - ydamp) / (Lydamp)) * (nfRef & Wn);
+		//    + pos(xComponents-xsponge)*pos(xdamp-xComponents)*pos(-yComponents - ydamp) * v0 * ((-yComponents - ydamp) / (Lydamp)) * ((-yComponents - ydamp) / (Lydamp)) * (nfRef & Wn)
 		    // inlet reflection damping: active for x in [0,5], stronger near x=0
-		//   + pos(xsponge - xComponents) * v0 * ((xsponge - xComponents) / (Lsponge)) * ((xsponge - xComponents) / (Lsponge)) * (nfRef & (Wn - Wn0));
+		  + pos(xsponge - xComponents) * v0 * ((xsponge - xComponents) / (Lsponge)) * ((xsponge - xComponents) / (Lsponge)) * (nfRef & (Wn - Wn0));
 		
 
 
@@ -342,18 +344,17 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 		vectorField Wcurdz_zeta0p(Phi0Patch.size(), vector::zero);
 		
 		
+
 		if (std::fabs(U0) > SMALL) // if current speed is non-zero
 		{
+			findSphereEdgeVertexFaces();
 			calcNeigboursV3(); // calc neighboors if not yet calculated (PrePar)
+			buildEdgeNeighbours();
+
 			if (neigboursCalculated_) // set in calcNeigboursV3
 			{
 				findUpwindDownwindNodesV2();
-				
 				detectFDSchemes();
-
-				findSphereEdgeVertexFaces();
-
-				
 				
 				
 				zetaDx_.setSize(nFaces, vector::zero);
@@ -366,7 +367,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 			
 			
 			
-			// Lookup Ucur and compute UetaDx
+			// compute UetaDx
 			const volVectorField& Ucur = db().lookupObjectRef<volVectorField>("Ucur");
 			const vectorField& Ucur_p = Ucur.boundaryField()[patchi];
 			UetaDx = nfRef * (Ucur_p & zetaDx_);
@@ -542,48 +543,26 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 						// 	}
 						// }
 
-						// Catch bad faces
-						for (label i = 0; i < nFaces; ++i)
-						{
-							if (!ownerHasBodyFace_[i] && (ownerHasBodyEdge_[i] || ownerHasBodyVertex_[i])){
-
-								// include the face itself
-								dampMask[i] = true;
-
-								// // include its neighbours (candidates) if they are local on this proc
-								// const List<label>& cands = lsMergedCandidates_[i];
-								// forAll(cands, j)
-								// {
-								// 	const label gid = cands[j];
-
-								// 	if (globalIdToPackedIdx_.found(gid))
-								// 	{
-								// 		const label loc = globalIdToPackedIdx_[gid]; // patch-local index on this proc
-								// 		if (loc >= 0 && loc < nFaces) dampMask[loc] = true;
-								// 	}
-								// }
-							}
-						}
 
 
-						// 2) Apply damping on all marked faces (skip inlet)
-						const scalar sigma = 1.0/dt;            // try 0.2/dt .. 2/dt
-						const scalar denom = 1.0 + sigma*dt;
+						// // 2) Apply damping on all marked faces 
+						// const scalar sigma = 00.0/dt;            
+						// const scalar denom = 1.0 + sigma*dt;
 
-						for (label i = 0; i < nFaces; ++i)
-						{
-							if (!dampMask[i]) continue;
+						// for (label i = 0; i < nFaces; ++i)
+						// {
+						// 	if (!dampMask[i]) continue;
 
-							// Relax to rest (zeta->0, Phi->0 since Phi is unsteady part)
-							zetap[i]   /= denom;
-							phiCalc[i] /= denom;
+						// 	// Relax to rest (zeta->0, Phi->0 since Phi is unsteady part)
+						// 	zetap[i]   /= denom;
+						// 	phiCalc[i] /= denom;
 
-							// IMPORTANT for AB3: also damp the history terms on the same set
-							WnOld_[i]    /= denom;
-							WnOld2_[i]   /= denom;
-							DPhiold_[i]  /= denom;
-							DPhiold2_[i] /= denom;
-						}
+						// 	// IMPORTANT for AB3: also damp the history terms on the same set
+						// 	WnOld_[i]    /= denom;
+						// 	WnOld2_[i]   /= denom;
+						// 	DPhiold_[i]  /= denom;
+						// 	DPhiold2_[i] /= denom;
+						// }
 						
 						WnOld2_=WnOld_;
 						DPhiold2_=DPhiold_;
@@ -666,7 +645,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 
 #include "InterpolationsHelpers.H"
 #include "2nd_UpwindV6_MQLEAST.H" //numerical scheme
-#include "PreParV17D.H"  // neighbours upwind down wind , scheme detection
+#include "PreParV14D.H"  // neighbours upwind down wind , scheme detection
 
 
 
@@ -735,11 +714,14 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::write(Ostream& os) const
 
 void Foam::waveCurrentPotential3DFvPatchScalarField::findSphereEdgeVertexFaces()
 {
+
+	if (sphereEdgeVertexFacesCalculated_) return;
+	sphereEdgeVertexFacesCalculated_ = true;
+
     const fvMesh& mesh = patch().boundaryMesh().mesh();
 
     const label nFaces   = patch().size();
     const label startFS  = patch().start();
-
     ownerHasBodyEdge_.setSize(nFaces, false);
     ownerHasBodyVertex_.setSize(nFaces, false);
 
@@ -748,6 +730,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findSphereEdgeVertexFaces()
     {
         FatalErrorInFunction << "Patch 'sphere' not found." << abort(FatalError);
     }
+
 
     const polyPatch& spherePatch = mesh.boundaryMesh()[spherePatchID];
 
@@ -770,7 +753,6 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findSphereEdgeVertexFaces()
     {
         const label faceID = startFS + i;
         const face& f = mesh.faces()[faceID];
-
         label shared = 0;
         forAll(f, vI)
         {

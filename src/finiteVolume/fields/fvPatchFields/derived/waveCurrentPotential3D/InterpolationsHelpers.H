@@ -732,8 +732,91 @@ inline void diffuseBodyGradientsCandidates
     }
 }
 
-
 // ----------------------------------------------------------------------------
+
+// --------- Green Gauss gradient reconstruction implementation --------------------
+
+template<class GetW, class GetP>
+static inline void GreenGaussUpwindXY
+(
+    const fvPatch& patch,
+    const label faceI,
+    const label selfGid,
+    const labelList& neiGids,
+    const List<vector>& neiEdgeNormals2D,
+    const vector& Uadv,
+    const GetW& getWp,
+    const GetP& getPhip,
+    scalar& fx, scalar& fy,
+    scalar& gx, scalar& gy
+)
+{
+    const scalar A = mag(patch.Sf()[faceI]);
+    if (A < VSMALL)
+    {
+        fx = fy = gx = gy = 0;
+        return;
+    }
+
+    const scalar wSelf = getWp(selfGid);
+    const scalar pSelf = getPhip(selfGid);
+
+    vector gradW(0,0,0);
+    vector gradP(0,0,0);
+
+    bool usedSelfAtLeastOnce = false;
+
+    // ---------- pass 1: upwind ----------
+    forAll(neiGids, k)
+    {
+        const label gidN = neiGids[k];
+        const vector& nk = neiEdgeNormals2D[k];
+
+        const scalar flux = (Uadv & nk);
+
+        if (flux < 0)
+        {
+            usedSelfAtLeastOnce = true;
+            gradW += getWp(gidN)   * nk;
+            gradP += getPhip(gidN) * nk;
+        }
+        else
+        {
+            gradW += wSelf * nk;
+            gradP += pSelf * nk;
+        }
+    }
+
+    // ---------- fallback: if ALL edges were inflow, switch to downwind everywhere ----------
+    if (!usedSelfAtLeastOnce)
+    {
+        gradW = vector::zero;
+        gradP = vector::zero;
+
+        forAll(neiGids, k)
+        {
+            const label gidN = neiGids[k];
+            const vector& nk = neiEdgeNormals2D[k];
+
+            // downwind everywhere: always neighbour
+            gradW += getWp(gidN)   * nk;
+            gradP += getPhip(gidN) * nk;
+        }
+    }
+
+    gradW /= A;
+    gradP /= A;
+
+    fx = gradW.x();
+    fy = gradW.y();
+    gx = gradP.x();
+    gy = gradP.y();
+}
+
+
+
+
+// --------- Least squares Taylor gradient reconstruction implementation ----------------
 
 
 
@@ -769,7 +852,7 @@ inline void DerivativeLSTaylor(
     auto collectValue = [&](label gid)
     {
         vector c = vector::zero;
-        if (globalIdToPackedIdx.found(gid))
+        if (globalIdToPackedIdx.found(gid)) // 
             c = Cf[globalIdToPackedIdx[gid]];
         else if (globalIdToCf.found(gid))
             c = globalIdToCf[gid];

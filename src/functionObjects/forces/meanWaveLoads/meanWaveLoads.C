@@ -545,7 +545,7 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
     // Total velocity Potential = Phi + PhiCur
     const auto& Phi_ = lookupObject<volScalarField>(PhiName_);
     const auto& PhiCur = mesh_.lookupObject<volScalarField>("PhiCur");
-    const volScalarField Phi = Phi_ + PhiCur;
+    const volScalarField Phi = Phi_;
 
     const auto& Sfb = mesh_.Sf().boundaryField();
     const auto& Cb  = mesh_.C().boundaryField();
@@ -554,7 +554,7 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
 
     const auto& U_ = lookupObject<volVectorField>("U");  // or UName_ from dict
     const auto& Ucur = lookupObject<volVectorField>("Ucur");
-    const volVectorField U = U_ + Ucur;
+    const volVectorField U = U_;
     tmp<surfaceVectorField> tUf = fvc::interpolate(U);
     const surfaceVectorField& Uf = tUf();
 
