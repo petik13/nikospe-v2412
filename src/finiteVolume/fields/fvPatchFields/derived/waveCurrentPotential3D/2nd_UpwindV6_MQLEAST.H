@@ -388,6 +388,36 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 				DzetaZdx[i] = -amp * wavenumber * Foam::sin(wavenumber * x0 -(w + U0 * wavenumber * Foam::cos(head_ang)) * db().time().value())*ramp_factor;
 				DPhidx[i] =  amp * wavenumber * (9.81 / w) * Foam::cos(wavenumber * x0 - (w + U0 * wavenumber * Foam::cos(head_ang)) * db().time().value())*ramp_factor;
 			}
+
+			// if (ownerHasInletFace_[i]){
+				
+			// 	const scalar rampperiod =  params_.rampperiod;
+			// 	const scalar U0          = params_.U0;
+			// 	const scalar head_ang   = params_.head_ang;
+			// 	const scalar wavelength  = params_.wavelength;
+			// 	const scalar steepness  = params_.steepness;
+			// 	const scalar hdepth  = params_.hdepth;
+				
+			// 	const scalar wavenumber(2.0 * Foam::constant::mathematical::pi / wavelength);
+			// 	const scalar amp(0.5 * steepness * wavelength);
+			// 	const scalar w(Foam::sqrt(9.81 * wavenumber * Foam::tanh(wavenumber*hdepth)));
+			// 	const scalar celerity(w/wavenumber); 
+				
+			// 	//Info << "Input wave given on:" << x0 << endl; 
+			// 	scalar ramp_factor = 1.0;
+			// 	if (rampperiod > 0){
+			// 		const scalar T(2.0*Foam::constant::mathematical::pi/w);
+			// 		const scalar ramp_time(rampperiod * T);
+			// 		ramp_factor = 0.5 * (1 - cos(Foam::constant::mathematical::pi * min(1.0, db().time().value() / ramp_time)));
+			// 	//Info << "Ramp implemented for nPeriod:" << rampperiod << endl;
+				
+			// 	}
+				
+				
+				
+			// 	DzetaZdx[i] = -amp * wavenumber * Foam::sin(wavenumber * x0 -(w + U0 * wavenumber * Foam::cos(head_ang)) * db().time().value())*ramp_factor;
+			// 	DPhidx[i] =  amp * wavenumber * (9.81 / w) * Foam::cos(wavenumber * x0 - (w + U0 * wavenumber * Foam::cos(head_ang)) * db().time().value())*ramp_factor;
+			// }
 		}
 	}
 	

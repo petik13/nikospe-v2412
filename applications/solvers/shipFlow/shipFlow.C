@@ -139,11 +139,11 @@ int main(int argc, char *argv[])
 	
     
 	
-	#include "readGravitationalAcceleration.H" // self-explanatory
+	// #include "readGravitationalAcceleration.H" // self-explanatory
 	#include "createControl.H" // loads custom file by Turgut located in constant dir: turgutFlow. It reads in nNonOrtho
 	pisoControl turgutFlow(mesh, "turgutFlow"); // create pisoControl object. Named: turgutFlow. turgutFlow solver named in fvSolutions
 	pisoControl steadyFlow(mesh, "steadyFlow");
-	// TODO: add control for steady flow?
+
     #include "createFields.H" // read/init fields: U, Ucur, phi(flux), zeta, zetaDx, p, p2, p3, Phi, PhiCur, PhiDx, PhiDy, PhiCurDz2 (dphi/dz**2)
 	// Also read in waveCurConditions dictionary here
 	
@@ -203,7 +203,7 @@ int main(int argc, char *argv[])
 
     // Calculate d²PhiCur/dz²
     const volTensorField PhiCurD2 = fvc::grad(fvc::grad(PhiCur));
-    PhiCurDz2 = PhiCurD2.component(tensor::ZZ);
+    // PhiCurDz2 = PhiCurD2.component(tensor::ZZ);
 
     // ---------- Set PhiCur instead using NKL everywhere in the domain (as a freestream undisturbed potential) ---------------------------------
     // scalar heading	=  -30.0;

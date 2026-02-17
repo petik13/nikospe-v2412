@@ -376,9 +376,9 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
     K[4][2] = C35_;
 
     // - Soft Mooring
-    // K[0][0] = 60.0;
-    // K[1][1] = 60.0;
-    // K[5][5] = 180.0;
+    K[0][0] = 60.0;
+    K[1][1] = 60.0;
+    K[5][5] = 180.0;
 
     Mat6 C = zero66();  // no damping yet
     // Add roll damping
@@ -473,7 +473,7 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
         UbFace[i] = Ulin + (omega ^ (Cf[i] - xRef));
     }
 
-    // mj term: (n · ∇)U & Xb_new_ on patch faces
+    // mj term:
     // -- Load Ucur 
     const volVectorField& Ucur = db().lookupObject<volVectorField>("Ucur");
 
@@ -483,50 +483,49 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
     // patch unit normals
     const vectorField np(patch().nf());
 
-    // Gradient of U on the patch as a tensorField (per face)
-    tmp<volTensorField> tGradU = fvc::grad(Ucur);   // tmp<volTensorField>
-    const volTensorField& gradU = tGradU();         // unwrap tmp -> volTensorField
+    // Volume gradient of Ucur, then take boundary values on this patch
+    tmp<volTensorField> tGradU = fvc::grad(Ucur);
+    const volTensorField& gradU = tGradU();
 
     const fvPatchTensorField& gradUpP = gradU.boundaryField()[patchi];
+    tensorField gradUp(gradUpP);  // make owned copy
 
-    // hard checks
-    if (gradUpP.size() != patch().size() || np.size() != patch().size())
-    {
-        FatalErrorInFunction
-            << "Patch size mismatch on patch " << patch().name()
-            << " patch.size=" << patch().size()
-            << " gradUpP.size=" << gradUpP.size()
-            << " np.size=" << np.size()
-            << abort(FatalError);
-    }
+    // Displacement amplitudes (mean-surface): translation X and small rotation theta
+    const vector X = Xb_new_.l();
+    const vector th = Xb_new_.w();
 
-    // make plain Fields (owned storage, no patch refs)
-    tensorField gradUp(gradUpP);          // copy
-
-    scalarField mj(patch().size());
-    const vector X = Xb_new_.l();   // translation amplitudes
-    const vector th = Xb_new_.w();  // rotation amplitudes (small angles)
-
-    // rotate to global frame
+    // Rotate to global frame
     vector Xg( X.x()*cH + X.y()*sH, -X.x()*sH + X.y()*cH, X.z() );
     vector thg( th.x()*cH + th.y()*sH, -th.x()*sH + th.y()*cH, th.z() );
 
+    scalarField mj(patch().size(), 0.0);
+
     forAll(Cf, i)
     {
-        vector nDotGradU_i = gradUp[i] & np[i];       // (n·∇)U
-        vector mTrans = -nDotGradU_i;                 // [m1..m3]
-        vector r = Cf[i] - xRef;
-        vector mRot   = -(r ^ nDotGradU_i);           // [m4..m6]
+        const vector r = Cf[i] - xRef;
 
-        mj[i] = (mTrans & Xg) + (mRot & thg);
+        // Total displacement at the face: S = X + theta x r
+        const vector S = Xg + (thg ^ r);
+
+        // Approximate grad(n·U) = (gradU)^T · n   (ignores curvature term U·∇n)
+        const vector grad_nDotU = (gradUp[i].T() & np[i]);
+
+        // mj = - S · grad(n·U)
+        mj[i] = (S & grad_nDotU);
     }
+
+    
 	// Info << "mj sample: " << mj[0] << endl;
-    scalarField rhsBC = -(n & UbFace) + mj;
+    scalarField rhsBC = -(n & UbFace) - mj;
+    // scalarField rhsBC = -(n & UbFace);
     this->gradient() = rhsBC;
     // Info<< "Updated linearized rigid body BC on patch " << patch().name()
     //     << " Xb_new " << Xb_new_
     //     << " (timeIndex=" << runTime.timeIndex() << ")"
     //     << endl;
+
+    // Pout << "print a few mj terms for debugging: " << mj[0] << " " << mj[mj.size()/2] << " " << mj[mj.size()-1] << endl;
+
     lastUpdateTimeIndex_ = runTime.timeIndex();
 
     fixedGradientFvPatchField<scalar>::updateCoeffs();

@@ -708,6 +708,11 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
 
         const fvPatchVectorField& zetaPatch = zeta.boundaryField()[freeSurfacePatchID_];
 
+        // For forward speed term
+        const fvPatchVectorField& U_p = U_.boundaryField()[freeSurfacePatchID_];
+        const fvPatchVectorField& Ucur_p = Ucur.boundaryField()[freeSurfacePatchID_];
+
+
         vector Fzeta(Zero);
         vector Mzeta(Zero);
 
@@ -734,6 +739,7 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
             // It’s on free-surface patch by construction, now get an averaged zeta
             scalar zetaZ = 0.0;
             label nFS = 0;
+            scalar U_Uc_e = 0.0;
             forAll(eFaces, k)
             {
                 const label facei = eFaces[k];
@@ -741,10 +747,13 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
 
                 const label fsLocalFace = facei - fsPatch.start();
                 zetaZ += zetaPatch[fsLocalFace].z();
+                U_Uc_e += U_p[fsLocalFace] & Ucur_p[fsLocalFace];
+
                 ++nFS;
             }
             if (nFS == 0) continue;          // should not happen, but safe
             zetaZ /= nFS;
+            U_Uc_e /= nFS;
 
             // Edge geometry
             const edge& e = edges[edgei];
@@ -789,7 +798,8 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
             if (nm < SMALL) continue;
             n /= nm;
 
-            const scalar coeff = -0.5*rhoRef*gMag_*sqr(zetaZ);
+            const scalar coeff = -0.5*rhoRef*gMag_*(sqr(zetaZ));
+            // const scalar coeff = -0.5*rhoRef*gMag_*(sqr(zetaZ) + 2 * U_Uc_e * zetaZ/gMag_); // include forward speed effect as well
             const vector fEdge = coeff * n * L;
 
             Fzeta += fEdge;

@@ -281,12 +281,12 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 		// - damping factor
 		scalarField dampingterm=
 		    // x-side damping active for x > xdamp
-		    pos(xComponents - xdamp) * v0 * ((xComponents - xdamp) / (Lxdamp)) * ((xComponents - xdamp) / (Lxdamp)) * (nfRef & Wn)
+		    pos(xComponents - xdamp) * v0 * ((xComponents - xdamp) / (Lxdamp)) * ((xComponents - xdamp) / (Lxdamp)) * (nfRef & Wn);
 		    // y-side damping active only when x > 5
 		//    + pos(xComponents-xsponge)*pos(xdamp-xComponents)*pos(yComponents - ydamp) * v0 * ((yComponents - ydamp) / (Lydamp)) * ((yComponents - ydamp) / (Lydamp)) * (nfRef & Wn)
 		//    + pos(xComponents-xsponge)*pos(xdamp-xComponents)*pos(-yComponents - ydamp) * v0 * ((-yComponents - ydamp) / (Lydamp)) * ((-yComponents - ydamp) / (Lydamp)) * (nfRef & Wn)
 		    // inlet reflection damping: active for x in [0,5], stronger near x=0
-		  + pos(xsponge - xComponents) * v0 * ((xsponge - xComponents) / (Lsponge)) * ((xsponge - xComponents) / (Lsponge)) * (nfRef & (Wn - Wn0));
+		//   + pos(xsponge - xComponents) * v0 * ((xsponge - xComponents) / (Lsponge)) * ((xsponge - xComponents) / (Lsponge)) * (nfRef & (Wn - Wn0));
 		
 
 
@@ -519,7 +519,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 						
 						// Only on faces near body
 						// 1) Build mask: body faces + their (local) merged-candidate neighbours
-						boolList dampMask(nFaces, false);
+						// boolList dampMask(nFaces, false);
 
 						// for (label i = 0; i < nFaces; ++i)
 						// {
@@ -645,7 +645,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 
 #include "InterpolationsHelpers.H"
 #include "2nd_UpwindV6_MQLEAST.H" //numerical scheme
-#include "PreParV14D.H"  // neighbours upwind down wind , scheme detection
+#include "PreParV18D.H"  // neighbours upwind down wind , scheme detection
 
 
 

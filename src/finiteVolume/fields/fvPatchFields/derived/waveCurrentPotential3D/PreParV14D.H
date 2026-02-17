@@ -673,10 +673,10 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findSphereFaces()
 	}
 
     bool bodyfoundGlobal = returnReduce(bodyfoundLocal, orOp<bool>());
-    if (!bodyfoundGlobal)
-    {
-        FatalErrorInFunction << "No faces near 'sphere' found globally." << abort(FatalError);
-    }
+    // if (!bodyfoundGlobal)
+    // {
+    //     FatalErrorInFunction << "No faces near 'sphere' found globally." << abort(FatalError);
+    // }
 	buildVertexBasedConnections();
     // --- debug output ---
 	//for (label i = 0; i < nFaces; ++i)

@@ -879,7 +879,7 @@ waveCurPar3DPotUPFD5InlineHelpersInt.H \
 $(WM_PROJECT_DIR)/src/finiteVolume/lnInclude/processorFvPatch.H \
 InterpolationsHelpers.H \
 2nd_UpwindV6_MQLEAST.H \
-PreParV14D.H \
+PreParV18D.H \
 Outputter.H \
 
 #END
