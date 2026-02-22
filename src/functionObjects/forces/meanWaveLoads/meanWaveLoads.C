@@ -542,7 +542,7 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
 
     const point& origin = coordSysPtr_->origin();
 
-
+    // Total velocity Potential = Phi + PhiCur
     const auto& Phi_ = lookupObject<volScalarField>(PhiName_);
     const auto& PhiCur = mesh_.lookupObject<volScalarField>("PhiCur");
     const volScalarField Phi = Phi_;
@@ -562,7 +562,7 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
 
 
     // ---------------------------------------------------------------------
-    // 1. Contributions from selected patches
+    // 1. Contributions from selected patches (e.g. hull, if you still want)
     // ---------------------------------------------------------------------
     // for (const label patchi : patchIDs_)
     // {
@@ -596,6 +596,9 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
         const fvMesh& fvm = mesh_;
         const vectorField& Sf = fvm.Sf();
         const vectorField& Cf = fvm.Cf();
+
+        // const labelUList& owner = mesh_.owner();
+        // const labelUList& nei   = mesh_.neighbour();
 
         const point& cvP = cvPoint_;
 
@@ -664,6 +667,10 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
                     0.5*Sf_f*(gradPhi_f & gradPhi_f)
                   - gradPhi_f*dphidnSb
                 )
+            //      rhoRef
+            //    *(
+            //         -gradPhi_f*dphidnSb
+            //     )
             );
 
             sumPatchForcesP_  += fP;
@@ -727,12 +734,31 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
                 }
             }
             if (!touchesCV) continue;
+
+            // Need outward/inward horizontal normal of CV side at that edge:
+            // simplest: grab ANY cv face among eFaces and use its Sf, then project horizontal
+            label cvFace = -1;
+            forAll(eFaces, k) { if (isCVFace[eFaces[k]]) { cvFace = eFaces[k]; break; } }
+            if (cvFace < 0) continue;
+
+            vector n = mesh_.Sf()[cvFace];
+
+            // Flip inward wrt cvPoint_
+            const vector d = mesh_.Cf()[cvFace] - cvPoint_;
+            if ((n & d) < 0) n = -n;
+
+            // Make horizontal and unit
+            n.z() = 0;
+            const scalar nm = mag(n);
+            if (nm < SMALL) continue;
+            n /= nm;
             
 
             // It’s on free-surface patch by construction, now get an averaged zeta
             scalar zetaZ = 0.0;
             label nFS = 0;
-            scalar U_Uc_e = 0.0;
+            vector Un_Uc = vector::zero;
+            vector U_Ucn = vector::zero;
             forAll(eFaces, k)
             {
                 const label facei = eFaces[k];
@@ -740,24 +766,21 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
 
                 const label fsLocalFace = facei - fsPatch.start();
                 zetaZ += zetaPatch[fsLocalFace].z();
-                U_Uc_e += U_p[fsLocalFace] & Ucur_p[fsLocalFace];
-
+                Un_Uc += (U_p[fsLocalFace] & n) * Ucur_p[fsLocalFace];
+                U_Ucn += U_p[fsLocalFace] * (Ucur_p[fsLocalFace] & n);
                 ++nFS;
             }
             if (nFS == 0) continue;          // should not happen, but safe
             zetaZ /= nFS;
-            U_Uc_e /= nFS;
+            Un_Uc /= nFS;
+            U_Ucn /= nFS;
 
             // Edge geometry
             const edge& e = edges[edgei];
             const point mid = 0.5*(pts[e[0]] + pts[e[1]]);
             const scalar L = mag(pts[e[1]] - pts[e[0]]);
 
-            // Need outward/inward horizontal normal of CV side at that edge:
-            // simplest: grab ANY cv face among eFaces and use its Sf, then project horizontal
-            label cvFace = -1;
-            forAll(eFaces, k) { if (isCVFace[eFaces[k]]) { cvFace = eFaces[k]; break; } }
-            if (cvFace < 0) continue;
+            
             
             if (Pstream::parRun())
             {
@@ -779,21 +802,12 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
                     }
                 }
             }
-            vector n = mesh_.Sf()[cvFace];
 
-            // Flip inward wrt cvPoint_
-            const vector d = mesh_.Cf()[cvFace] - cvPoint_;
-            if ((n & d) < 0) n = -n;
-
-            // Make horizontal and unit
-            n.z() = 0;
-            const scalar nm = mag(n);
-            if (nm < SMALL) continue;
-            n /= nm;
+            
 
             // const scalar coeff = -0.5*rhoRef*gMag_*(sqr(zetaZ));
-            const scalar coeff = -0.5*rhoRef*gMag_*(sqr(zetaZ) + 2*U_Uc_e * zetaZ/gMag_); // include forward speed effect as well
-            const vector fEdge = coeff * n * L;
+            const vector coeff = -0.5*rhoRef*gMag_*(sqr(zetaZ) * n + 2 * (Un_Uc + U_Ucn) * zetaZ/gMag_); // include forward speed effect
+            const vector fEdge = coeff * L;
 
             Fzeta += fEdge;
             Mzeta += (mid - origin) ^ fEdge;
