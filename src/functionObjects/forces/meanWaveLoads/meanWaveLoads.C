@@ -542,7 +542,7 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
 
     const point& origin = coordSysPtr_->origin();
 
-    // Total velocity Potential = Phi + PhiCur
+
     const auto& Phi_ = lookupObject<volScalarField>(PhiName_);
     const auto& PhiCur = mesh_.lookupObject<volScalarField>("PhiCur");
     const volScalarField Phi = Phi_;
@@ -562,7 +562,7 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
 
 
     // ---------------------------------------------------------------------
-    // 1. Contributions from selected patches (e.g. hull, if you still want)
+    // 1. Contributions from selected patches
     // ---------------------------------------------------------------------
     // for (const label patchi : patchIDs_)
     // {
@@ -596,9 +596,6 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
         const fvMesh& fvm = mesh_;
         const vectorField& Sf = fvm.Sf();
         const vectorField& Cf = fvm.Cf();
-
-        // const labelUList& owner = mesh_.owner();
-        // const labelUList& nei   = mesh_.neighbour();
 
         const point& cvP = cvPoint_;
 
@@ -651,7 +648,7 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
             const vector d = Cf_f - cvP;
 
             // If Sf_f points *away* from cvPoint, flip it to point inward
-            if ((Sf_f & d) > 0)
+            if ((Sf_f & d) < 0)
             {
                 Sf_f = -Sf_f;
             }
@@ -667,10 +664,6 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
                     0.5*Sf_f*(gradPhi_f & gradPhi_f)
                   - gradPhi_f*dphidnSb
                 )
-            //      rhoRef
-            //    *(
-            //         -gradPhi_f*dphidnSb
-            //     )
             );
 
             sumPatchForcesP_  += fP;
@@ -790,7 +783,7 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
 
             // Flip inward wrt cvPoint_
             const vector d = mesh_.Cf()[cvFace] - cvPoint_;
-            if ((n & d) > 0) n = -n;
+            if ((n & d) < 0) n = -n;
 
             // Make horizontal and unit
             n.z() = 0;
@@ -798,8 +791,8 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
             if (nm < SMALL) continue;
             n /= nm;
 
-            const scalar coeff = -0.5*rhoRef*gMag_*(sqr(zetaZ));
-            // const scalar coeff = -0.5*rhoRef*gMag_*(sqr(zetaZ) + 2 * U_Uc_e * zetaZ/gMag_); // include forward speed effect as well
+            // const scalar coeff = -0.5*rhoRef*gMag_*(sqr(zetaZ));
+            const scalar coeff = -0.5*rhoRef*gMag_*(sqr(zetaZ) + 2*U_Uc_e * zetaZ/gMag_); // include forward speed effect as well
             const vector fEdge = coeff * n * L;
 
             Fzeta += fEdge;

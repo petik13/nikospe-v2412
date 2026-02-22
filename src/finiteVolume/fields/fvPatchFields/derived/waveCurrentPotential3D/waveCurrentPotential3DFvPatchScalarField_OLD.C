@@ -412,205 +412,166 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 			case tsEuler:
 			case tsCrankNicolson:
 			{
-				Info << "Time Scheme = Semi-Lagrangian Splitting (via " << ddtSchemeTypeNames_[ddtScheme] << ")" << endl;
-
-				if (std::fabs(U0) > SMALL)
-				{
-					// --- 1. SL Advection Step for Zeta ---
-					// We find the value of zeta at the departure point (x - U*dt)
-					// Using Taylor expansion: zeta* = zeta_old - dt * (U . grad(zeta))
-					// Note: your UetaDx is already nfRef * (Ucur_p & zetaDx_)
-					const volVectorField& Ucur = db().lookupObjectRef<volVectorField>("Ucur");
-					const vectorField& Ucur_p = Ucur.boundaryField()[patchi];
-					vectorField zetaStar = zeta0p + dt * (Ucur_p & zetaDx_) * nfRef;
-
-					// --- 2. SL Advection Step for Phi ---
-					// Same logic for the potential field
-					scalarField phiStar = Phi0Patch + dt * turgut;
-
-					// --- 3. Propagation Step (Physical Update) ---
-					// Now apply vertical velocity and pressure/gravity terms to the advected values
-					
-					// Update surface elevation: zeta = zeta_star + dt * (W_unsteady + W_steady_correction)
-					zetap = zetaStar - dt * (Wn + Wcurdz_zeta0p);
-
-					// Update potential: phi = phi_star + dt * (gravity + damping)
-					// gVal is already negative gravity.
-					phiCalc = phiStar + dt * ((gVal & zeta0p) + dampingterm);
-
-					// Update history terms for next step (if using higher order like AB3 later)
-					WnOld_ = (Wn + Wcurdz_zeta0p); // Pure source terms
-					DPhiold_ = ((gVal & zeta0p) + dampingterm);
-
-					Info << "Semi-Lagrangian advection and propagation steps applied." << endl;
-				}
-				else
-				{
-					// Standard zero-speed update
-					Info << "Current speed is zero - Standard Eulerian update" << endl;
-					zetap = zeta0p + dt * Wn;
-					phiCalc = (gVal & zetap) * dt + Phi0Patch + dampingterm * dt;
-				}
-
-				break;
-			}
-			case tsBackward:
-			{
 				
 				Info << "Time Scheme = " << ddtSchemeTypeNames_[ddtScheme] << endl;
 				
-				if ( db().time().timeIndex() == 1 )	 
-				{
-					if ( std::fabs(U0) > 0.0 )
-						{			
-						zetap = zeta0p + dt*(Wn+Wcurdz_zeta0p-UetaDx);
-						Info << "Turgut ayri applied" << endl;
-						phiCalc = ((gVal & zeta0p)+turgut)*dt + Phi0Patch;
-						
-						WnOld_=(Wn+Wcurdz_zeta0p-UetaDx);
-						DPhiold_=((gVal & zeta0p)+turgut);
-						}
-						else{
-							
-						Info << "First time step Euler (U0=0) implemented " << endl;
-						zetap = zeta0p + dt*Wn;
-						phiCalc = (gVal & (zetap))*dt + Phi0Patch;	
-							
-						WnOld_=Wn;
-						DPhiold_=((gVal & zeta0p));
-						}
-					
-					
-					
-				}	 
-				else if ( db().time().timeIndex() == 2 )	 	 
-				{
-					 if ( std::fabs(U0) > 0.0 ){
-									
-					//zetaInt = zeta0p+0.5*dt*((Wn-UetaDx)+WnOld_);
-					//phiInt = (1.5*((gVal & zeta0p)+(0.5)*turgut)-0.5*DPhiold_)*dt + Phi0Patch;
-					
-					Info << "Current speed is nonzero " << endl;
-					zetap=zeta0p+dt*(1.5*(Wn+Wcurdz_zeta0p-UetaDx)-0.5*WnOld_);
-					phiCalc = (1.5*((gVal & zeta0p)+turgut + dampingterm)-0.5*DPhiold_)*dt + Phi0Patch;
-					
-					
-					WnOld2_=WnOld_;
-					DPhiold2_=DPhiold_;
-					
-					WnOld_=(Wn+Wcurdz_zeta0p-UetaDx);
-					DPhiold_=((gVal & zeta0p)+turgut + dampingterm);
-					
-					}
-					else{
-					
-					
-					Info << "Current speed U0 is zero " << endl;
-					zetap=zeta0p+dt*(1.5*Wn-0.5*WnOld_);
-					phiCalc = (1.5*((gVal & zeta0p) + dampingterm)-0.5*DPhiold_)*dt + Phi0Patch;
-					
-					WnOld2_=WnOld_;
-					DPhiold2_=DPhiold_;
-					
-					WnOld_=Wn;
-					DPhiold_=((gVal & zeta0p) + dampingterm);
-					
-					}
-									
-					 
-					 
-				 }
-				else
-				{
-					if ( std::fabs(U0) > 0.0 ){
-									
-						//zetaInt = zeta0p+0.5*dt*((Wn-UetaDx)+WnOld_);
-						//phiInt = (1.5*((gVal & zeta0p)+(0.5)*turgut)-0.5*DPhiold_)*dt + Phi0Patch;
-						
-						Info << "Current speed is nonzero " << endl;
-						zetap=zeta0p+dt*((23.0/12.0)*(Wn+Wcurdz_zeta0p-UetaDx)-(16.0/12.0)*WnOld_+(5.0/12.0)*WnOld2_);
-						phiCalc = ((23.0/12.0)*((gVal & zeta0p)+turgut + dampingterm)-(16.0/12.0)*DPhiold_+(5.0/12.0)*DPhiold2_)*dt + Phi0Patch;
-						
-						// Only on faces near body
-						// 1) Build mask: body faces + their (local) merged-candidate neighbours
-						// boolList dampMask(nFaces, false);
-
-						// for (label i = 0; i < nFaces; ++i)
-						// {
-						// 	if (ownerHasBodyFace_[i] || ownerHasBodyEdge_[i] || ownerHasBodyVertex_[i]){
-
-						// 		// include the face itself
-						// 		dampMask[i] = true;
-
-						// 		// // include its neighbours (candidates) if they are local on this proc
-						// 		// const List<label>& cands = lsMergedCandidates_[i];
-						// 		// forAll(cands, j)
-						// 		// {
-						// 		// 	const label gid = cands[j];
-
-						// 		// 	if (globalIdToPackedIdx_.found(gid))
-						// 		// 	{
-						// 		// 		const label loc = globalIdToPackedIdx_[gid]; // patch-local index on this proc
-						// 		// 		if (loc >= 0 && loc < nFaces) dampMask[loc] = true;
-						// 		// 	}
-						// 		// }
-						// 	}
-						// }
-
-
-
-						// // 2) Apply damping on all marked faces 
-						// const scalar sigma = 00.0/dt;            
-						// const scalar denom = 1.0 + sigma*dt;
-
-						// for (label i = 0; i < nFaces; ++i)
-						// {
-						// 	if (!dampMask[i]) continue;
-
-						// 	// Relax to rest (zeta->0, Phi->0 since Phi is unsteady part)
-						// 	zetap[i]   /= denom;
-						// 	phiCalc[i] /= denom;
-
-						// 	// IMPORTANT for AB3: also damp the history terms on the same set
-						// 	WnOld_[i]    /= denom;
-						// 	WnOld2_[i]   /= denom;
-						// 	DPhiold_[i]  /= denom;
-						// 	DPhiold2_[i] /= denom;
-						// }
-						
-						WnOld2_=WnOld_;
-						DPhiold2_=DPhiold_;
-						
-						
-						WnOld_=(Wn+Wcurdz_zeta0p-UetaDx);
-						DPhiold_=((gVal & zeta0p)+turgut + dampingterm);
-					
-					}
-					else{
-					
-					
-						Info << "Current speed U0 is zero " << endl;
-						zetap=zeta0p+dt*((23.0/12.0)*Wn-(16.0/12.0)*WnOld_+(5.0/12.0)*WnOld2_);
-						phiCalc = ((23.0/12.0)*((gVal & zeta0p) + dampingterm)-(16.0/12.0)*DPhiold_+(5.0/12.0)*DPhiold2_)*dt + Phi0Patch;
-						
-						WnOld2_=WnOld_;
-						DPhiold2_=DPhiold_;
-						WnOld_=Wn;
-						DPhiold_=((gVal & zeta0p) + dampingterm);
-					
-					} 
-					 
-					 
-					 
-				 }		
+				if ( std::fabs(U0) > 0.0 ){
 				
-					 
+				
+					Info << "Current speed is nonzero " << endl;
 					
+					
+					zetap = zeta0p + dt*(Wn+Wcurdz_zeta0p-UetaDx);
+					Info << "Turgut ayri applied" << endl;
+					phiCalc = ((gVal & zeta0p)+turgut + dampingterm)*dt + Phi0Patch; // shouldn't turgut term have a minus?
+					//phiCalc = ((gVal & zetap))*dt + Phi0Patch;
+					
+				}
+				else{
+					
+				Info << "Current speed is zero " << endl;
+				
+				zetap = zeta0p + dt*Wn;
+				phiCalc = ((gVal & zetap)+ dampingterm)*dt + Phi0Patch;
+				
+				}
+				
+				
 				
 				break;
 			}
-
 			
+
+			case tsBackward:
+			{
+				Info << "Time Scheme = chatStep (shift Z only, zeta is vectorField)" << endl;
+
+				// Patch face centres
+				const vectorField& Cf = patch().Cf();
+				const label nFacesLocal = Cf.size();
+
+				// 1D semi-Lagrangian shift of a scalarField along x by dxShift
+				auto shift1D = [&](const scalarField& f, const scalar dxShift) -> scalarField
+				{
+					scalarField out(nFacesLocal, 0.0);
+
+					// sort indices by x
+					List<label> order(nFacesLocal);
+					for (label i = 0; i < nFacesLocal; ++i) order[i] = i;
+
+					Foam::sort(order, [&](const label a, const label b)
+					{
+						return Cf[a].x() < Cf[b].x();
+					});
+
+					// sorted x and f
+					scalarField xs(nFacesLocal), fs(nFacesLocal);
+					for (label k = 0; k < nFacesLocal; ++k)
+					{
+						const label i = order[k];
+						xs[k] = Cf[i].x();
+						fs[k] = f[i];
+					}
+
+					for (label i = 0; i < nFacesLocal; ++i)
+					{
+						const scalar xTarget = Cf[i].x() - dxShift;
+
+						// clamp (if you are periodic in x, you’d wrap instead)
+						if (xTarget <= xs.first()) { out[i] = fs.first(); continue; }
+						if (xTarget >= xs.last())  { out[i] = fs.last();  continue; }
+
+						label kHi = 1;
+						while (kHi < nFacesLocal && xs[kHi] < xTarget) ++kHi;
+						const label kLo = kHi - 1;
+
+						const scalar x0 = xs[kLo], x1 = xs[kHi];
+						const scalar f0 = fs[kLo], f1 = fs[kHi];
+
+						const scalar w = (xTarget - x0)/(x1 - x0 + VSMALL);
+						out[i] = (1.0 - w)*f0 + w*f1;
+					}
+
+					return out;
+				};
+
+				if (mag(U0) > SMALL)
+				{
+					Info << "U0 != 0: shift Z by U0*dt, then AB update (no explicit -UetaDx)" << endl;
+
+					const scalar dxShift = U0*dt;
+
+					// --- Shift ONLY the z-component of zeta0p
+					const scalarField eta0        = zeta0p.component(vector::Z);
+					const scalarField etaShifted  = shift1D(eta0, dxShift);
+
+					vectorField zetaShiftedVec = zeta0p;
+					zetaShiftedVec.replace(vector::Z, etaShifted);
+
+					// Shift Phi0Patch too (scalar)
+					const scalarField Phi0Shifted = shift1D(Phi0Patch, dxShift);
+
+					// RHS without -UetaDx (since mean advection handled by shift)
+					const vectorField rhsVec = (Wn + Wcurdz_zeta0p);
+
+					if (db().time().timeIndex() == 1)
+					{
+						// start-up: Euler
+						zetap   = zetaShiftedVec + dt*rhsVec;
+						phiCalc = ((gVal & zetaShiftedVec) + turgut + dampingterm)*dt + Phi0Shifted;
+
+						WnOld_   = rhsVec;
+						DPhiold_ = ((gVal & zetaShiftedVec) + turgut + dampingterm);
+					}
+					else if (db().time().timeIndex() == 2)
+					{
+						// AB2
+						zetap   = zetaShiftedVec + dt*(1.5*rhsVec - 0.5*WnOld_);
+						phiCalc = (1.5*((gVal & zetaShiftedVec) + turgut + dampingterm) - 0.5*DPhiold_)*dt + Phi0Shifted;
+
+						WnOld2_   = WnOld_;
+						DPhiold2_ = DPhiold_;
+
+						WnOld_    = rhsVec;
+						DPhiold_  = ((gVal & zetaShiftedVec) + turgut + dampingterm);
+					}
+					else
+					{
+						// AB3
+						zetap   =
+							zetaShiftedVec
+						+ dt*((23.0/12.0)*rhsVec
+							- (16.0/12.0)*WnOld_
+							+ ( 5.0/12.0)*WnOld2_);
+
+						phiCalc =
+							( dt*((23.0/12.0)*((gVal & zetaShiftedVec) + turgut + dampingterm)
+								- (16.0/12.0)*DPhiold_
+								+ ( 5.0/12.0)*DPhiold2_) )
+						+ Phi0Shifted;
+
+						WnOld2_   = WnOld_;
+						DPhiold2_ = DPhiold_;
+
+						WnOld_    = rhsVec;
+						DPhiold_  = ((gVal & zetaShiftedVec) + turgut + dampingterm);
+					}
+
+					// Safety: ensure only Z matters (optional but consistent with your statement)
+					// If you want to strictly zero x,y:
+					// zetap.replace(vector::X, scalarField(nFacesLocal, 0.0));
+					// zetap.replace(vector::Y, scalarField(nFacesLocal, 0.0));
+				}
+				else
+				{
+					Info << "U0 == 0: keep your existing (non-shifted) Euler update" << endl;
+
+					zetap   = zeta0p + dt*Wn;
+					phiCalc = ((gVal & zetap) + dampingterm)*dt + Phi0Patch;
+				}
+
+				break;
+			}
 
 			default:
 			{

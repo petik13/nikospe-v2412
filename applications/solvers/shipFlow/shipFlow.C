@@ -203,11 +203,11 @@ int main(int argc, char *argv[])
 
     // Calculate d²PhiCur/dz²
     const volTensorField PhiCurD2 = fvc::grad(fvc::grad(PhiCur));
-    // PhiCurDz2 = PhiCurD2.component(tensor::ZZ);
+    PhiCurDz2 = PhiCurD2.component(tensor::ZZ);
 
     // ---------- Set PhiCur instead using NKL everywhere in the domain (as a freestream undisturbed potential) ---------------------------------
     // scalar heading	=  -30.0;
-    // // scalar U0	=  0.387;
+    // scalar U0	=  0.387;
     // scalar head_ang = heading*constant::mathematical::pi/180.0;
 
     // scalar Ux = U0*Foam::cos(head_ang);
