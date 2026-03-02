@@ -350,7 +350,7 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
         Ub_old_ = Ub_new_;
         a_old_  = a_new_;
 
-        writeMotion(Xb_old_);  // motion output
+        writeMotion(Xb_old_, Ub_old_);  // motion output
     }
 
     // --- Build 6x6 matrices (order: [x y z phi theta psi])
@@ -376,18 +376,18 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
     K[4][2] = C35_;
 
     // - Soft Mooring
-    K[0][0] = 60.0;
-    K[1][1] = 60.0;
-    K[5][5] = 180.0;
+    K[0][0] = 100.0;
+    K[1][1] = 100.0;
+    K[5][5] = 280.0;
 
     Mat6 C = zero66();  // no damping yet
     // Add roll damping
-    // C[0][0] = 50.0;
-    // C[1][1] = 50.0;
-    // C[2][2] = 50.0;
-    // C[3][3] = 50.0;
-    // C[4][4] = 50.0;
-    // C[5][5] = 50.0;
+    // C[0][0] = 20.0;
+    // C[1][1] = 20.0;
+    // // C[2][2] = 50.0;
+    C[3][3] = 20.0;
+    // // C[4][4] = 50.0;
+    // C[5][5] = 20.0;
 
     // --- External load at n+1: wrench W=(M,F) -> f=[F,M]
     const spatialVector W = computeForce();
@@ -433,6 +433,11 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
     {
         qdd_np1[i] = aDamp_*(aRelax_*qdd_np1[i] + (1.0 - aRelax_)*qdd_prev[i]);
     }
+    // keep body fixed for first second.
+    if (runTime.value() < 1.0)
+    {
+        for (int i=0;i<6;++i) qdd_np1[i] = 0;
+    }
 
     // Update v and x
     const Vec6 qd_np1 = add6(vStar, scal6(gamma*dt, qdd_np1));
@@ -444,6 +449,7 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
     Xb_new_    = spatial_from_q(q_np1);
     aPrevIter_ = a_new_;
 
+    
     // Debug
     Info<< "BC iteration " << runTime.timeIndex()
         << " | z=" << q_np1[2]
@@ -574,7 +580,7 @@ namespace Foam {
     }
 
 
-    void Foam::linearizedRigidBodyFvPatchScalarField::writeMotion(const spatialVector& W)
+    void Foam::linearizedRigidBodyFvPatchScalarField::writeMotion(const spatialVector& W, const spatialVector& Ub)
     {
         if (!Pstream::master()) return;  // Only master writes
 
@@ -587,6 +593,9 @@ namespace Foam {
         const vector& lin = W.l();   // surge, sway, heave forces
         const vector& ang = W.w();   // roll, pitch, yaw moments
 
+        const vector& linUb = Ub.l();   // surge, sway, heave velocities
+        const vector& angUb = Ub.w();   // roll, pitch, yaw angular velocities
+
         (*motionFilePtr_)
             << runTime.timeOutputValue() << '\t'
             << lin.x() << '\t'
@@ -594,7 +603,13 @@ namespace Foam {
             << lin.z() << '\t'
             << ang.x() << '\t'
             << ang.y() << '\t'
-            << ang.z() << endl;
+            << ang.z() << '\t'
+            << linUb.x() << '\t'
+            << linUb.y() << '\t'
+            << linUb.z() << '\t'
+            << angUb.x() << '\t'
+            << angUb.y() << '\t'
+            << angUb.z() << endl;
     }
 
 

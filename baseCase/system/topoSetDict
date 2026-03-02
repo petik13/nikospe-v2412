@@ -1,0 +1,144 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  4.x                                   |
+|   \\  /    A nd           | Web:      www.OpenFOAM.org                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      topoSetDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Define control volume box
+xmin	32.4627;
+xmax	39.5373;
+ymin	-3.5373;
+ymax	3.5373;
+zmin	-3.0;
+zmax	0.0;
+
+actions
+(
+    // 1) Control-volume cells
+    {
+        name    cvCells;
+        type    cellSet;
+        action  new;
+        source  boxToCell;
+        sourceInfo
+        {
+            box ($xmin $ymin $zmin) ($xmax $ymax $zmax);
+        }
+    }
+
+    // 2) ALL faces of these cells
+    {
+        name    cv_allFaces;
+        type    faceSet;
+        action  new;
+        source  cellToFace;
+        sourceInfo
+        {
+            set     cvCells;
+            option  all;
+        }
+    }
+
+    // 3) INTERNAL faces: both cells in cvCells
+    {
+        name    cv_internalFaces;
+        type    faceSet;
+        action  new;
+        source  cellToFace;
+        sourceInfo
+        {
+            set     cvCells;
+            option  both;
+        }
+    }
+
+    // 4) BOUNDARY faces = allFaces - internalFaces
+    {
+        name    cv_boundaryFaces;
+        type    faceSet;
+        action  new;
+        source  faceToFace;
+        sourceInfo
+        {
+            set cv_allFaces;
+        }
+    }
+    {
+        name    cv_boundaryFaces;
+        type    faceSet;
+        action  delete;
+        source  faceToFace;
+        sourceInfo
+        {
+            set cv_internalFaces;
+        }
+    }
+
+    // 5) Faces of the body patch "sphere" and "upper"
+    {
+        name    sphereFaces;
+        type    faceSet;
+        action  new;
+        source  patchToFace;
+        sourceInfo
+        {
+            patch sphere;
+        }
+    }
+
+    {
+        name    fsFaces;
+        type    faceSet;
+        action  new;
+        source  patchToFace;
+        sourceInfo
+        {
+            patch upper;
+        }
+    }
+
+    // 6) Remove sphere and upper faces from the CV boundary
+    {
+        name    cv_boundaryFaces;
+        type    faceSet;
+        action  delete;
+        source  faceToFace;
+        sourceInfo
+        {
+            set sphereFaces;
+        }
+    }
+    {
+        name    cv_boundaryFaces;
+        type    faceSet;
+        action  delete;
+        source  faceToFace;
+        sourceInfo
+        {
+            set fsFaces;
+        }
+    }
+
+
+    // 7) Convert cleaned boundaryFaces → faceZone
+    {
+        name    controlZone;
+        type    faceZoneSet;
+        action  new;
+        source  setToFaceZone;
+        sourceInfo
+        {
+            faceSet cv_boundaryFaces;
+        }
+    }
+);

@@ -1,0 +1,47 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2412                                 |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      topoSetDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+xbox	35.133431449660776;
+ybox	3.5842086285993107;
+zbox	0.0;
+i_x	3.537300000000002;
+i_y	-6.12678332161339;
+j_x	-1.804162899321554;
+j_y	-1.041633935585232;
+k_z	-0.31893165750196384;
+
+// Define your origin and edge vectors
+origin  ($xbox $ybox $zbox); // One corner of the box
+i       ($i_x  $i_y 0.0);   // Vector for side 1 (length and direction)
+j       ($j_x   $j_y   0.0);   // Vector for side 2
+k       (0.0    0.0   $k_z);  // Vector for side 3
+
+actions
+(
+    {
+        name    c5;
+        type    cellSet;
+        action  new;
+        source  rotatedBoxToCell;
+        origin  $origin;
+        i       $i;
+        j       $j;
+        k       $k;
+    }
+);
+
+
+// ************************************************************************* //

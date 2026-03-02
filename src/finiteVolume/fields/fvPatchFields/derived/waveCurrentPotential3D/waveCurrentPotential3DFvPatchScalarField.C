@@ -281,61 +281,14 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 		// - damping factor
 		scalarField dampingterm=
 		    // x-side damping active for x > xdamp
-		    pos(xComponents - xdamp) * v0 * ((xComponents - xdamp) / (Lxdamp)) * ((xComponents - xdamp) / (Lxdamp)) * (nfRef & Wn);
+		    pos(xComponents - xdamp) * v0 * ((xComponents - xdamp) / (Lxdamp)) * ((xComponents - xdamp) / (Lxdamp)) * (nfRef & Wn)
 		    // y-side damping active only when x > 5
-		//    + pos(xComponents-xsponge)*pos(xdamp-xComponents)*pos(yComponents - ydamp) * v0 * ((yComponents - ydamp) / (Lydamp)) * ((yComponents - ydamp) / (Lydamp)) * (nfRef & Wn)
-		//    + pos(xComponents-xsponge)*pos(xdamp-xComponents)*pos(-yComponents - ydamp) * v0 * ((-yComponents - ydamp) / (Lydamp)) * ((-yComponents - ydamp) / (Lydamp)) * (nfRef & Wn)
+		   + pos(xComponents-xsponge)*pos(xdamp-xComponents)*pos(yComponents - ydamp) * v0 * ((yComponents - ydamp) / (Lydamp)) * ((yComponents - ydamp) / (Lydamp)) * (nfRef & (Wn - Wn0))
+		   + pos(xComponents-xsponge)*pos(xdamp-xComponents)*pos(-yComponents - ydamp) * v0 * ((-yComponents - ydamp) / (Lydamp)) * ((-yComponents - ydamp) / (Lydamp)) * (nfRef & (Wn - Wn0))
 		    // inlet reflection damping: active for x in [0,5], stronger near x=0
-		//   + pos(xsponge - xComponents) * v0 * ((xsponge - xComponents) / (Lsponge)) * ((xsponge - xComponents) / (Lsponge)) * (nfRef & (Wn - Wn0));
+		  + pos(xsponge - xComponents) * v0 * ((xsponge - xComponents) / (Lsponge)) * ((xsponge - xComponents) / (Lsponge)) * (nfRef & (Wn - Wn0));
 		
 
-
-		// const scalarField wMeas(nfRef & Wn);
-		// const scalarField wRef (nfRef & Wn0);
-		// const scalarField wErr (wMeas - wRef);
-		// const scalarField m(pos(xsponge - xComponents));
-
-		// const scalar nMasked = gSum(m);
-
-		// if (nMasked > SMALL && db().time().timeIndex() % 1 == 0)
-		// {
-		// 	const scalar maxAbsMeas = gMax(mag(m*wMeas));
-		// 	const scalar maxAbsRef  = gMax(mag(m*wRef));
-		// 	const scalar maxAbsErr  = gMax(mag(m*wErr));
-
-		// 	const scalar rmsMeas = Foam::sqrt(gSum(m*sqr(wMeas))/nMasked);
-		// 	const scalar rmsRef  = Foam::sqrt(gSum(m*sqr(wRef ))/nMasked);
-		// 	const scalar rmsErr  = Foam::sqrt(gSum(m*sqr(wErr ))/nMasked);
-		// 	const scalar meanErr = gSum(m*wErr)/nMasked;
-		// 	const scalar meanAbsErr = gSum(m*mag(wErr))/nMasked;
-
-		// 	Info<< "Sponge diag t=" << tt
-		// 		<< "  max|meas|=" << maxAbsMeas
-		// 		<< "  max|ref|="  << maxAbsRef
-		// 		<< "  max|err|="  << maxAbsErr
-		// 		<< "  rms(meas/ref/err)=" << rmsMeas << " " << rmsRef << " " << rmsErr
-		// 		<< "  err/ref(max)=" << (maxAbsErr/(maxAbsRef + VSMALL))
-		// 		<< "Mean abs error:" << meanAbsErr
-		// 		<< nl;
-		// }
-
-		// const scalar corr =
-		// gSum(m*wMeas*wRef) /
-		// (Foam::sqrt(gSum(m*sqr(wMeas))*gSum(m*sqr(wRef))) + VSMALL);
-
-		// Info<< "corr(meas,ref)=" << corr << nl;
-
-
-
-
-		//From SnGrad BUNU DENICEZ SONRA
-		//const auto& U2 = db().lookupObject<surfaceScalarField>("U2");
-		//vectorField Wn(nf()*U2.boundaryField()[patchi]);
-		
-		// Retrieve the flux field from the database
-        //const auto& phi = db().lookupObject<surfaceScalarField>(phiName_);
-		//vectorField dZetap(dt*nf()*phi.boundaryField()[patchi]/patch().magSf());
-		
 		const volVectorField& zeta0 = zeta.oldTime(); 
 		const vectorField& zeta0p = zeta0.boundaryField()[patchi]; // Previous value on patch
 		
@@ -505,15 +458,15 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 					else{
 					
 					
-					Info << "Current speed U0 is zero " << endl;
-					zetap=zeta0p+dt*(1.5*Wn-0.5*WnOld_);
-					phiCalc = (1.5*((gVal & zeta0p) + dampingterm)-0.5*DPhiold_)*dt + Phi0Patch;
-					
-					WnOld2_=WnOld_;
-					DPhiold2_=DPhiold_;
-					
-					WnOld_=Wn;
-					DPhiold_=((gVal & zeta0p) + dampingterm);
+						Info << "Current speed U0 is zero " << endl;
+						zetap=zeta0p+dt*(1.5*Wn-0.5*WnOld_);
+						phiCalc = (1.5*((gVal & zeta0p) + dampingterm)-0.5*DPhiold_)*dt + Phi0Patch;
+						
+						WnOld2_=WnOld_;
+						DPhiold2_=DPhiold_;
+						
+						WnOld_=Wn;
+						DPhiold_=((gVal & zeta0p) + dampingterm);
 					
 					}
 									
@@ -531,56 +484,8 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 						zetap=zeta0p+dt*((23.0/12.0)*(Wn+Wcurdz_zeta0p-UetaDx)-(16.0/12.0)*WnOld_+(5.0/12.0)*WnOld2_);
 						phiCalc = ((23.0/12.0)*((gVal & zeta0p)+turgut + dampingterm)-(16.0/12.0)*DPhiold_+(5.0/12.0)*DPhiold2_)*dt + Phi0Patch;
 						
-						// Only on faces near body
-						// 1) Build mask: body faces + their (local) merged-candidate neighbours
-						// boolList dampMask(nFaces, false);
-
-						// for (label i = 0; i < nFaces; ++i)
-						// {
-						// 	if (ownerHasBodyFace_[i] || ownerHasBodyEdge_[i] || ownerHasBodyVertex_[i]){
-
-						// 		// include the face itself
-						// 		dampMask[i] = true;
-
-						// 		// // include its neighbours (candidates) if they are local on this proc
-						// 		// const List<label>& cands = lsMergedCandidates_[i];
-						// 		// forAll(cands, j)
-						// 		// {
-						// 		// 	const label gid = cands[j];
-
-						// 		// 	if (globalIdToPackedIdx_.found(gid))
-						// 		// 	{
-						// 		// 		const label loc = globalIdToPackedIdx_[gid]; // patch-local index on this proc
-						// 		// 		if (loc >= 0 && loc < nFaces) dampMask[loc] = true;
-						// 		// 	}
-						// 		// }
-						// 	}
-						// }
-
-
-
-						// // 2) Apply damping on all marked faces 
-						// const scalar sigma = 00.0/dt;            
-						// const scalar denom = 1.0 + sigma*dt;
-
-						// for (label i = 0; i < nFaces; ++i)
-						// {
-						// 	if (!dampMask[i]) continue;
-
-						// 	// Relax to rest (zeta->0, Phi->0 since Phi is unsteady part)
-						// 	zetap[i]   /= denom;
-						// 	phiCalc[i] /= denom;
-
-						// 	// IMPORTANT for AB3: also damp the history terms on the same set
-						// 	WnOld_[i]    /= denom;
-						// 	WnOld2_[i]   /= denom;
-						// 	DPhiold_[i]  /= denom;
-						// 	DPhiold2_[i] /= denom;
-						// }
-						
 						WnOld2_=WnOld_;
 						DPhiold2_=DPhiold_;
-						
 						
 						WnOld_=(Wn+Wcurdz_zeta0p-UetaDx);
 						DPhiold_=((gVal & zeta0p)+turgut + dampingterm);
@@ -598,10 +503,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 						WnOld_=Wn;
 						DPhiold_=((gVal & zeta0p) + dampingterm);
 					
-					} 
-					 
-					 
-					 
+					} 	 
 				 }		
 				
 					 

@@ -2,3 +2,5 @@
 - corrected the implementation of the m_j terms
 - added a forward speed term in the mean wave loads waterline calculation
 
+------ v2.6 -------
+Commented out tryUpwind and downwind

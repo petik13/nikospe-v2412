@@ -1,0 +1,67 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2312                                 |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      fvSolution;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+solvers
+{
+    Phi
+        {
+        solver  GAMG;
+        smoother DIC;
+        tolerance 1e-7;
+        relTol  0.0;
+    }
+
+    PhiCur
+    {
+        $Phi;
+        relTol 0;
+        tolerance 1e-10;
+    }
+
+    p
+    {
+        $Phi;
+    }
+	
+	p_gh
+    {
+        $Phi;
+    }
+	
+}
+
+
+turgutFlow
+{
+    nNonOrthogonalCorrectors 1;
+    //PhiRefPoint (18.0 0.02 -0.05); // Coordinate of the reference point
+    
+	
+    PhiRefCell 500;     // Replace 1234 with the known valid cell index
+    PhiRefValue 0.0;     // Reference value for the potential field at this cell
+}
+
+steadyFlow
+{
+    nNonOrthogonalCorrectors 10;
+    //PhiRefPoint (18.0 0.02 -0.05); // Coordinate of the reference point
+    
+	
+    PhiRefCell 500;     // Replace 1234 with the known valid cell index
+    PhiRefValue 0.0;     // Reference value for the potential field at this cell
+}
+
+// ************************************************************************* //

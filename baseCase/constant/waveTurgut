@@ -1,0 +1,39 @@
+		
+		IOdictionary myDict(IOobject("waveCurConditions",db().time().constant(),db(),
+            IOobject::MUST_READ_IF_MODIFIED,
+            IOobject::NO_WRITE));
+
+		const scalar steepness = readScalar(myDict.lookup("steepness"));
+		const scalar wavelength = readScalar(myDict.lookup("wavelength"));
+		const scalar currentspeed = readScalar(myDict.lookup("currentspeed"));
+		const scalar head_ang = readScalar(myDict.lookup("head_ang"));
+		const scalar hdepth = readScalar(myDict.lookup("waterdepth"));
+		const scalar xc = readScalar(myDict.lookup("xc"));
+		
+		const scalar wavenumber(2.0*Foam::constant::mathematical::pi/wavelength);
+		const scalar amp(0.5*steepness*wavelength);
+		
+		
+		const scalar w(sqrt(9.81 * wavenumber * tanh(wavenumber*hdepth)));
+		const scalar celerity(w/wavenumber); 
+		
+        const fvPatch& myPatch = patch(); // Ensuring the correct type is used
+		const vectorField& faceCenters = myPatch.Cf(); 
+        scalarField& field = *this;
+			
+        const scalar T(2.0*Foam::constant::mathematical::pi/w);
+		const scalar ramp_time(3.0 * T);
+		const scalar ramp_factor = 0.5 * (1 - cos(Foam::constant::mathematical::pi * min(1.0, t / ramp_time)));
+		
+		forAll(faceCenters, faceI)
+		{
+				const scalar zcor = faceCenters[faceI].z();
+				const scalar xcor = faceCenters[faceI].x();
+				
+				field[faceI] = - amp * (9.81 / w)
+				 *(Foam::cosh(wavenumber *(hdepth+zcor))/Foam::cosh(wavenumber*hdepth))
+				 * Foam::sin(wavenumber * xcor-(w + wavenumber*currentspeed*Foam::cos(head_ang))*t)
+				 * ramp_factor;				
+
+		}
+			

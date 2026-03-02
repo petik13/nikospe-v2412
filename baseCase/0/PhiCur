@@ -1,0 +1,180 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  2412                                  |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    arch        "LSB;label=32;scalar=64";
+    class       volScalarField;
+    location    "0";
+    object      PhiCur;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [0 2 -1 0 0 0 0];
+
+internalField   uniform 0;
+
+boundaryField
+{
+    inlet
+    {
+        type            codedFixedValue;
+        value           uniform 0;
+        name            steadyPotentialBC;
+        codeContext
+        {
+            Ucur            0;
+            heading         -60;
+        }
+        codeInclude     #{
+            #include "fvCFD.H"
+        #};
+        code            #{
+            const fvPatch& boundaryPatch = patch();
+            const vectorField& Cf = boundaryPatch.Cf();
+
+            // read from this patch's dictionary
+            const scalar heading = readScalar(this->dict().lookup("heading"));
+            const scalar Ucur    = readScalar(this->dict().lookup("Ucur"));
+
+            scalar head_ang = heading*constant::mathematical::pi/180.0;
+
+            scalar Ux = Ucur*cos(head_ang);
+            scalar Uy = Ucur*sin(head_ang);
+
+            scalarField Phi_ = -Ux*Cf.component(vector::X)
+                                - Uy*Cf.component(vector::Y);
+            operator==(Phi_);
+        #};
+        codeOptions     #{
+            -I$(LIB_SRC)/finiteVolume/lnInclude \
+            -I$(LIB_SRC)/meshTools/lnInclude
+        #};
+    }
+    outlet
+    {
+        type            codedFixedValue;
+        value           uniform 0;
+        name            steadyPotentialBC;
+        codeContext
+        {
+            Ucur            0;
+            heading         -60;
+        }
+        codeInclude     #{
+            #include "fvCFD.H"
+        #};
+        code            #{
+            const fvPatch& boundaryPatch = patch();
+            const vectorField& Cf = boundaryPatch.Cf();
+
+            // read from this patch's dictionary
+            const scalar heading = readScalar(this->dict().lookup("heading"));
+            const scalar Ucur    = readScalar(this->dict().lookup("Ucur"));
+
+            scalar head_ang = heading*constant::mathematical::pi/180.0;
+
+            scalar Ux = Ucur*cos(head_ang);
+            scalar Uy = Ucur*sin(head_ang);
+
+            scalarField Phi_ = -Ux*Cf.component(vector::X)
+                                - Uy*Cf.component(vector::Y);
+            operator==(Phi_);
+        #};
+        codeOptions     #{
+            -I$(LIB_SRC)/finiteVolume/lnInclude \
+            -I$(LIB_SRC)/meshTools/lnInclude
+        #};
+    }
+    upper
+    {
+        type            zeroGradient;
+    }
+    lower
+    {
+        type            zeroGradient;
+    }
+    sphere
+    {
+        type            zeroGradient;
+    }
+    front
+    {
+        type            codedFixedValue;
+        value           uniform 0;
+        name            steadyPotentialBC;
+        codeContext
+        {
+            Ucur            0;
+            heading         -60;
+        }
+        codeInclude     #{
+            #include "fvCFD.H"
+        #};
+        code            #{
+            const fvPatch& boundaryPatch = patch();
+            const vectorField& Cf = boundaryPatch.Cf();
+
+            // read from this patch's dictionary
+            const scalar heading = readScalar(this->dict().lookup("heading"));
+            const scalar Ucur    = readScalar(this->dict().lookup("Ucur"));
+
+            scalar head_ang = heading*constant::mathematical::pi/180.0;
+
+            scalar Ux = Ucur*cos(head_ang);
+            scalar Uy = Ucur*sin(head_ang);
+
+            scalarField Phi_ = -Ux*Cf.component(vector::X)
+                                - Uy*Cf.component(vector::Y);
+            operator==(Phi_);
+        #};
+        codeOptions     #{
+            -I$(LIB_SRC)/finiteVolume/lnInclude \
+            -I$(LIB_SRC)/meshTools/lnInclude
+        #};
+    }
+    back
+    {
+        type            codedFixedValue;
+        value           uniform 0;
+        name            steadyPotentialBC;
+        codeContext
+        {
+            Ucur            0;
+            heading         -60;
+        }
+        codeInclude     #{
+            #include "fvCFD.H"
+        #};
+        code            #{
+            const fvPatch& boundaryPatch = patch();
+            const vectorField& Cf = boundaryPatch.Cf();
+
+            // read from this patch's dictionary
+            const scalar heading = readScalar(this->dict().lookup("heading"));
+            const scalar Ucur    = readScalar(this->dict().lookup("Ucur"));
+
+            scalar head_ang = heading*constant::mathematical::pi/180.0;
+
+            scalar Ux = Ucur*cos(head_ang);
+            scalar Uy = Ucur*sin(head_ang);
+
+            scalarField Phi_ = -Ux*Cf.component(vector::X)
+                                - Uy*Cf.component(vector::Y);
+            operator==(Phi_);
+        #};
+        codeOptions     #{
+            -I$(LIB_SRC)/finiteVolume/lnInclude \
+            -I$(LIB_SRC)/meshTools/lnInclude
+        #};
+    }
+}
+
+
+// ************************************************************************* //

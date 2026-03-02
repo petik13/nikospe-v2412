@@ -154,7 +154,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 
 			scalar h1 = 0, h2 = 0, f1 = 0, f2 = 0, g1 = 0, g2 = 0;
 
-			if (s == 6)
+			if (s == 6) // 2nd-order upwind
 			{
 				
 				label up1 = L[0];
@@ -221,7 +221,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 				
 							 
 			}
-			else if (s == 1)
+			else if (s == 1) // 
 			{
 				
 				////INTERPOLATION CHECK

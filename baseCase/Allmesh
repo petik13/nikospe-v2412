@@ -1,0 +1,32 @@
+#!/bin/sh
+cd "${0%/*}" || exit                                # Run from this directory
+. ${WM_PROJECT_DIR:?}/bin/tools/RunFunctions        # Tutorial run functions
+#------------------------------------------------------------------------------
+
+
+runApplication surfaceFeatureExtract
+
+runApplication blockMesh
+
+runApplication decomposePar
+
+# Build topoSets and refineMesh in parallel (creates processor*/constant/polyMesh/sets/*)
+foamJob -parallel -screen topoSet -dict system/topoSetDict.1
+foamJob -parallel -screen refineMesh -dict system/refineMeshDict.1 -overwrite
+foamJob -parallel -screen topoSet -dict system/topoSetDict.2
+foamJob -parallel -screen refineMesh -dict system/refineMeshDict.2 -overwrite
+foamJob -parallel -screen topoSet -dict system/topoSetDict.3
+foamJob -parallel -screen refineMesh -dict system/refineMeshDict.3 -overwrite
+foamJob -parallel -screen topoSet -dict system/topoSetDict.4
+foamJob -parallel -screen refineMesh -dict system/refineMeshDict.4 -overwrite
+foamJob -parallel -screen topoSet -dict system/topoSetDict.5
+foamJob -parallel -screen refineMesh -dict system/refineMeshDict.5 -overwrite
+
+# reconstructParMesh -constant
+
+# Delete processor dirs
+# rm -rf processor*
+./snappy.sh
+
+
+#------------------------------------------------------------------------------

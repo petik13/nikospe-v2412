@@ -1,0 +1,22 @@
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "constant";
+    object      rigidBodyMotionProperties;
+}
+
+// Wave properties
+heading	2.094;
+xG	36.0;
+zG         0.084;        // z-coordinate of center of gravity
+Mass       672.7;        // Mass of the body
+I4         68.43;        // Mass moment of inertia I4
+I5         1265.5;        // Mass moment of inertia I5
+I6         1268.34;        // Mass moment of inertia I6
+I46        0.0;        // Mass moment of inertia I46
+C33        37081;        // Hydrostatic restoring coefficient C33
+C44        528;        // Hydrostatic restoring coefficient C44
+C55        74965;        // Hydrostatic restoring coefficient C55
+C35        10827;        // Hydrostatic restoring coefficient C35 xCF = 0.292: C35 = rho*g*A*xCF

@@ -96,7 +96,7 @@ class linearizedRigidBodyFvPatchScalarField
 	mutable autoPtr<Foam::OFstream> motionFilePtr_;
 	void createMotionFile();
     void writeMotionHeader(OFstream& os) const;
-    void writeMotion(const spatialVector& W);	
+    void writeMotion(const spatialVector& W, const spatialVector& Ub);	
 	
 	// in the .H file
 	label lastUpdateTimeIndex_;

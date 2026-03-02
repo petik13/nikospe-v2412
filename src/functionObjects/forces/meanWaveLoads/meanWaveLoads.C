@@ -766,7 +766,7 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
 
                 const label fsLocalFace = facei - fsPatch.start();
                 zetaZ += zetaPatch[fsLocalFace].z();
-                Un_Uc += (U_p[fsLocalFace] & n) * Ucur_p[fsLocalFace];
+                Un_Uc += (U_p[fsLocalFace] & n) * (Ucur_p[fsLocalFace]);
                 U_Ucn += U_p[fsLocalFace] * (Ucur_p[fsLocalFace] & n);
                 ++nFS;
             }

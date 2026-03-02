@@ -1,0 +1,155 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2312                                 |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      controlDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+application     PHIWaveCurSph2;
+
+startFrom       startTime;
+
+startTime       0;
+
+stopAt          endTime;
+
+endTime	1.50;
+
+deltaT	0.00784;
+
+writeControl    runTime;
+
+writeInterval	0.50;
+
+purgeWrite      3;
+
+writeFormat     ascii;
+
+writePrecision  6;
+
+writeCompression off;
+
+timeFormat      general;
+
+timePrecision   6;
+
+runTimeModifiable yes;
+
+adjustTimeStep  yes;
+maxCo       0.5;
+maxDeltaT   0.1;
+
+libs
+(
+   
+	"libsampling.so"
+	"libwaveCurrentPotential3D.so"
+	"libMeanWaveLoads.so"
+	"libmyAdvective.so"
+    "liblinearizedRigidBody.so"
+);
+
+functions
+{
+    patchProbes1
+    {
+        type            patchProbes;
+        libs            ("libsampling.so");
+
+        patch           upper;             // Name of the patch to sample
+        fields          (U Phi zeta);      // Fields to record
+        writeControl    timeStep;          // Write data every time step
+        probeLocations  ((20.0 0 0) (5.0 0 0) (15.00 0 0) (25.0 0 0) (24.420563529483342 0.55 0) (24.420563529483342 -0.55 0) );
+                         
+    }
+	
+	forces1
+	{
+		type            myFunctionObject;
+		libs            ("libmyFunctionObject.so");
+		patches         (sphere);
+		porosity        no;
+		pRef            0;
+		p               p;
+		writeControl    timeStep;
+		rho             rhoInf;
+		// Centre of rotation for moment calculations
+		CofR	(36.0 0 0);
+	}
+	
+	forces2
+	{
+		type            myMeanForce;
+		libs            ("libmyMeanForce.so");
+		patches         (sphere);
+		porosity        no;
+		pRef            0;
+		p               p2;
+		writeControl    timeStep;
+		rho             rhoInf;
+		// Centre of rotation for moment calculations
+		CofR	(36.0 0 0);
+	}
+	
+		forces3
+	{
+		type            myFunctionObject;
+		libs            ("libmyFunctionObject.so");
+		patches         (sphere);
+		porosity        no;
+		pRef            0;
+		p               p3;
+		writeControl    timeStep;
+		rho             rhoInf;
+		// Centre of rotation for moment calculations
+		CofR	(36.0 0 0);
+	}
+	MWLforces
+	{
+		type            meanWaveLoads;
+		libs            ("libMeanWaveLoads.so");
+		patches         ();
+		faceZone	  controlZone;
+		rhoInf		  1000;
+		Phi 		   Phi;
+		writeControl    timeStep;
+		rho             rhoInf;
+		// Centre of rotation for moment calculations
+		CofR	(36.0 0 0);
+		zeta		   zeta;
+		freeSurfacePatch	upper;
+		gMag		    9.81;
+		cvPoint	(36.0 0 -0.5);
+	}
+
+	MWLforces2
+	{
+		type            meanWaveLoads;
+		libs            ("libMeanWaveLoads.so");
+		patches         ();
+		faceZone	  controlZone2;
+		rhoInf		  1000;
+		Phi 		   Phi;
+		writeControl    timeStep;
+		rho             rhoInf;
+		// Centre of rotation for moment calculations
+		CofR	(36.0 0 0);
+		zeta		   zeta;
+		freeSurfacePatch	upper;
+		gMag		    9.81;
+		cvPoint	(36.0 0 -0.5);
+	}
+	
+	
+}
+
+// ************************************************************************* //
