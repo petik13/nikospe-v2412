@@ -254,6 +254,161 @@ inline bool tryDownwind2nd
     return false;
 }
 
+template<class PatchField>
+inline bool tryFourthOrderCentral
+(
+    PatchField& self,
+    label i,
+    label& scheme,
+    const vectorField& Cf,
+    const scalarField& x,
+    const scalarField& y,
+    const List<List<label>>& upwindNodes,
+    const List<List<label>>& downwindNodes,
+    const HashTable<List<label>, label>& remoteUpwindNodes,
+    const HashTable<List<label>, label>& remoteDownwindNodes,
+    const word& direction
+)
+{
+    const bool xDir = direction == "x";
+    if (!xDir && direction != "y")
+    {
+        FatalErrorInFunction
+            << "Unknown direction: " << direction
+            << abort(FatalError);
+    }
+
+    auto& interpNeeded4th =
+        xDir ? self.interpNeeded4thX() : self.interpNeeded4thY();
+
+    // Reset flags for this face
+    interpNeeded4th[i] = FixedList<bool,4>(false);
+
+    const List<label>& L = upwindNodes[i];
+    const List<label>& R = downwindNodes[i];
+
+    if (L.empty() || R.empty())
+    {
+        return false;
+    }
+
+    const label up1 = L[0];
+    const label down1 = R[0];
+
+    List<label> up2List;
+    List<label> down2List;
+
+    // First neighbors may already indicate interpolation need
+    if (L.size() > 1)
+    {
+        interpNeeded4th[i][0] = true;   // up1
+    }
+
+    if (R.size() > 1)
+    {
+        interpNeeded4th[i][2] = true;   // down1
+    }
+
+    // Get second upwind point
+    if (self.globalIdToPackedIdx().found(up1))
+    {
+        const label packedIdx = self.globalIdToPackedIdx()[up1];
+        if (packedIdx < upwindNodes.size())
+        {
+            up2List = upwindNodes[packedIdx];
+        }
+    }
+
+    if (up2List.empty() && remoteUpwindNodes.found(self.globalIdOfLocalFace()[i]))
+    {
+        up2List = remoteUpwindNodes[self.globalIdOfLocalFace()[i]];
+    }
+
+    // Get second downwind point
+    if (self.globalIdToPackedIdx().found(down1))
+    {
+        const label packedIdx = self.globalIdToPackedIdx()[down1];
+        if (packedIdx < downwindNodes.size())
+        {
+            down2List = downwindNodes[packedIdx];
+        }
+    }
+
+    if (down2List.empty() && remoteDownwindNodes.found(self.globalIdOfLocalFace()[i]))
+    {
+        down2List = remoteDownwindNodes[self.globalIdOfLocalFace()[i]];
+    }
+
+    if (up2List.empty() || down2List.empty())
+    {
+        return false;
+    }
+
+    if (up2List.size() > 1)
+    {
+        interpNeeded4th[i][1] = true;   // up2
+    }
+
+    if (down2List.size() > 1)
+    {
+        interpNeeded4th[i][3] = true;   // down2
+    }
+
+    const label up2 = up2List[0];
+    const label down2 = down2List[0];
+
+    // Alignment checks for all four points
+
+    // up1 relative to center
+    const auto dxdyUp1 =
+        dxdy(Cf, self.globalIdToPackedIdx(), self.globalIdToCf(), up1, x[i], y[i]);
+
+    if (!aligned(dxdyUp1.first, dxdyUp1.second, direction))
+    {
+        interpNeeded4th[i][0] = true;
+    }
+
+    // up2 relative to up1
+    const vector& cUp1 =
+        self.globalIdToPackedIdx().found(up1)
+      ? Cf[self.globalIdToPackedIdx()[up1]]
+      : self.globalIdToCf()[up1];
+
+    const auto dxdyUp2 =
+        dxdy(Cf, self.globalIdToPackedIdx(), self.globalIdToCf(), up2, cUp1.x(), cUp1.y());
+
+    if (!aligned(dxdyUp2.first, dxdyUp2.second, direction))
+    {
+        interpNeeded4th[i][1] = true;
+    }
+
+    // down1 relative to center
+    const auto dxdyDn1 =
+        dxdy(Cf, self.globalIdToPackedIdx(), self.globalIdToCf(), down1, x[i], y[i]);
+
+    if (!aligned(dxdyDn1.first, dxdyDn1.second, direction))
+    {
+        interpNeeded4th[i][2] = true;
+    }
+
+    // down2 relative to down1
+    const vector& cDn1 =
+        self.globalIdToPackedIdx().found(down1)
+      ? Cf[self.globalIdToPackedIdx()[down1]]
+      : self.globalIdToCf()[down1];
+
+    const auto dxdyDn2 =
+        dxdy(Cf, self.globalIdToPackedIdx(), self.globalIdToCf(), down2, cDn1.x(), cDn1.y());
+
+    if (!aligned(dxdyDn2.first, dxdyDn2.second, direction))
+    {
+        interpNeeded4th[i][3] = true;
+    }
+
+    scheme = 14;
+    return true;
+}
+
 
 
 } // namespace Foam

@@ -211,6 +211,8 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 	const scalar xsponge    = params_.xsponge;
 	const scalar Lsponge    = params_.Lsponge;
 
+
+
 	
 		
 
@@ -281,12 +283,12 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 		// - damping factor
 		scalarField dampingterm=
 		    // x-side damping active for x > xdamp
-		    pos(xComponents - xdamp) * v0 * ((xComponents - xdamp) / (Lxdamp)) * ((xComponents - xdamp) / (Lxdamp)) * (nfRef & Wn)
+		    pos(xComponents - xdamp) * v0 * ((xComponents - xdamp) / (Lxdamp)) * ((xComponents - xdamp) / (Lxdamp)) * (nfRef & (Wn))
 		    // y-side damping active only when x > 5
 		   + pos(xComponents-xsponge)*pos(xdamp-xComponents)*pos(yComponents - ydamp) * v0 * ((yComponents - ydamp) / (Lydamp)) * ((yComponents - ydamp) / (Lydamp)) * (nfRef & (Wn - Wn0))
 		   + pos(xComponents-xsponge)*pos(xdamp-xComponents)*pos(-yComponents - ydamp) * v0 * ((-yComponents - ydamp) / (Lydamp)) * ((-yComponents - ydamp) / (Lydamp)) * (nfRef & (Wn - Wn0))
 		    // inlet reflection damping: active for x in [0,5], stronger near x=0
-		  + pos(xsponge - xComponents) * v0 * ((xsponge - xComponents) / (Lsponge)) * ((xsponge - xComponents) / (Lsponge)) * (nfRef & (Wn - Wn0));
+		   + pos(xsponge - xComponents) * v0 * ((xsponge - xComponents) / (Lsponge)) * ((xsponge - xComponents) / (Lsponge)) * (nfRef & (Wn - Wn0));
 		
 
 		const volVectorField& zeta0 = zeta.oldTime(); 
@@ -312,6 +314,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 				
 				zetaDx_.setSize(nFaces, vector::zero);
 				PhiDx_.setSize(nFaces, Zero);PhiDy_.setSize(nFaces, Zero);
+				
 				
 				UPFDV2();
 				
@@ -484,6 +487,13 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 						zetap=zeta0p+dt*((23.0/12.0)*(Wn+Wcurdz_zeta0p-UetaDx)-(16.0/12.0)*WnOld_+(5.0/12.0)*WnOld2_);
 						phiCalc = ((23.0/12.0)*((gVal & zeta0p)+turgut + dampingterm)-(16.0/12.0)*DPhiold_+(5.0/12.0)*DPhiold2_)*dt + Phi0Patch;
 						
+						
+						// apply Kress-Oliger Filter to mitigate high-frequency noise from 4rth order central scheme
+						vectorField zetapOld(zetap);
+						scalarField zetapZOld(zetapOld.component(vector::Z));
+						exchangeWpGhostField(zetapZOld, phiCalc);
+						applyKreissOligerFilter(zetap, zetapOld);
+
 						WnOld2_=WnOld_;
 						DPhiold2_=DPhiold_;
 						
@@ -688,6 +698,99 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findSphereEdgeVertexFaces()
 
     // Optional: merge into existing mask if you want
     // for (label i=0;i<nFaces;++i) ownerHasBodyFace_[i] = ownerHasBodyFace_[i] || ownerHasBodyEdge_[i];
+}
+
+void Foam::waveCurrentPotential3DFvPatchScalarField::applyKreissOligerFilter
+(
+	vectorField& zetap,
+	const vectorField& zetapOld
+)
+{
+	forAll(zetap, i)
+	{
+
+		if (schemeCodeX_[i] == 14)
+		{
+			const List<label>& L = upwindNodesX_[i];
+			const List<label>& R = downwindNodesX_[i];
+
+			scalar f1 = 0.0, f2 = 0.0, f3 = 0.0, f4 = 0.0;
+
+			const scalar f0 = zetapOld[i].z();
+
+			auto getWp = [&](label globalId) -> scalar
+			{
+				if (globalIdToPackedIdx_.found(globalId))
+					return zetapOld[globalIdToPackedIdx_[globalId]].z();
+				else if (globalIdToWp_.found(globalId))
+					return globalIdToWp_[globalId];
+				else
+				{
+					FatalErrorInFunction << "Missing zetaZ value for globalId " << globalId << " (not found in local or ghost maps)." << " This indicates that the stencil was not exchanged properly." << nl << abort(FatalError);
+					return -12345; // Never reached, silences compiler warning
+				}
+			};
+
+			label up1 = L[0];
+			List<label> up2List;
+			label down1 = R[0];
+			List<label> down2List;
+
+			// Upwind nodes
+			if (globalIdToPackedIdx_.found(up1))
+			{
+				
+				up2List = upwindNodesX_[globalIdToPackedIdx_[up1]];
+			
+			}
+			else
+			{
+				const auto it = remoteIdToUpwindNodesX_.find(globalIdOfLocalFace_[i]);
+				if (it != remoteIdToUpwindNodesX_.end())
+					up2List = it();
+				else
+					FatalErrorInFunction << "Missing second upwind node for globalId " << globalIdOfLocalFace_[i]
+											<< " in scheme 6. This violates detection guarantee." << nl << abort(FatalError);
+			}
+			// Downwind nodes
+			if (globalIdToPackedIdx_.found(down1))
+			{
+				down2List = downwindNodesX_[globalIdToPackedIdx_[down1]];
+			}
+			else
+			{
+				const auto it = remoteIdToDownwindNodesX_.find(globalIdOfLocalFace_[i]);
+				if (it != remoteIdToDownwindNodesX_.end())
+				{
+					down2List = it();
+				}
+				else
+				{
+					FatalErrorInFunction
+						<< "Missing second downwind node for globalId " << globalIdOfLocalFace_[i]
+						<< " in scheme 7. This violates detection guarantee." << nl
+						<< abort(FatalError);
+				}
+			}
+
+			// UPWIND NODES
+			f1 = getWp(up1);
+			label up2 = up2List[0];
+			f2 = getWp(up2);
+
+			// DOWNWIND NODES
+			f3 = getWp(down1); 
+			label down2 = down2List[0];
+			f4 = getWp(down2);
+
+
+			// Apply filtering - Kreiss–Oliger filter (4th-order scheme)
+			scalar epsilon = 0.000;
+			zetap[i].z() -= epsilon*(f2 - 4*f1 + 6*f0 - 4*f3 + f4);
+
+		}
+
+	}
 }
 
 

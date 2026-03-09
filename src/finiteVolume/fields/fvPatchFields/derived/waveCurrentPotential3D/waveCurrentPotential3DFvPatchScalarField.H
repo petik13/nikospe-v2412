@@ -163,6 +163,9 @@ private:
 		List<FixedList<bool,2>> interpNeededX_;
 		List<FixedList<bool,2>> interpNeededY_;
 
+        List<FixedList<bool,4>> interpNeeded4thX_;
+        List<FixedList<bool,4>> interpNeeded4thY_;
+
 
 		//- Guard so we only build the above once
 		boolList procBoundaryFace_; 
@@ -227,6 +230,28 @@ private:
 		 bool windsCalculated_{false};
 		 bool schemesDetected_{false};
 		 bool candidatesCalculated_{false};
+
+         //- Compute 5-point non-uniform first-derivative coefficients
+        void computeFirstDerivativeCoeffs5pt
+        (
+            const scalar xm2,
+            const scalar xm1,
+            const scalar x0,
+            const scalar xp1,
+            const scalar xp2,
+            scalar& am2,
+            scalar& am1,
+            scalar& a0,
+            scalar& ap1,
+            scalar& ap2
+        ) const;
+
+        void applyKreissOligerFilter
+        (
+            vectorField& zetap,
+            const vectorField& zetapOld
+        );
+
 
 public:
 
@@ -349,6 +374,12 @@ public:
 
 		List<FixedList<bool,2>>& interpNeededY() { return interpNeededY_; }
 		const List<FixedList<bool,2>>& interpNeededY() const { return interpNeededY_; }
+
+        List<FixedList<bool,4>>& interpNeeded4thX() { return interpNeeded4thX_; }
+        const List<FixedList<bool,4>>& interpNeeded4thX() const { return interpNeeded4thX_; }
+
+        List<FixedList<bool,4>>& interpNeeded4thY() { return interpNeeded4thY_; }
+        const List<FixedList<bool,4>>& interpNeeded4thY() const { return interpNeeded4thY_; }
 		
 		// Allow inline template helpers access to private members
 		template<class PatchField>
@@ -360,8 +391,11 @@ public:
 		template<class PatchField>
 		friend bool tryDownwind2nd(const PatchField&, label, label&, const vectorField&, const scalarField&, const scalarField&, const List<List<label>>&, const HashTable<List<label>, label>&);
 
-
-        mutable scalarField DzetaZdxOld_, DzetaZdyOld_;
+        template<class PatchField>
+        friend bool tryFourthOrderCentral(const PatchField&, label, label&, const vectorField&, const scalarField&, const scalarField&, const List<List<label>>&, const List<List<label>>&,
+            const HashTable<List<label>, label>&, const HashTable<List<label>, label>&, const word&);
+        
+            mutable scalarField DzetaZdxOld_, DzetaZdyOld_;
         mutable scalarField DPhidxOld_,   DPhidyOld_;
         mutable bool gradOldInit_ = false;
 

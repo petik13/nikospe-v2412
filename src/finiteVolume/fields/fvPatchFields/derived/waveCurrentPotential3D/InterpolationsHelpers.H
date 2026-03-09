@@ -328,7 +328,7 @@ inline void DerivativeMqRBFxy(
         vals2.append(getValue2(gid));
     };
 
-    collectValue(selfGid);
+    collectValue(selfGid); 
     forAll(candidates, j) collectValue(candidates[j]);
 	const vector& c0 = Cf[globalIdToPackedIdx[selfGid]];
 
@@ -935,10 +935,268 @@ inline void DerivativeLSTaylor(
   
         out1y = coeff1[1];  // fy
         out2y = coeff2[1];  // gy
-   
-
-
 }
+
+
+// Interpolate Pair replacement.
+inline bool solve3x3Gaussian
+(
+    scalar A[3][3],
+    scalar b[3],
+    scalar x[3]
+)
+{
+    // Augmented matrix
+    scalar M[3][4];
+
+    for (label i = 0; i < 3; ++i)
+    {
+        for (label j = 0; j < 3; ++j)
+        {
+            M[i][j] = A[i][j];
+        }
+        M[i][3] = b[i];
+    }
+
+    // Forward elimination with partial pivoting
+    for (label k = 0; k < 3; ++k)
+    {
+        label pivotRow = k;
+        scalar maxVal = Foam::mag(M[k][k]);
+
+        for (label i = k + 1; i < 3; ++i)
+        {
+            const scalar val = Foam::mag(M[i][k]);
+            if (val > maxVal)
+            {
+                maxVal = val;
+                pivotRow = i;
+            }
+        }
+
+        if (maxVal < SMALL)
+        {
+            return false;
+        }
+
+        if (pivotRow != k)
+        {
+            for (label j = k; j < 4; ++j)
+            {
+                Swap(M[k][j], M[pivotRow][j]);
+            }
+        }
+
+        const scalar pivot = M[k][k];
+        for (label j = k; j < 4; ++j)
+        {
+            M[k][j] /= pivot;
+        }
+
+        for (label i = k + 1; i < 3; ++i)
+        {
+            const scalar factor = M[i][k];
+            for (label j = k; j < 4; ++j)
+            {
+                M[i][j] -= factor*M[k][j];
+            }
+        }
+    }
+
+    // Back substitution
+    for (label i = 2; i >= 0; --i)
+    {
+        scalar sum = M[i][3];
+        for (label j = i + 1; j < 3; ++j)
+        {
+            sum -= M[i][j]*x[j];
+        }
+        x[i] = sum;
+
+        if (i == 0) break;
+    }
+
+    return true;
+}
+
+template<class GetValueFunc1, class GetValueFunc2>
+inline void interpolatePairLSLinear
+(
+    const scalar xInterp,
+    const scalar yInterp,
+    const vectorField& Cf,
+    const Map<label>& globalIdToPackedIdx,
+    const Map<vector>& globalIdToCf,
+    const GetValueFunc1& getValue1,
+    const GetValueFunc2& getValue2,
+    const label selfGid,
+    const List<label>& candidates,
+    scalar& out1,
+    scalar& out2
+)
+{
+    // Build point cloud: include selfGid as anchor, plus candidates
+    DynamicList<label> gids;
+    gids.append(selfGid);
+
+    forAll(candidates, j)
+    {
+        if (candidates[j] != selfGid)
+        {
+            gids.append(candidates[j]);
+        }
+    }
+
+    const label N = gids.size();
+
+    // Need at least 3 non-collinear points for a 2D linear fit
+    if (N < 3)
+    {
+        out1 = getValue1(selfGid);
+        out2 = getValue2(selfGid);
+        return;
+    }
+
+    // Weighted normal equations for basis [1, dx, dy]
+    scalar M[3][3] =
+    {
+        {0.0, 0.0, 0.0},
+        {0.0, 0.0, 0.0},
+        {0.0, 0.0, 0.0}
+    };
+
+    scalar b1[3] = {0.0, 0.0, 0.0};
+    scalar b2[3] = {0.0, 0.0, 0.0};
+
+    forAll(gids, k)
+    {
+        const label gid = gids[k];
+
+        vector c = vector::zero;
+        if (globalIdToPackedIdx.found(gid))
+        {
+            c = Cf[globalIdToPackedIdx[gid]];
+        }
+        else if (globalIdToCf.found(gid))
+        {
+            c = globalIdToCf[gid];
+        }
+        else
+        {
+            FatalErrorInFunction
+                << "interpolatePairLSLinear: gid " << gid
+                << " not found in local or ghost maps."
+                << abort(FatalError);
+        }
+
+        const scalar dx = c.x() - xInterp;
+        const scalar dy = c.y() - yInterp;
+        const scalar r2 = dx*dx + dy*dy;
+
+        // Inverse-distance-type weight
+        // SMALL prevents singularity if a point lies exactly at the target
+        const scalar w = 1.0/(r2 + SMALL);
+
+        // Basis: p = [1, dx, dy]
+        const scalar p0 = 1.0;
+        const scalar p1 = dx;
+        const scalar p2 = dy;
+
+        const scalar v1 = getValue1(gid);
+        const scalar v2 = getValue2(gid);
+
+        M[0][0] += w*p0*p0;
+        M[0][1] += w*p0*p1;
+        M[0][2] += w*p0*p2;
+
+        M[1][0] += w*p1*p0;
+        M[1][1] += w*p1*p1;
+        M[1][2] += w*p1*p2;
+
+        M[2][0] += w*p2*p0;
+        M[2][1] += w*p2*p1;
+        M[2][2] += w*p2*p2;
+
+        b1[0] += w*p0*v1;
+        b1[1] += w*p1*v1;
+        b1[2] += w*p2*v1;
+
+        b2[0] += w*p0*v2;
+        b2[1] += w*p1*v2;
+        b2[2] += w*p2*v2;
+    }
+
+    scalar a1[3] = {0.0, 0.0, 0.0};
+    scalar a2[3] = {0.0, 0.0, 0.0};
+
+    if (!solve3x3Gaussian(M, b1, a1))
+    {
+        // Fallback: use self value if LS system is singular
+        out1 = getValue1(selfGid);
+        out2 = getValue2(selfGid);
+        return;
+    }
+
+    // Need a fresh copy because solve3x3Gaussian modifies the matrix
+    scalar M2[3][3] =
+    {
+        {0.0, 0.0, 0.0},
+        {0.0, 0.0, 0.0},
+        {0.0, 0.0, 0.0}
+    };
+
+    scalar b2copy[3] = {b2[0], b2[1], b2[2]};
+
+    // Rebuild M2
+    forAll(gids, k)
+    {
+        const label gid = gids[k];
+
+        vector c = vector::zero;
+        if (globalIdToPackedIdx.found(gid))
+        {
+            c = Cf[globalIdToPackedIdx[gid]];
+        }
+        else
+        {
+            c = globalIdToCf[gid];
+        }
+
+        const scalar dx = c.x() - xInterp;
+        const scalar dy = c.y() - yInterp;
+        const scalar r2 = dx*dx + dy*dy;
+        const scalar w = 1.0/(r2 + SMALL);
+
+        const scalar p0 = 1.0;
+        const scalar p1 = dx;
+        const scalar p2 = dy;
+
+        M2[0][0] += w*p0*p0;
+        M2[0][1] += w*p0*p1;
+        M2[0][2] += w*p0*p2;
+
+        M2[1][0] += w*p1*p0;
+        M2[1][1] += w*p1*p1;
+        M2[1][2] += w*p1*p2;
+
+        M2[2][0] += w*p2*p0;
+        M2[2][1] += w*p2*p1;
+        M2[2][2] += w*p2*p2;
+    }
+
+    if (!solve3x3Gaussian(M2, b2copy, a2))
+    {
+        out1 = getValue1(selfGid);
+        out2 = getValue2(selfGid);
+        return;
+    }
+
+    // Interpolated value at (xInterp, yInterp) is the constant term a0
+    out1 = a1[0];
+    out2 = a2[0];
+}
+
+
 
 }
 #endif

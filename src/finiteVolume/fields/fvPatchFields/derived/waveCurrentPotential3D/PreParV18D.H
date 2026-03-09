@@ -1795,6 +1795,9 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::detectFDSchemes()
 	interpNeededX_.setSize(nFaces, FixedList<bool,2>(false));
 	interpNeededY_.setSize(nFaces, FixedList<bool,2>(false));
 
+	interpNeeded4thX_.setSize(nFaces, FixedList<bool,4>(false));
+	interpNeeded4thY_.setSize(nFaces, FixedList<bool,4>(false));
+
 	
 	const volVectorField& Ucur = db().lookupObjectRef<volVectorField>("Ucur");
 	const vectorField& Ucur_p = Ucur.boundaryField()[patch().index()];
@@ -1851,6 +1854,28 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::detectFDSchemes()
 						schemeCodeX_[i] = 5;
 				}
 			}
+
+			// Try 4th-order central difference
+			if
+			(
+				tryFourthOrderCentral
+				(
+					*this,
+					i,
+					schemeX,
+					Cf,
+					x,
+					y,
+					upwindNodesX_,
+					downwindNodesX_,
+					remoteIdToUpwindNodesX_,
+					remoteIdToDownwindNodesX_,
+					dir
+				)
+			)
+			{
+				schemeCodeX_[i] = schemeX;
+			}
 		}
 
 		// === Y-direction scheme detection
@@ -1897,6 +1922,27 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::detectFDSchemes()
 						WarningInFunction << "Face " << globalIdOfLocalFace_[i] << ": First Order Detected !!!" << endl;
 					}
 				}
+			}
+			// Try 4th-order central difference
+			if
+			(
+				tryFourthOrderCentral
+				(
+					*this,
+					i,
+					schemeY,
+					Cf,
+					x,
+					y,
+					upwindNodesY_,
+					downwindNodesY_,
+					remoteIdToUpwindNodesY_,
+					remoteIdToDownwindNodesY_,
+					dir
+				)
+			)
+			{
+				schemeCodeY_[i] = schemeY;
 			}
 		}
 

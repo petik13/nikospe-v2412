@@ -50,6 +50,8 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
     const volScalarField& Phi = db().lookupObjectRef<volScalarField>(PHIName_);
     const scalarField& PhiPatch_p = Phi.boundaryField()[patchi];
     scalarField PhiPatch(nFaces, 0.0);
+
+	auto& interpNeeded4th = interpNeeded4thX_;
     
 	for (label i = 0; i < nFaces; i++)
     {
@@ -153,8 +155,11 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 			label s = schemeCodeX_[i];
 
 			scalar h1 = 0, h2 = 0, f1 = 0, f2 = 0, g1 = 0, g2 = 0;
+			scalar f3 = 0, g3 = 0, f4 = 0, g4 = 0, h3 = 0, h4 = 0;
 
-			if (s == 6) // 2nd-order upwind
+			
+
+			if (s == 6 || ( s == 14 && (interpNeeded4th[i][0] || interpNeeded4th[i][1] || interpNeeded4th[i][2] || interpNeeded4th[i][3]))) // 2nd-order upwind
 			{
 				
 				label up1 = L[0];
@@ -221,7 +226,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 				
 							 
 			}
-			else if (s == 1) // 
+			else if (s == 1) // central difference
 			{
 				
 				////INTERPOLATION CHECK
@@ -270,7 +275,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 				DzetaZdx[i] = (-sqr(h2)*f1 + sqr(h1)*f2 - (sqr(h1)-sqr(h2))*f0) / (h1*h2*(h1 + h2));
 				DPhidx[i] = (-sqr(h2)*g1 + sqr(h1)*g2 - (sqr(h1)-sqr(h2))*g0) / (h1*h2*(h1 + h2));
 			}
-			else if (s == 7)
+			else if (s == 7) // 2nd order downwind
 			{
 				label down1 = R[0];
 				List<label> down2List;
@@ -338,6 +343,144 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 				DPhidx[i] = (-sqr(h2)*g1 + sqr(h1)*g2 - (sqr(h1)-sqr(h2))*g0) / (h1*h2*(h1 - h2));
 				
 			}
+			else if (s == 14) // 4th order central difference. 
+			{
+				label up1 = L[0];
+				List<label> up2List;
+				label down1 = R[0];
+				List<label> down2List;
+
+				// Upwind nodes
+				if (globalIdToPackedIdx_.found(up1))
+				{
+					
+					up2List = upwindNodesX_[globalIdToPackedIdx_[up1]];
+				
+				}
+				else
+				{
+					const auto it = remoteIdToUpwindNodesX_.find(globalIdOfLocalFace_[i]);
+					if (it != remoteIdToUpwindNodesX_.end())
+						up2List = it();
+					else
+						FatalErrorInFunction << "Missing second upwind node for globalId " << globalIdOfLocalFace_[i]
+											 << " in scheme 6. This violates detection guarantee." << nl << abort(FatalError);
+				}
+				// Downwind nodes
+				if (globalIdToPackedIdx_.found(down1))
+				{
+					down2List = downwindNodesX_[globalIdToPackedIdx_[down1]];
+				}
+				else
+				{
+					const auto it = remoteIdToDownwindNodesX_.find(globalIdOfLocalFace_[i]);
+					if (it != remoteIdToDownwindNodesX_.end())
+					{
+						down2List = it();
+					}
+					else
+					{
+						FatalErrorInFunction
+							<< "Missing second downwind node for globalId " << globalIdOfLocalFace_[i]
+							<< " in scheme 7. This violates detection guarantee." << nl
+							<< abort(FatalError);
+					}
+				}
+
+				////INTERPOLATION CHECK   
+				 
+				// f1 and g1
+				if (interpNeeded4th[i][0])
+				{
+					const vector& cUp1 = globalIdToPackedIdx_.found(up1) ? Cf[globalIdToPackedIdx_[up1]] : globalIdToCf_[up1];
+					const scalar x_up1 = cUp1.x();
+					const List<label>& candsX1 = getCandidates(up1);
+					
+					// Pout << "x-position" << x_up1 << " for globalId " << up1 << " at face " << i << nl;
+					
+					
+					interpolatePairMQAturgut(x_up1, y0, Cf,globalIdToPackedIdx_, globalIdToCf_,getWp, getPhip,up1, candsX1, dist, f1, g1);
+				}
+				else
+				{
+					f1 = getWp(up1);
+					g1 = getPhip(up1);
+				}
+
+				// f2 and g2
+				label up2 = up2List[0];
+				if (interpNeeded4th[i][1])
+				{
+					const vector& cUp2 = globalIdToPackedIdx_.found(up2)? Cf[globalIdToPackedIdx_[up2]]: globalIdToCf_[up2];
+					const scalar x_up2 = cUp2.x();
+					const List<label>& candsX1 = getCandidates(up2); 
+					
+					
+					interpolatePairMQAturgut(x_up2, y0, Cf,globalIdToPackedIdx_, globalIdToCf_,getWp, getPhip,up2, candsX1, dist, f2, g2);
+					
+				}
+				else
+				{
+					f2 = getWp(up2);
+					g2 = getPhip(up2);
+				}
+
+				// DOWNWIND NODES
+
+				// f3 and g3
+				if (interpNeeded4th[i][2])
+				{
+					const vector& cUp1 = globalIdToPackedIdx_.found(down1) ? Cf[globalIdToPackedIdx_[down1]] : globalIdToCf_[down1];
+					const scalar x_down1 = cUp1.x();
+					const List<label>& candsX1 = getCandidates(down1); 
+					
+					interpolatePairMQAturgut(x_down1, y0, Cf,globalIdToPackedIdx_, globalIdToCf_,getWp, getPhip,down1, candsX1, dist, f3, g3);
+					
+				
+				}
+				else
+				{
+					f3 = getWp(down1); 
+					g3 = getPhip(down1); 
+				}
+
+				// f4 and g4
+				label down2 = down2List[0];
+				if (interpNeeded4th[i][3])
+				{
+					const vector& cUp2 = globalIdToPackedIdx_.found(down2)? Cf[globalIdToPackedIdx_[down2]]: globalIdToCf_[down2];
+					const scalar x_down2 = cUp2.x();
+					const List<label>& candsX1 = getCandidates(down2); 
+					
+					interpolatePairMQAturgut(x_down2, y0, Cf,globalIdToPackedIdx_, globalIdToCf_,getWp, getPhip,down2, candsX1, dist, f4, g4);
+					
+				}
+				else
+				{
+					f4 = getWp(down2);
+					g4 = getPhip(down2);
+				}	
+				////END INTERPOLATION CHECK
+
+			   
+				h1 = mag(dx(up1, x0));   // i-1 distance
+				h2 = mag(dx(up2, x0));   // i-2 distance
+				h3 = mag(dx(down1, x0)); // i+1 distance
+				h4 = mag(dx(down2, x0)); // i+2 distance
+
+				// // Calculate coefficients for 4th-order stensil for non-uniform grid
+				scalar am2 = 0.0, am1 = 0.0, a0 = 0.0, ap1 = 0.0, ap2 = 0.0;
+				computeFirstDerivativeCoeffs5pt(-h2, -h1, 0.0, h3, h4, am2, am1, a0, ap1, ap2);
+
+				DzetaZdx[i] = am2*f2 + am1*f1 + a0*f0 + ap1*f3 + ap2*f4;
+				DPhidx[i]   = am2*g2 + am1*g1 + a0*g0 + ap1*g3 + ap2*g4;
+
+				// -- Uniform Grid
+				// h1 = mag(dx(up1, x0)); h2 = mag(dx(up2, x0)); h3 = mag(dx(down1, x0)); h4 = mag(dx(down2, x0)); 
+				// DzetaZdx[i] = (f2 - 8*f1 + 8*f3 - f4)/(12*h1); 
+				// DPhidx[i] = (g2 - 8*g1 + 8*g3 - g4)/(12*h1); 
+
+			}
 			else if (s == 4 && L.size())
 			{
 				h1 = mag(dx(L[0], x0));f1 = getWp(L[0]);g1 = getPhip(L[0]);
@@ -388,41 +531,10 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 				DzetaZdx[i] = -amp * wavenumber * Foam::sin(wavenumber * x0 -(w + U0 * wavenumber * Foam::cos(head_ang)) * db().time().value())*ramp_factor;
 				DPhidx[i] =  amp * wavenumber * (9.81 / w) * Foam::cos(wavenumber * x0 - (w + U0 * wavenumber * Foam::cos(head_ang)) * db().time().value())*ramp_factor;
 			}
-
-			// if (ownerHasInletFace_[i]){
-				
-			// 	const scalar rampperiod =  params_.rampperiod;
-			// 	const scalar U0          = params_.U0;
-			// 	const scalar head_ang   = params_.head_ang;
-			// 	const scalar wavelength  = params_.wavelength;
-			// 	const scalar steepness  = params_.steepness;
-			// 	const scalar hdepth  = params_.hdepth;
-				
-			// 	const scalar wavenumber(2.0 * Foam::constant::mathematical::pi / wavelength);
-			// 	const scalar amp(0.5 * steepness * wavelength);
-			// 	const scalar w(Foam::sqrt(9.81 * wavenumber * Foam::tanh(wavenumber*hdepth)));
-			// 	const scalar celerity(w/wavenumber); 
-				
-			// 	//Info << "Input wave given on:" << x0 << endl; 
-			// 	scalar ramp_factor = 1.0;
-			// 	if (rampperiod > 0){
-			// 		const scalar T(2.0*Foam::constant::mathematical::pi/w);
-			// 		const scalar ramp_time(rampperiod * T);
-			// 		ramp_factor = 0.5 * (1 - cos(Foam::constant::mathematical::pi * min(1.0, db().time().value() / ramp_time)));
-			// 	//Info << "Ramp implemented for nPeriod:" << rampperiod << endl;
-				
-			// 	}
-				
-				
-				
-			// 	DzetaZdx[i] = -amp * wavenumber * Foam::sin(wavenumber * x0 -(w + U0 * wavenumber * Foam::cos(head_ang)) * db().time().value())*ramp_factor;
-			// 	DPhidx[i] =  amp * wavenumber * (9.81 / w) * Foam::cos(wavenumber * x0 - (w + U0 * wavenumber * Foam::cos(head_ang)) * db().time().value())*ramp_factor;
-			// }
 		}
 	}
 	
 		
-			
 
 	for (label i = 0; i < nFaces; ++i)
     {
@@ -438,8 +550,9 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 			label s = schemeCodeY_[i];
 
 			scalar h1 = 0, h2 = 0, f1 = 0, f2 = 0, g1 = 0, g2 = 0;
+			scalar f3 = 0, g3 = 0, f4 = 0, g4 = 0, h3 = 0, h4 = 0;
 
-			if (s == 6 )
+			if (s == 6  || ( s == 14 && (interpNeeded4th[i][0] || interpNeeded4th[i][1] || interpNeeded4th[i][2] || interpNeeded4th[i][3])))
 			{
 				label up1 = L[0];
 				List<label> up2List;
@@ -549,6 +662,142 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 				
 				DzetaZdy[i] = (-sqr(h2)*f1 + sqr(h1)*f2 - (sqr(h1)-sqr(h2))*f0) / (h1*h2*(h1 + h2));
 				DPhidy[i] = (-sqr(h2)*g1 + sqr(h1)*g2 - (sqr(h1)-sqr(h2))*g0) / (h1*h2*(h1 + h2));
+			}
+			else if (s == 14) // 4th order central difference. 
+			{
+				label up1 = L[0];
+				List<label> up2List;
+				label down1 = R[0];
+				List<label> down2List;
+
+				// Upwind nodes
+				if (globalIdToPackedIdx_.found(up1))
+				{
+					
+					up2List = upwindNodesY_[globalIdToPackedIdx_[up1]];
+				
+				}
+				else
+				{
+					const auto it = remoteIdToUpwindNodesY_.find(globalIdOfLocalFace_[i]);
+					if (it != remoteIdToUpwindNodesY_.end())
+						up2List = it();
+					else
+						FatalErrorInFunction << "Missing second upwind node for globalId " << globalIdOfLocalFace_[i]
+											 << " in scheme 6. This violates detection guarantee." << nl << abort(FatalError);
+				}
+				// Downwind nodes
+				if (globalIdToPackedIdx_.found(down1))
+				{
+					down2List = downwindNodesY_[globalIdToPackedIdx_[down1]];
+				}
+				else
+				{
+					const auto it = remoteIdToDownwindNodesY_.find(globalIdOfLocalFace_[i]);
+					if (it != remoteIdToDownwindNodesY_.end())
+					{
+						down2List = it();
+					}
+					else
+					{
+						FatalErrorInFunction
+							<< "Missing second downwind node for globalId " << globalIdOfLocalFace_[i]
+							<< " in scheme 7. This violates detection guarantee." << nl
+							<< abort(FatalError);
+					}
+				}
+
+				////INTERPOLATION CHECK   
+				 
+				// f1 and g1
+				if (interpNeeded4thY_[i][0])
+				{
+					const vector& cUp1 = globalIdToPackedIdx_.found(up1) ? Cf[globalIdToPackedIdx_[up1]] : globalIdToCf_[up1];
+					const scalar y_up1 = cUp1.y();
+					const List<label>& candsY1 = getCandidates(up1);
+										
+					
+					interpolatePairMQAturgut(x0, y_up1, Cf,globalIdToPackedIdx_, globalIdToCf_,getWp, getPhip,up1, candsY1, dist, f1, g1);
+				}
+				else
+				{
+					f1 = getWp(up1);
+					g1 = getPhip(up1);
+				}
+
+				// f2 and g2
+				label up2 = up2List[0];
+				if (interpNeeded4thY_[i][1])
+				{
+					const vector& cUp2 = globalIdToPackedIdx_.found(up2)? Cf[globalIdToPackedIdx_[up2]]: globalIdToCf_[up2];
+					const scalar y_up2 = cUp2.y();
+					const List<label>& candsY2 = getCandidates(up2); 
+					
+					
+					interpolatePairMQAturgut(x0, y_up2, Cf,globalIdToPackedIdx_, globalIdToCf_,getWp, getPhip,up2, candsY2, dist, f2, g2);
+					
+				}
+				else
+				{
+					f2 = getWp(up2);
+					g2 = getPhip(up2);
+				}
+
+				// DOWNWIND NODES
+
+				// f3 and g3
+				if (interpNeeded4thY_[i][2])
+				{
+					const vector& cUp1 = globalIdToPackedIdx_.found(down1) ? Cf[globalIdToPackedIdx_[down1]] : globalIdToCf_[down1];
+					const scalar y_down1 = cUp1.y();
+					const List<label>& candsY1 = getCandidates(down1); 
+					
+					interpolatePairMQAturgut(x0, y_down1, Cf,globalIdToPackedIdx_, globalIdToCf_,getWp, getPhip,down1, candsY1, dist, f3, g3);
+					
+				
+				}
+				else
+				{
+					f3 = getWp(down1); 
+					g3 = getPhip(down1); 
+				}
+
+				// f4 and g4
+				label down2 = down2List[0];
+				if (interpNeeded4thY_[i][3])
+				{
+					const vector& cUp2 = globalIdToPackedIdx_.found(down2)? Cf[globalIdToPackedIdx_[down2]]: globalIdToCf_[down2];
+					const scalar y_down2 = cUp2.y();
+					const List<label>& candsY2 = getCandidates(down2); 
+					
+					interpolatePairMQAturgut(x0, y_down2, Cf,globalIdToPackedIdx_, globalIdToCf_,getWp, getPhip,down2, candsY2, dist, f4, g4);
+					
+				}
+				else
+				{
+					f4 = getWp(down2);
+					g4 = getPhip(down2);
+				}	
+				////END INTERPOLATION CHECK
+
+			   
+				h1 = mag(dy(up1, y0));   // i-1 distance
+				h2 = mag(dy(up2, y0));   // i-2 distance
+				h3 = mag(dy(down1, y0)); // i+1 distance
+				h4 = mag(dy(down2, y0)); // i+2 distance
+
+				// // Calculate coefficients for 4th-order stensil for non-uniform grid
+				scalar am2 = 0.0, am1 = 0.0, a0 = 0.0, ap1 = 0.0, ap2 = 0.0;
+				computeFirstDerivativeCoeffs5pt(-h2, -h1, 0.0, h3, h4, am2, am1, a0, ap1, ap2);
+
+				DzetaZdy[i] = am2*f2 + am1*f1 + a0*f0 + ap1*f3 + ap2*f4;
+				DPhidy[i]   = am2*g2 + am1*g1 + a0*g0 + ap1*g3 + ap2*g4;
+
+				// -- Uniform Grid
+				// h1 = mag(dy(up1, y0)); h2 = mag(dy(up2, y0)); h3 = mag(dy(down1, y0)); h4 = mag(dy(down2, y0)); 
+				// DzetaZdy[i] = (f2 - 8*f1 + 8*f3 - f4)/(12*h1); 
+				// DPhidy[i] = (g2 - 8*g1 + 8*g3 - g4)/(12*h1); 
+
 			}
 			else if (s == 7)
 			{
@@ -792,3 +1041,114 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::exchangeWpGhostField(const 
     //if ( Pstream::myProcNo()==1) Pout << "proc " << Pstream::myProcNo() << " globalIdToWp_ " << globalIdToWp_ << endl;
 }
 
+
+void Foam::waveCurrentPotential3DFvPatchScalarField::computeFirstDerivativeCoeffs5pt
+(
+    const scalar xm2,
+    const scalar xm1,
+    const scalar x0,
+    const scalar xp1,
+    const scalar xp2,
+    scalar& am2,
+    scalar& am1,
+    scalar& a0,
+    scalar& ap1,
+    scalar& ap2
+) const
+{
+    // Offsets relative to stencil center
+    scalar h[5] = {xm2, xm1, x0, xp1, xp2};
+
+    // Augmented matrix [A|b]
+    scalar A[5][6];
+
+    // Polynomial matching conditions:
+    // sum_j a_j h_j^m = rhs_m
+    // m = 0 -> 0
+    // m = 1 -> 1
+    // m = 2,3,4 -> 0
+
+    for (label j = 0; j < 5; ++j)
+    {
+        A[0][j] = 1.0;
+        A[1][j] = h[j];
+        A[2][j] = h[j]*h[j];
+        A[3][j] = h[j]*h[j]*h[j];
+        A[4][j] = h[j]*h[j]*h[j]*h[j];
+    }
+
+    A[0][5] = 0.0;
+    A[1][5] = 1.0;
+    A[2][5] = 0.0;
+    A[3][5] = 0.0;
+    A[4][5] = 0.0;
+
+    // Gaussian elimination with partial pivoting
+    for (label k = 0; k < 5; ++k)
+    {
+        label pivotRow = k;
+        scalar maxVal = Foam::mag(A[k][k]);
+
+        for (label i = k + 1; i < 5; ++i)
+        {
+            const scalar val = Foam::mag(A[i][k]);
+            if (val > maxVal)
+            {
+                maxVal = val;
+                pivotRow = i;
+            }
+        }
+
+        if (maxVal < SMALL)
+        {
+            FatalErrorInFunction
+                << "Singular 5-point derivative stencil matrix."
+                << nl
+                << "Offsets = (" << xm2 << ", " << xm1 << ", " << x0
+                << ", " << xp1 << ", " << xp2 << ")"
+                << nl << abort(FatalError);
+        }
+
+        if (pivotRow != k)
+        {
+            for (label j = k; j < 6; ++j)
+            {
+                Swap(A[k][j], A[pivotRow][j]);
+            }
+        }
+
+        const scalar pivot = A[k][k];
+        for (label j = k; j < 6; ++j)
+        {
+            A[k][j] /= pivot;
+        }
+
+        for (label i = k + 1; i < 5; ++i)
+        {
+            const scalar factor = A[i][k];
+            for (label j = k; j < 6; ++j)
+            {
+                A[i][j] -= factor*A[k][j];
+            }
+        }
+    }
+
+    // Back substitution
+    scalar a[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
+
+    for (label i = 4; i >= 0; --i)
+    {
+        scalar sum = A[i][5];
+        for (label j = i + 1; j < 5; ++j)
+        {
+            sum -= A[i][j]*a[j];
+        }
+        a[i] = sum;
+    }
+
+    am2 = a[0];
+    am1 = a[1];
+    a0  = a[2];
+    ap1 = a[3];
+    ap2 = a[4];
+}
