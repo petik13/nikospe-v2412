@@ -412,46 +412,32 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 			case tsEuler:
 			case tsCrankNicolson:
 			{
-				Info << "Time Scheme = Semi-Lagrangian Splitting (via " << ddtSchemeTypeNames_[ddtScheme] << ")" << endl;
-
-				if (std::fabs(U0) > SMALL)
-				{
-					// --- 1. SL Advection Step for Zeta ---
-					// We find the value of zeta at the departure point (x - U*dt)
-					// Using Taylor expansion: zeta* = zeta_old - dt * (U . grad(zeta))
-					// Note: your UetaDx is already nfRef * (Ucur_p & zetaDx_)
-					const volVectorField& Ucur = db().lookupObjectRef<volVectorField>("Ucur");
-					const vectorField& Ucur_p = Ucur.boundaryField()[patchi];
-					vectorField zetaStar = zeta0p + dt * (Ucur_p & zetaDx_) * nfRef;
-
-					// --- 2. SL Advection Step for Phi ---
-					// Same logic for the potential field
-					scalarField phiStar = Phi0Patch + dt * turgut;
-
-					// --- 3. Propagation Step (Physical Update) ---
-					// Now apply vertical velocity and pressure/gravity terms to the advected values
+				
+				Info << "Time Scheme = " << ddtSchemeTypeNames_[ddtScheme] << endl;
+				
+				if ( std::fabs(U0) > 0.0 ){
+				
+				
+					Info << "Current speed is nonzero " << endl;
 					
-					// Update surface elevation: zeta = zeta_star + dt * (W_unsteady + W_steady_correction)
-					zetap = zetaStar - dt * (Wn + Wcurdz_zeta0p);
-
-					// Update potential: phi = phi_star + dt * (gravity + damping)
-					// gVal is already negative gravity.
-					phiCalc = phiStar + dt * ((gVal & zeta0p) + dampingterm);
-
-					// Update history terms for next step (if using higher order like AB3 later)
-					WnOld_ = (Wn + Wcurdz_zeta0p); // Pure source terms
-					DPhiold_ = ((gVal & zeta0p) + dampingterm);
-
-					Info << "Semi-Lagrangian advection and propagation steps applied." << endl;
+					
+					zetap = zeta0p + dt*(Wn+Wcurdz_zeta0p-UetaDx);
+					Info << "Turgut ayri applied" << endl;
+					phiCalc = ((gVal & zeta0p)+turgut + dampingterm)*dt + Phi0Patch; // shouldn't turgut term have a minus?
+					//phiCalc = ((gVal & zetap))*dt + Phi0Patch;
+					
 				}
-				else
-				{
-					// Standard zero-speed update
-					Info << "Current speed is zero - Standard Eulerian update" << endl;
-					zetap = zeta0p + dt * Wn;
-					phiCalc = (gVal & zetap) * dt + Phi0Patch + dampingterm * dt;
+				else{
+					
+				Info << "Current speed is zero " << endl;
+				
+				zetap = zeta0p + dt*Wn;
+				phiCalc = ((gVal & zetap)+ dampingterm)*dt + Phi0Patch;
+				
 				}
-
+				
+				
+				
 				break;
 			}
 			case tsBackward:

@@ -203,7 +203,7 @@ int main(int argc, char *argv[])
 
     // Calculate d²PhiCur/dz²
     const volTensorField PhiCurD2 = fvc::grad(fvc::grad(PhiCur));
-    PhiCurDz2 = PhiCurD2.component(tensor::ZZ);
+    // PhiCurDz2 = PhiCurD2.component(tensor::ZZ);
 
     // ---------- Set PhiCur instead using NKL everywhere in the domain (as a freestream undisturbed potential) ---------------------------------
     // scalar heading	=  -30.0;
@@ -333,9 +333,13 @@ int main(int argc, char *argv[])
 			Phi.write();
 		}
 
-        
-		
-		
+        // -- Explicit write of some fields
+        if (runTime.writeTime())
+        {
+            zetaDx.write();
+            PhiDx.write();
+            PhiDy.write();
+        }
 		
 		runTime.write(); // write time directory when needed
 		

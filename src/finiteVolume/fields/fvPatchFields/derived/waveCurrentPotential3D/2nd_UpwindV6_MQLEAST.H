@@ -139,7 +139,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 
 
 	scalar shalpeVal = shape_;
-	Info << " shalpeVal : " << shalpeVal << endl;
+	// Info << " shalpeVal : " << shalpeVal << endl;
 	
 	
     for (label i = 0; i < nFaces; ++i)
@@ -516,7 +516,6 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 				const scalar wavenumber(2.0 * Foam::constant::mathematical::pi / wavelength);
 				const scalar amp(0.5 * steepness * wavelength);
 				const scalar w(Foam::sqrt(9.81 * wavenumber * Foam::tanh(wavenumber*hdepth)));
-				const scalar celerity(w/wavenumber); 
 				
 				//Info << "Input wave given on:" << x0 << endl; 
 				scalar ramp_factor = 1.0;
@@ -552,7 +551,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 			scalar h1 = 0, h2 = 0, f1 = 0, f2 = 0, g1 = 0, g2 = 0;
 			scalar f3 = 0, g3 = 0, f4 = 0, g4 = 0, h3 = 0, h4 = 0;
 
-			if (s == 6  || ( s == 14 && (interpNeeded4th[i][0] || interpNeeded4th[i][1] || interpNeeded4th[i][2] || interpNeeded4th[i][3])))
+			if (s == 6)
 			{
 				label up1 = L[0];
 				List<label> up2List;
@@ -799,7 +798,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 				// DPhidy[i] = (g2 - 8*g1 + 8*g3 - g4)/(12*h1); 
 
 			}
-			else if (s == 7)
+			else if (s == 7 || ( s == 14 && (interpNeeded4thY_[i][0] || interpNeeded4thY_[i][1] || interpNeeded4thY_[i][2] || interpNeeded4thY_[i][3])))
 			{
 				label down1 = R[0];
 				List<label> down2List;
@@ -883,7 +882,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 				FatalErrorInFunction << "Face " << i << ": Invalid schemeCodeY = " << s << nl << abort(FatalError);
 			}
 			
-			if (ownerHasInletFace_[i]){ 
+			if (ownerHasInletFace_[i]){
 				DzetaZdy[i] = 0.0;
 				DPhidy[i] = 0.0;
 			}
@@ -905,7 +904,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 				 continue;
 			}
 			
-			const scalar dist =  shalpeVal/patch().deltaCoeffs()[i];
+			// const scalar dist =  shalpeVal/patch().deltaCoeffs()[i];
 			scalar fx = 0, fy = 0, gx = 0, gy = 0;	
 			// DerivativeMqRBFxy(dist,Cf,globalIdToPackedIdx_,globalIdToCf_,getWp,getPhip,selfGid,lsMergedCandidates_[i],fx,fy,gx,gy);
 			// DerivativeLSTaylor(Cf,globalIdToPackedIdx_,globalIdToCf_,getWp,getPhip,selfGid,lsMergedCandidates_[i],fx,fy,gx,gy);

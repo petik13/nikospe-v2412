@@ -381,13 +381,10 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
     K[5][5] = 280.0;
 
     Mat6 C = zero66();  // no damping yet
-    // Add roll damping
-    // C[0][0] = 20.0;
-    // C[1][1] = 20.0;
-    // // C[2][2] = 50.0;
-    C[3][3] = 20.0;
-    // // C[4][4] = 50.0;
-    // C[5][5] = 20.0;
+
+    // Roll damping: 2% * 2 * sqrt(I44*C44_) - 2% of the critical damping for roll - As in Seo's paper
+    C[3][3] = 0.02 * 2.0 * sqrt(I4_ * C44_);
+
 
     // --- External load at n+1: wrench W=(M,F) -> f=[F,M]
     const spatialVector W = computeForce();

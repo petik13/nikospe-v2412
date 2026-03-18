@@ -181,7 +181,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
     }
 	
 	if ( db().time().timeIndex() == lastUpdateTimeIndex ){
-		Info << "waveCurrentPotential3DFvPatchScalarField--saved BC applied at : " << lastUpdateTimeIndex << endl;
+		// Info << "waveCurrentPotential3DFvPatchScalarField--saved BC applied at : " << lastUpdateTimeIndex << endl;
 		operator==(data_);
 		return;	
 	}	
@@ -216,7 +216,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 	
 		
 
-	Info << "Update status: " << updated() << endl; 
+	// Info << "Update status: " << updated() << endl; 
     const label patchi = patch().index();
 	const label nFaces = patch().size();
 	
@@ -228,8 +228,8 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
     const scalar dt = db().time().deltaTValue();
 	const scalar tt=db().time().value();
 	
-	Info << "Time in BC : " << tt << endl;
-	Info << "Iteration: " << db().time().timeIndex() << endl;
+	// Info << "Time in BC : " << tt << endl;
+	// Info << "Iteration: " << db().time().timeIndex() << endl;
 	
     // Retrieve non-const access to zeta field from the database
     volVectorField& zeta = db().lookupObjectRef<volVectorField>(zetaName_);
@@ -263,14 +263,13 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 		const scalar amp(0.5*steepness*wavelength);
 		const scalar wavenumber (2.0*Foam::constant::mathematical::pi/wavelength);
 		const scalar w(sqrt(9.81 * wavenumber * tanh(wavenumber*hdepth)));
-		const scalar celerity(w/wavenumber);
 		const scalar T(2.0*Foam::constant::mathematical::pi/w);
-		const scalar ramp_time(3.0 * T);
+		const scalar ramp_time(rampperiod * T);
 		const scalar ramp_factor = 0.5 * (1 - cos(Foam::constant::mathematical::pi * min(1.0, tt / ramp_time)));
 
-		Info<< "wavenumber k =" << wavenumber << nl;
-		Info<< "angular frequency w =" << w << nl;
-		Info<< "Current speed U0 =" << U0 << nl;
+		// Info<< "wavenumber k =" << wavenumber << nl;
+		// Info<< "angular frequency w =" << w << nl;
+		// Info<< "Current speed U0 =" << U0 << nl;
 
 		// - Incident wave vertical velocity
 		vectorField Wn0
@@ -317,8 +316,20 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 				
 				
 				UPFDV2();
-				
-					
+
+				// -- Copy zetaDx etc to patch fields for inspection
+				volVectorField& zetaDxOut = db().lookupObjectRef<volVectorField>("zetaDx");
+				vectorField& zetaDxPatch = zetaDxOut.boundaryFieldRef()[patchi];
+
+				volScalarField& PhiDxOut = db().lookupObjectRef<volScalarField>("PhiDx");
+				scalarField& PhiDxPatch = PhiDxOut.boundaryFieldRef()[patchi];
+
+				volScalarField& PhiDyOut = db().lookupObjectRef<volScalarField>("PhiDy");
+				scalarField& PhiDyPatch = PhiDyOut.boundaryFieldRef()[patchi];
+
+				zetaDxPatch = zetaDx_;
+				PhiDxPatch  = PhiDx_;
+				PhiDyPatch  = PhiDy_;
 			}
 			
 			
@@ -368,52 +379,38 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 			case tsEuler:
 			case tsCrankNicolson:
 			{
-				Info << "Time Scheme = Semi-Lagrangian Splitting (via " << ddtSchemeTypeNames_[ddtScheme] << ")" << endl;
-
-				if (std::fabs(U0) > SMALL)
-				{
-					// --- 1. SL Advection Step for Zeta ---
-					// We find the value of zeta at the departure point (x - U*dt)
-					// Using Taylor expansion: zeta* = zeta_old - dt * (U . grad(zeta))
-					// Note: your UetaDx is already nfRef * (Ucur_p & zetaDx_)
-					const volVectorField& Ucur = db().lookupObjectRef<volVectorField>("Ucur");
-					const vectorField& Ucur_p = Ucur.boundaryField()[patchi];
-					vectorField zetaStar = zeta0p + dt * (Ucur_p & zetaDx_) * nfRef;
-
-					// --- 2. SL Advection Step for Phi ---
-					// Same logic for the potential field
-					scalarField phiStar = Phi0Patch + dt * turgut;
-
-					// --- 3. Propagation Step (Physical Update) ---
-					// Now apply vertical velocity and pressure/gravity terms to the advected values
+				
+				Info << "Time Scheme = " << ddtSchemeTypeNames_[ddtScheme] << endl;
+				
+				if ( std::fabs(U0) > 0.0 ){
+				
+				
+					Info << "Current speed is nonzero " << endl;
 					
-					// Update surface elevation: zeta = zeta_star + dt * (W_unsteady + W_steady_correction)
-					zetap = zetaStar - dt * (Wn + Wcurdz_zeta0p);
-
-					// Update potential: phi = phi_star + dt * (gravity + damping)
-					// gVal is already negative gravity.
-					phiCalc = phiStar + dt * ((gVal & zeta0p) + dampingterm);
-
-					// Update history terms for next step (if using higher order like AB3 later)
-					WnOld_ = (Wn + Wcurdz_zeta0p); // Pure source terms
-					DPhiold_ = ((gVal & zeta0p) + dampingterm);
-
-					Info << "Semi-Lagrangian advection and propagation steps applied." << endl;
+					
+					zetap = zeta0p + dt*(Wn+Wcurdz_zeta0p-UetaDx);
+					Info << "Turgut ayri applied" << endl;
+					phiCalc = ((gVal & zeta0p)+turgut + dampingterm)*dt + Phi0Patch; // shouldn't turgut term have a minus?
+					//phiCalc = ((gVal & zetap))*dt + Phi0Patch;
+					
 				}
-				else
-				{
-					// Standard zero-speed update
-					Info << "Current speed is zero - Standard Eulerian update" << endl;
-					zetap = zeta0p + dt * Wn;
-					phiCalc = (gVal & zetap) * dt + Phi0Patch + dampingterm * dt;
+				else{
+					
+				Info << "Current speed is zero " << endl;
+				
+				zetap = zeta0p + dt*Wn;
+				phiCalc = ((gVal & zetap)+ dampingterm)*dt + Phi0Patch;
+				
 				}
-
+				
+				
+				
 				break;
 			}
 			case tsBackward:
 			{
 				
-				Info << "Time Scheme = " << ddtSchemeTypeNames_[ddtScheme] << endl;
+				// Info << "Time Scheme = " << ddtSchemeTypeNames_[ddtScheme] << endl;
 				
 				if ( db().time().timeIndex() == 1 )	 
 				{
@@ -483,7 +480,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 						//zetaInt = zeta0p+0.5*dt*((Wn-UetaDx)+WnOld_);
 						//phiInt = (1.5*((gVal & zeta0p)+(0.5)*turgut)-0.5*DPhiold_)*dt + Phi0Patch;
 						
-						Info << "Current speed is nonzero " << endl;
+						// Info << "Current speed is nonzero " << endl;
 						zetap=zeta0p+dt*((23.0/12.0)*(Wn+Wcurdz_zeta0p-UetaDx)-(16.0/12.0)*WnOld_+(5.0/12.0)*WnOld2_);
 						phiCalc = ((23.0/12.0)*((gVal & zeta0p)+turgut + dampingterm)-(16.0/12.0)*DPhiold_+(5.0/12.0)*DPhiold2_)*dt + Phi0Patch;
 						
@@ -504,7 +501,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 					else{
 					
 					
-						Info << "Current speed U0 is zero " << endl;
+						// Info << "Current speed U0 is zero " << endl;
 						zetap=zeta0p+dt*((23.0/12.0)*Wn-(16.0/12.0)*WnOld_+(5.0/12.0)*WnOld2_);
 						phiCalc = ((23.0/12.0)*((gVal & zeta0p) + dampingterm)-(16.0/12.0)*DPhiold_+(5.0/12.0)*DPhiold2_)*dt + Phi0Patch;
 						
@@ -546,7 +543,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
     
 	
 	lastUpdateTimeIndex=db().time().timeIndex();
-	Info << "lastUpdateTimeIndex:" << lastUpdateTimeIndex << endl;
+	// Info << "lastUpdateTimeIndex:" << lastUpdateTimeIndex << endl;
 	
 	//BUNLAR PARALLELDE CALISMIYOR
 	//Info << "zetap[1]:" << zetap[1] << endl;
@@ -562,11 +559,6 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 	// Now assign the computed values using operator==
 	data_=phiCalc;
 	operator==(phiCalc);
-	
-	
-	
-	
-	
 	
 	fixedValueFvPatchScalarField::updateCoeffs();
 }
@@ -706,6 +698,21 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::applyKreissOligerFilter
 	const vectorField& zetapOld
 )
 {
+	auto getWp = [&](label globalId) -> scalar
+	{
+		if (globalIdToPackedIdx_.found(globalId))
+			return zetapOld[globalIdToPackedIdx_[globalId]].z();
+		else if (globalIdToWp_.found(globalId))
+			return globalIdToWp_[globalId];
+		else
+		{
+			FatalErrorInFunction << "Missing zetaZ value for globalId " << globalId << " (not found in local or ghost maps)." << " This indicates that the stencil was not exchanged properly." << nl << abort(FatalError);
+			return -12345; // Never reached, silences compiler warning
+		}
+	};
+
+	const scalar epsilon = 0.000;
+
 	forAll(zetap, i)
 	{
 
@@ -714,22 +721,13 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::applyKreissOligerFilter
 			const List<label>& L = upwindNodesX_[i];
 			const List<label>& R = downwindNodesX_[i];
 
+			if (L.empty() || R.empty()) continue;
+
 			scalar f1 = 0.0, f2 = 0.0, f3 = 0.0, f4 = 0.0;
 
 			const scalar f0 = zetapOld[i].z();
 
-			auto getWp = [&](label globalId) -> scalar
-			{
-				if (globalIdToPackedIdx_.found(globalId))
-					return zetapOld[globalIdToPackedIdx_[globalId]].z();
-				else if (globalIdToWp_.found(globalId))
-					return globalIdToWp_[globalId];
-				else
-				{
-					FatalErrorInFunction << "Missing zetaZ value for globalId " << globalId << " (not found in local or ghost maps)." << " This indicates that the stencil was not exchanged properly." << nl << abort(FatalError);
-					return -12345; // Never reached, silences compiler warning
-				}
-			};
+			
 
 			label up1 = L[0];
 			List<label> up2List;
@@ -785,8 +783,77 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::applyKreissOligerFilter
 
 
 			// Apply filtering - Kreiss–Oliger filter (4th-order scheme)
-			scalar epsilon = 0.000;
 			zetap[i].z() -= epsilon*(f2 - 4*f1 + 6*f0 - 4*f3 + f4);
+		}
+		
+		// ----- Y DIRECTION FILTERING -------------------------------------
+		if (schemeCodeY_[i] == 14)
+		{
+			
+
+			const List<label>& U = upwindNodesY_[i];
+			const List<label>& D = downwindNodesY_[i];
+
+			if (U.empty() || D.empty()) continue;
+
+			scalar g1 = 0.0, g2 = 0.0, g3 = 0.0, g4 = 0.0;
+
+			const scalar g0 = zetapOld[i].z();
+
+			label up1 = U[0];
+			label down1 = D[0];
+			List<label> up2List, down2List;
+
+			// Upwind nodes
+			if (globalIdToPackedIdx_.found(up1))
+			{
+				
+				up2List = upwindNodesY_[globalIdToPackedIdx_[up1]];
+			
+			}
+			else
+			{
+				const auto it = remoteIdToUpwindNodesY_.find(globalIdOfLocalFace_[i]);
+				if (it != remoteIdToUpwindNodesY_.end())
+					up2List = it();
+				else
+					FatalErrorInFunction << "Missing second upwind node for globalId " << globalIdOfLocalFace_[i]
+											<< " in scheme 6. This violates detection guarantee." << nl << abort(FatalError);
+			}
+			// Downwind nodes
+			if (globalIdToPackedIdx_.found(down1))
+			{
+				down2List = downwindNodesY_[globalIdToPackedIdx_[down1]];
+			}
+			else
+			{
+				const auto it = remoteIdToDownwindNodesY_.find(globalIdOfLocalFace_[i]);
+				if (it != remoteIdToDownwindNodesY_.end())
+				{
+					down2List = it();
+				}
+				else
+				{
+					FatalErrorInFunction
+						<< "Missing second downwind node for globalId " << globalIdOfLocalFace_[i]
+						<< " in scheme 7. This violates detection guarantee." << nl
+						<< abort(FatalError);
+				}
+			}
+
+			// UPWIND NODES
+			g1 = getWp(up1);
+			const label up2 = up2List[0];
+			g2 = getWp(up2);
+
+			// DOWNWIND NODES
+			g3 = getWp(down1); 
+			const label down2 = down2List[0];
+			g4 = getWp(down2);
+
+
+			// Apply filtering - Kreiss–Oliger filter (4th-order scheme)
+			zetap[i].z() -= epsilon*(g2 - 4*g1 + 6*g0 - 4*g3 + g4);
 
 		}
 
