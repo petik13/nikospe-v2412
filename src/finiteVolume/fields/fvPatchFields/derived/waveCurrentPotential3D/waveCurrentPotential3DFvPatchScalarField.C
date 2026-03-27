@@ -711,7 +711,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::applyKreissOligerFilter
 		}
 	};
 
-	const scalar epsilon = 0.000;
+	const scalar epsilon = 0.0001;
 
 	forAll(zetap, i)
 	{

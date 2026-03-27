@@ -1,4 +1,4 @@
-/*---------------------------------------------------------------------------*\
+/*---------------------------------------------------------------------------*\\
   =========                 |
   \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
    \\    /   O peration     |
@@ -27,14 +27,12 @@ License
 \*---------------------------------------------------------------------------*/
 
 #include "meanWaveLoads.H"
-#include "fvcGrad.H"
-#include "turbulentTransportModel.H"
-#include "turbulentFluidThermoModel.H"
+#include "surfaceInterpolate.H"
+#include "syncTools.H"
 #include "cartesianCS.H"
 #include "addToRunTimeSelectionTable.H"
 #include "processorPolyPatch.H"
-
-// * * * * * * * * * * * * * * Static Data Members * * * * * * * * * * * * * //
+#include "DynamicList.H"
 
 namespace Foam
 {
@@ -46,8 +44,6 @@ namespace functionObjects
 }
 
 
-// * * * * * * * * * * * * Protected Member Functions  * * * * * * * * * * * //
-
 void Foam::functionObjects::meanWaveLoads::setCoordinateSystem
 (
     const dictionary& dict,
@@ -57,12 +53,11 @@ void Foam::functionObjects::meanWaveLoads::setCoordinateSystem
 {
     point origin(Zero);
 
-    // With objectRegistry for access to indirect (global) coordinate systems
     coordSysPtr_ = coordinateSystem::NewIfPresent(obr_, dict);
 
     if (coordSysPtr_)
     {
-        // Report ...
+        // already set
     }
     else if (dict.readIfPresent("CofR", origin))
     {
@@ -79,9 +74,6 @@ void Foam::functionObjects::meanWaveLoads::setCoordinateSystem
     }
     else
     {
-        // No 'coordinateSystem' or 'CofR'
-        // - enforce a cartesian system
-
         coordSysPtr_.reset(new coordSystem::cartesian(dict));
     }
 }
@@ -93,7 +85,7 @@ Foam::volVectorField& Foam::functionObjects::meanWaveLoads::force()
 
     if (!ptr)
     {
-        ptr = new volVectorField // create force volVectorField if it doesnt exist
+        ptr = new volVectorField
         (
             IOobject
             (
@@ -121,7 +113,7 @@ Foam::volVectorField& Foam::functionObjects::meanWaveLoads::moment()
 
     if (!ptr)
     {
-        ptr = new volVectorField // create moment volVectorField 
+        ptr = new volVectorField
         (
             IOobject
             (
@@ -150,22 +142,41 @@ void Foam::functionObjects::meanWaveLoads::initialise()
         return;
     }
 
-    // if // This check was removed cause it failed. Probably because Phi is not present at the start?
-    // (
-    //     !foundObject<volScalarField>(PhiName_)
-    // )
-    // {
-    //     FatalErrorInFunction
-    //         << "Could not find Phi: " << PhiName_
-    //         << " in database" << exit(FatalError);
-    // }
+    if (!foundObject<volScalarField>(PhiName_))
+    {
+        FatalErrorInFunction
+            << "Could not find Phi: " << PhiName_
+            << " in database" << exit(FatalError);
+    }
+
+    if (!foundObject<volVectorField>(UName_))
+    {
+        FatalErrorInFunction
+            << "Could not find U: " << UName_
+            << " in database" << exit(FatalError);
+    }
+
+    if (!foundObject<volVectorField>(UcurName_))
+    {
+        FatalErrorInFunction
+            << "Could not find Ucur: " << UcurName_
+            << " in database" << exit(FatalError);
+    }
+
+    if (!foundObject<volVectorField>(zetaName_))
+    {
+        FatalErrorInFunction
+            << "Could not find zeta: " << zetaName_
+            << " in database" << exit(FatalError);
+    }
 
     if (rhoName_ != "rhoInf" && !foundObject<volScalarField>(rhoName_))
     {
         FatalErrorInFunction
-            << "Could not find rho:" << rhoName_ << " in database"
-            << exit(FatalError);
+            << "Could not find rho: " << rhoName_
+            << " in database" << exit(FatalError);
     }
+
     initialised_ = true;
 }
 
@@ -178,7 +189,7 @@ void Foam::functionObjects::meanWaveLoads::reset()
     sumInternalForces_ = Zero;
     sumInternalMoments_ = Zero;
 
-    auto& force = this->force(); // initialize force and moment fields
+    auto& force = this->force();
     auto& moment = this->moment();
 
     constexpr bool updateAccessTime = false;
@@ -187,11 +198,10 @@ void Foam::functionObjects::meanWaveLoads::reset()
         force.boundaryFieldRef(updateAccessTime)[patchi] = Zero;
         moment.boundaryFieldRef(updateAccessTime)[patchi] = Zero;
     }
-    
 }
 
 
-Foam::tmp<Foam::volScalarField> Foam::functionObjects::meanWaveLoads::rho() const // tmp rho volScalarField
+Foam::tmp<Foam::volScalarField> Foam::functionObjects::meanWaveLoads::rho() const
 {
     if (rhoName_ == "rhoInf")
     {
@@ -200,32 +210,28 @@ Foam::tmp<Foam::volScalarField> Foam::functionObjects::meanWaveLoads::rho() cons
             "rho",
             IOobject::NO_REGISTER,
             mesh_,
-            dimensionedScalar(dimDensity, rhoRef_) // set to rhoRef_ since incompressible simulation
+            dimensionedScalar(dimDensity, rhoRef_)
         );
     }
 
-    return (lookupObject<volScalarField>(rhoName_));
+    return lookupObject<volScalarField>(rhoName_);
 }
 
 
 Foam::tmp<Foam::scalarField>
-Foam::functionObjects::meanWaveLoads::rho(const label patchi) const // rho for each patch
+Foam::functionObjects::meanWaveLoads::rho(const label patchi) const
 {
     if (rhoName_ == "rhoInf")
     {
-        return tmp<scalarField>::New
-        (
-            mesh_.boundary()[patchi].size(),
-            rhoRef_
-        );
+        return tmp<scalarField>::New(mesh_.boundary()[patchi].size(), rhoRef_);
     }
 
-    const auto& rho = lookupObject<volScalarField>(rhoName_);
-    return rho.boundaryField()[patchi];
+    const auto& rhoField = lookupObject<volScalarField>(rhoName_);
+    return rhoField.boundaryField()[patchi];
 }
 
 
-Foam::scalar Foam::functionObjects::meanWaveLoads::rho(const volScalarField& p) const // return rhoRef. Used in calcForcesMoments
+Foam::scalar Foam::functionObjects::meanWaveLoads::rho(const volScalarField& p) const
 {
     if (p.dimensions() == dimPressure)
     {
@@ -243,7 +249,7 @@ Foam::scalar Foam::functionObjects::meanWaveLoads::rho(const volScalarField& p) 
 }
 
 
-void Foam::functionObjects::meanWaveLoads::addToPatchFields // sum all patch contributions. Also asign force to each patch
+void Foam::functionObjects::meanWaveLoads::addToPatchFields
 (
     const label patchi,
     const vectorField& Md,
@@ -289,15 +295,14 @@ void Foam::functionObjects::meanWaveLoads::writeIntegratedDataFileHeader
     {
         return root + "_x " + root + "_y " + root + "_z";
     };
+
     writeHeader(os, header);
     writeHeaderValue(os, "CofR", coordSys.origin());
     writeHeader(os, "");
     writeCommented(os, "Time");
     writeTabbed(os, vecDesc("total"));
     writeTabbed(os, vecDesc("pressure"));
-
-
-    os  << endl;
+    os << endl;
 }
 
 
@@ -329,12 +334,9 @@ void Foam::functionObjects::meanWaveLoads::writeIntegratedDataFile
 ) const
 {
     writeCurrentTime(os);
-
     writeValue(os, pres + internal);
     writeValue(os, pres);
-
-
-    os  << endl;
+    os << endl;
 }
 
 
@@ -351,12 +353,10 @@ void Foam::functionObjects::meanWaveLoads::logIntegratedData
     }
 
     Log << "    Sum of " << descriptor.c_str() << nl
-        << "        Total    : " << (pres + internal) << nl // internal should be zero
+        << "        Total    : " << (pres + internal) << nl
         << "        Pressure : " << pres << nl;
 }
 
-
-// * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
 Foam::functionObjects::meanWaveLoads::meanWaveLoads
 (
@@ -375,11 +375,22 @@ Foam::functionObjects::meanWaveLoads::meanWaveLoads
     forceFilePtr_(),
     momentFilePtr_(),
     coordSysPtr_(nullptr),
+    patchIDs_(),
     rhoRef_(VGREAT),
     PhiName_("Phi"),
+    UName_("U"),
+    UcurName_("Ucur"),
     rhoName_("rho"),
+    zetaName_("zeta"),
+    freeSurfacePatchName_(word::null),
+    freeSurfacePatchID_(-1),
+    gMag_(0.0),
     writeFields_(false),
-    initialised_(false)
+    initialised_(false),
+    boxMin_(point(Zero)),
+    boxMax_(point(Zero)),
+    excludePatches_(),
+    excludePatchIDs_()
 {
     if (readFields)
     {
@@ -407,11 +418,22 @@ Foam::functionObjects::meanWaveLoads::meanWaveLoads
     forceFilePtr_(),
     momentFilePtr_(),
     coordSysPtr_(nullptr),
+    patchIDs_(),
     rhoRef_(VGREAT),
     PhiName_("Phi"),
+    UName_("U"),
+    UcurName_("Ucur"),
     rhoName_("rho"),
+    zetaName_("zeta"),
+    freeSurfacePatchName_(word::null),
+    freeSurfacePatchID_(-1),
+    gMag_(0.0),
     writeFields_(false),
-    initialised_(false)
+    initialised_(false),
+    boxMin_(point(Zero)),
+    boxMax_(point(Zero)),
+    excludePatches_(),
+    excludePatchIDs_()
 {
     if (readFields)
     {
@@ -421,8 +443,6 @@ Foam::functionObjects::meanWaveLoads::meanWaveLoads
     }
 }
 
-
-// * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
 
 bool Foam::functionObjects::meanWaveLoads::read(const dictionary& dict)
 {
@@ -434,37 +454,26 @@ bool Foam::functionObjects::meanWaveLoads::read(const dictionary& dict)
     }
 
     initialised_ = false;
+    excludePatchIDs_.clear();
 
     Info<< type() << ' ' << name() << ':' << endl;
 
-    // Can also use pbm.indices(), but no warnings...
-    patchIDs_ = pbm.patchSet(dict.get<wordRes>("patches")).sortedToc();
+    patchIDs_ = pbm.patchSet(dict.getOrDefault<wordRes>("patches", wordRes())).sortedToc();
 
-    // Optional field name entries
-    if (dict.readIfPresent<word>("Phi", PhiName_))
-    {
-        Info<< "    Phi: " << PhiName_ << endl;
-    }
-    if (dict.readIfPresent<word>("rho", rhoName_))
-    {
-        Info<< "    rho: " << rhoName_ << endl;
-    }
-    if (dict.readIfPresent<word>("faceZone", faceZoneName_))
-    {
-        faceZoneID_ = mesh_.faceZones().findZoneID(faceZoneName_);
-        if (faceZoneID_ < 0)
-        {
-            FatalErrorInFunction
-                << "faceZone " << faceZoneName_ << " not found" << exit(FatalError);
-        }
-    }
+    dict.readIfPresent<word>("Phi", PhiName_);
+    dict.readIfPresent<word>("U", UName_);
+    dict.readIfPresent<word>("Ucur", UcurName_);
+    dict.readIfPresent<word>("rho", rhoName_);
 
     dict.readEntry("zeta", zetaName_);
     dict.readEntry("freeSurfacePatch", freeSurfacePatchName_);
-    dict.readEntry("cvPoint", cvPoint_);
+    dict.readEntry("gMag", gMag_);
+    dict.readEntry("boxMin", boxMin_);
+    dict.readEntry("boxMax", boxMax_);
 
-    freeSurfacePatchID_ =
-        mesh_.boundaryMesh().findPatchID(freeSurfacePatchName_);
+    excludePatches_ = dict.getOrDefault<wordRes>("excludePatches", wordRes());
+
+    freeSurfacePatchID_ = pbm.findPatchID(freeSurfacePatchName_);
 
     if (freeSurfacePatchID_ < 0)
     {
@@ -473,26 +482,30 @@ bool Foam::functionObjects::meanWaveLoads::read(const dictionary& dict)
             << " not found in boundaryMesh" << exit(FatalError);
     }
 
-    // Reference density needed for incompressible calculations
+    // always exclude the free-surface patch from the side-surface integral
+    excludePatchIDs_.insert(freeSurfacePatchID_);
+
+    const labelList excludeIDs = pbm.patchSet(excludePatches_).sortedToc();
+
+    forAll(excludeIDs, i)
+    {
+        excludePatchIDs_.insert(excludeIDs[i]);
+    }
+
     if (rhoName_ == "rhoInf")
     {
         rhoRef_ = dict.getCheck<scalar>("rhoInf", scalarMinMax::ge(SMALL));
         Info<< "    Freestream density (rhoInf) set to " << rhoRef_ << endl;
     }
 
-    dict.readEntry("gMag", gMag_);
-
-
     writeFields_ = dict.getOrDefault("writeFields", false);
     if (writeFields_)
     {
-        Info<< "    Fields will be written" << endl;
+        Info<< "    Fields will be written for explicit patch contributions only" << endl;
     }
-
 
     return true;
 }
-
 
 
 void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
@@ -502,118 +515,164 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
 
     const point& origin = coordSysPtr_->origin();
 
-    const auto& Phi = lookupObject<volScalarField>(PhiName_);
-
-    const auto& Sfb = mesh_.Sf().boundaryField();
-    const auto& Cb  = mesh_.C().boundaryField();
+    const auto& Phi  = lookupObject<volScalarField>(PhiName_);
+    const auto& U    = lookupObject<volVectorField>(UName_);
+    const auto& Ucur = lookupObject<volVectorField>(UcurName_);
+    const auto& zeta = lookupObject<volVectorField>(zetaName_);
 
     const scalar rhoRef = rho(Phi);
 
-    const auto& U = lookupObject<volVectorField>("U");  // or UName_ from dict
-    const auto& Ucur = lookupObject<volVectorField>("Ucur");  // for forward speed effect in line integral term
     tmp<surfaceVectorField> tUf = fvc::interpolate(U);
     const surfaceVectorField& Uf = tUf();
     const auto& Ufb = Uf.boundaryField();
 
-    // const auto& gradPhib = U.boundaryField();   // fvPatchVectorField list
+    // Build box-membership on cells directly, without creating a temporary
+    // field with copied patch types (which can trigger runtime-coded patch
+    // machinery such as codeDict).
+    const vectorField& Cc = mesh_.C();
+    boolList insideCell(mesh_.nCells(), false);
 
-
-    // ---------------------------------------------------------------------
-    // 1. Contributions from selected patches (e.g. hull, if you still want)
-    // ---------------------------------------------------------------------
-    // for (const label patchi : patchIDs_)
-    // {
-    //     const vectorField Md(Cb[patchi] - origin);
-
-    //     const auto& gradPhip = gradPhib[patchi];
-    //     const auto& Sfp      = Sfb[patchi];
-
-    //     const scalarField dphidnSb(gradPhip & Sfp);
-
-    //     const vectorField fP
-    //     (
-    //         rhoRef
-    //        *(
-    //             0.5*Sfp*(gradPhip & gradPhip)
-    //           - gradPhip*dphidnSb
-    //         )
-    //     );
-
-    //     addToPatchFields(patchi, Md, fP);
-    // }
-
-    // ---------------------------------------------------------------------
-    // 2. Contributions from internal control surface (faceZone)
-    // ---------------------------------------------------------------------
-    if (faceZoneID_ >= 0)
+    forAll(insideCell, celli)
     {
-        const faceZone& fz = mesh_.faceZones()[faceZoneID_];
-        const labelList& faces = fz;  // face indices
+        insideCell[celli] = insideBox(Cc[celli]);
+    }
 
-        const fvMesh& fvm = mesh_;
-        const vectorField& Sf = fvm.Sf();
-        const vectorField& Cf = fvm.Cf();
+    const labelUList& owner = mesh_.owner();
+    const labelUList& nei   = mesh_.neighbour();
 
-        // const labelUList& owner = mesh_.owner();
-        // const labelUList& nei   = mesh_.neighbour();
+    // Boundary-face copy of owner-side inside/outside state.
+    // After sync, processor/coupled faces contain the neighbouring side value.
+    scalarList nbrInside(mesh_.nFaces() - mesh_.nInternalFaces(), 0.0);
 
-        const point& cvP = cvPoint_;
+    forAll(nbrInside, bFacei)
+    {
+        const label facei = mesh_.nInternalFaces() + bFacei;
+        nbrInside[bFacei] = insideCell[owner[facei]] ? 1.0 : 0.0;
+    }
 
-        forAll(faces, i)
+    syncTools::swapBoundaryFaceList(mesh_, nbrInside);
+
+    const vectorField& Sf = mesh_.Sf();
+    const vectorField& Cf = mesh_.Cf();
+
+    const polyBoundaryMesh& pbm = mesh_.boundaryMesh();
+    const polyPatch& fsPatch = pbm[freeSurfacePatchID_];
+
+    const fvPatchVectorField& zetaPatch = zeta.boundaryField()[freeSurfacePatchID_];
+    const fvPatchVectorField& Ufs       = U.boundaryField()[freeSurfacePatchID_];
+    const fvPatchVectorField& Ucurfs    = Ucur.boundaryField()[freeSurfacePatchID_];
+
+    boolList isFSFace(mesh_.nFaces(), false);
+    forAll(fsPatch, i)
+    {
+        isFSFace[fsPatch.start() + i] = true;
+    }
+
+    DynamicList<label> cvFaces;
+    DynamicList<vector> cvSfOriented;
+
+    // ---------------------------------------------------------
+    // 1) Surface integral over runtime box boundary
+    // ---------------------------------------------------------
+
+    for (label facei = 0; facei < mesh_.nInternalFaces(); ++facei)
+    {
+        const bool ownInside = insideCell[owner[facei]];
+        const bool neiInside = insideCell[nei[facei]];
+
+        if (ownInside == neiInside)
         {
-            const label facei = faces[i];
+            continue;
+        }
 
-            // Avoid double counting on processor patches
-            if (Pstream::parRun() && facei >= mesh_.nInternalFaces())
+        vector Sf_f = ownInside ? Sf[facei] : -Sf[facei];
+        const vector gradPhi_f = Uf[facei];
+        const vector Md = Cf[facei] - origin;
+
+        const scalar dphidnSb = (gradPhi_f & Sf_f);
+
+        const vector fP
+        (
+            rhoRef
+           *(
+                0.5*Sf_f*(gradPhi_f & gradPhi_f)
+              - gradPhi_f*dphidnSb
+            )
+        );
+
+        sumPatchForcesP_  += fP;
+        sumPatchMomentsP_ += Md ^ fP;
+
+        cvFaces.append(facei);
+        cvSfOriented.append(Sf_f);
+    }
+
+
+    forAll(pbm, patchi)
+    {
+        const polyPatch& pp = pbm[patchi];
+
+        forAll(pp, localFacei)
+        {
+            const label facei = pp.start() + localFacei;
+
+            if (isA<processorPolyPatch>(pp))
             {
-                const polyBoundaryMesh& pbm = mesh_.boundaryMesh();
-                const label patchi = pbm.whichPatch(facei);
+                const processorPolyPatch& ppp =
+                    refCast<const processorPolyPatch>(pp);
 
-                if (isA<processorPolyPatch>(pbm[patchi]))
+                if (!ppp.owner())
                 {
-                    const processorPolyPatch& ppp =
-                        refCast<const processorPolyPatch>(pbm[patchi]);
-
-                    if (!ppp.owner())
-                    {
-                        continue; // prevent double counting
-                    }
+                    continue;
                 }
-            }
-            // Approximate gradPhi on the face
-            vector gradPhi_f(Zero);
 
-            if (facei < mesh_.nInternalFaces())
+                const bool ownInside = insideCell[pp.faceCells()[localFacei]];
+                const label bFacei = facei - mesh_.nInternalFaces();
+                const bool neiInside = (nbrInside[bFacei] > 0.5);
+
+                if (ownInside == neiInside)
+                {
+                    continue;
+                }
+
+                vector Sf_f = ownInside ? Sf[facei] : -Sf[facei];
+                const vector gradPhi_f = Ufb[patchi][localFacei];
+                const vector Md = Cf[facei] - origin;
+
+                const scalar dphidnSb = (gradPhi_f & Sf_f);
+
+                const vector fP
+                (
+                    rhoRef
+                   *(
+                        0.5*Sf_f*(gradPhi_f & gradPhi_f)
+                      - gradPhi_f*dphidnSb
+                    )
+                );
+
+                sumPatchForcesP_  += fP;
+                sumPatchMomentsP_ += Md ^ fP;
+
+                cvFaces.append(facei);
+                cvSfOriented.append(Sf_f);
+
+                continue;
+            }
+
+            if (excludedPatch(patchi))
             {
-                // const label ownCell = owner[facei];
-                // const label neiCell = nei[facei];
-
-                // gradPhi_f = 0.5*(gradPhi[ownCell] + gradPhi[neiCell]);
-                gradPhi_f = Uf[facei];
+                continue;
             }
-            else
+
+            const label ownCell = pp.faceCells()[localFacei];
+            if (!insideCell[ownCell])
             {
-                const polyBoundaryMesh& pbm = mesh_.boundaryMesh();
-                const label patchi = pbm.whichPatch(facei);
-                const label localFacei = pbm[patchi].whichFace(facei);
-
-                gradPhi_f = Ufb[patchi][localFacei];
+                continue;
             }
 
-            // Face centre and area vector
-            const vector& Cf_f = Cf[facei];
-            vector Sf_f = Sf[facei];              // copy, we will flip it
-
-            // Vector from cvPoint to face centre
-            const vector d = Cf_f - cvP;
-
-            // If Sf_f points *away* from cvPoint, flip it to point inward
-            if ((Sf_f & d) < 0)
-            {
-                Sf_f = -Sf_f;
-            }
-
-            const vector Md = Cf_f - origin;
+            vector Sf_f = Sf[facei];
+            const vector gradPhi_f = Ufb[patchi][localFacei];
+            const vector Md = Cf[facei] - origin;
 
             const scalar dphidnSb = (gradPhi_f & Sf_f);
 
@@ -624,159 +683,105 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
                     0.5*Sf_f*(gradPhi_f & gradPhi_f)
                   - gradPhi_f*dphidnSb
                 )
-            //      rhoRef
-            //    *(
-            //         -gradPhi_f*dphidnSb
-            //     )
             );
 
             sumPatchForcesP_  += fP;
             sumPatchMomentsP_ += Md ^ fP;
+
+            cvFaces.append(facei);
+            cvSfOriented.append(Sf_f);
         }
     }
 
-    // ---------------------------------------------------------------------
-    // 3. Line integral term: -0.5*rho*g ∫_C n*zeta^2 dl
-    //     C = intersection of CV vertical sides (faceZone) with free surface
-    // ---------------------------------------------------------------------
+    // ---------------------------------------------------------
+    // 2) Free-surface line integral derived from selected CV faces
+    // ---------------------------------------------------------
+    vector Fzeta(Zero);
+    vector Mzeta(Zero);
+    HashSet<label> doneEdges;
 
-    if (faceZoneID_ >= 0)
+    forAll(cvFaces, iFace)
     {
-        const auto& zeta =
-            mesh_.lookupObject<volVectorField>(zetaName_);
-        const polyBoundaryMesh& pbm = mesh_.boundaryMesh();
-        const polyPatch& fsPatch = pbm[freeSurfacePatchID_];
+        const label facei = cvFaces[iFace];
+        const vector& Sf_f = cvSfOriented[iFace];
 
-        // Make a quick lookup for “is face in CV zone”
-        const faceZone& fz = mesh_.faceZones()[faceZoneID_];
-        boolList isCVFace(mesh_.nFaces(), false);
-        forAll(fz, i) { isCVFace[fz[i]] = true; } // mark CV faces
+        vector n = Sf_f;
+        n.z() = 0.0;
 
-        // Mark free-surface faces
-        boolList isFSFace(mesh_.nFaces(), false);
-        forAll(fsPatch, i)
+        const scalar nm = mag(n);
+        if (nm < SMALL)
         {
-            isFSFace[fsPatch.start() + i] = true;
+            continue;
         }
+        n /= nm;
 
-        const edgeList& edges = mesh_.edges();
-        const pointField& pts = mesh_.points();
-        const labelList& fsMeshEdges = fsPatch.meshEdges();
+        const labelList& fEdges = mesh_.faceEdges()[facei];
 
-        const fvPatchVectorField& zetaPatch = zeta.boundaryField()[freeSurfacePatchID_];
-
-        // For forward speed terms
-        const fvPatchVectorField& U_p = U.boundaryField()[freeSurfacePatchID_];
-        const fvPatchVectorField& Ucur_p = Ucur.boundaryField()[freeSurfacePatchID_];
-
-        vector Fzeta(Zero);
-        vector Mzeta(Zero);
-
-        forAll(fsMeshEdges, ei)
+        forAll(fEdges, ie)
         {
-            const label edgei = fsMeshEdges[ei];
+            const label edgei = fEdges[ie];
 
+            if (doneEdges.found(edgei))
+            {
+                continue;
+            }
 
             const labelList& eFaces = mesh_.edgeFaces()[edgei];
 
-            // Does this edge touch ANY CV face?
-            bool touchesCV = false;
-            forAll(eFaces, k)
-            {
-                if (isCVFace[eFaces[k]])
-                {
-                    touchesCV = true;
-                    break;
-                }
-            }
-            if (!touchesCV) continue;
-
-            // Need outward/inward horizontal normal of CV side at that edge:
-            // simplest: grab ANY cv face among eFaces and use its Sf, then project horizontal
-            label cvFace = -1;
-            forAll(eFaces, k) { if (isCVFace[eFaces[k]]) { cvFace = eFaces[k]; break; } }
-            if (cvFace < 0) continue;
-
-            vector n = mesh_.Sf()[cvFace];
-
-            // Flip inward wrt cvPoint_
-            const vector d = mesh_.Cf()[cvFace] - cvPoint_;
-            if ((n & d) < 0) n = -n;
-
-            // Make horizontal and unit
-            n.z() = 0;
-            const scalar nm = mag(n);
-            if (nm < SMALL) continue;
-            n /= nm;
-            
-
-            // It’s on free-surface patch by construction, now get an averaged zeta
             scalar zetaZ = 0.0;
             label nFS = 0;
             vector Un_Uc = vector::zero;
             vector U_Ucn = vector::zero;
+
             forAll(eFaces, k)
             {
-                const label facei = eFaces[k];
-                if (!isFSFace[facei]) continue;
+                const label fsFace = eFaces[k];
 
-                const label fsLocalFace = facei - fsPatch.start();
+                if (!isFSFace[fsFace])
+                {
+                    continue;
+                }
+
+                const label fsLocalFace = fsFace - fsPatch.start();
+
                 zetaZ += zetaPatch[fsLocalFace].z();
-                Un_Uc += (U_p[fsLocalFace] & n) * (Ucur_p[fsLocalFace]);
-                U_Ucn += U_p[fsLocalFace] * (Ucur_p[fsLocalFace] & n);
+                Un_Uc += (Ufs[fsLocalFace] & n) * Ucurfs[fsLocalFace];
+                U_Ucn += Ufs[fsLocalFace] * (Ucurfs[fsLocalFace] & n);
                 ++nFS;
             }
-            if (nFS == 0) continue;          // should not happen, but safe
+
+            if (nFS == 0)
+            {
+                continue;
+            }
+
+            doneEdges.insert(edgei);
+
             zetaZ /= nFS;
             Un_Uc /= nFS;
             U_Ucn /= nFS;
 
-            // Edge geometry
-            const edge& e = edges[edgei];
-            const point mid = 0.5*(pts[e[0]] + pts[e[1]]);
-            const scalar L = mag(pts[e[1]] - pts[e[0]]);
-            
-            // Avoid double counting on processor patches (unlikely but just in case)
-            if (Pstream::parRun())
-            {
-                // If cvFace is on a processor patch, only integrate on the owner side
-                if (cvFace >= mesh_.nInternalFaces())
-                {
-                    const polyBoundaryMesh& pbm = mesh_.boundaryMesh();
-                    const label patchi = pbm.whichPatch(cvFace);
+            const edge& e = mesh_.edges()[edgei];
+            const point mid = 0.5*(mesh_.points()[e[0]] + mesh_.points()[e[1]]);
+            const scalar L = mag(mesh_.points()[e[1]] - mesh_.points()[e[0]]);
 
-                    if (isA<processorPolyPatch>(pbm[patchi]))
-                    {
-                        const processorPolyPatch& ppp =
-                            refCast<const processorPolyPatch>(pbm[patchi]);
+            const vector coeff =
+                -0.5*rhoRef*gMag_
+               *(
+                    sqr(zetaZ)*n
+                  + 2.0*(Un_Uc + U_Ucn)*zetaZ/gMag_
+                );
 
-                        if (!ppp.owner())
-                        {
-                            continue; // skip neighbour side to prevent double counting
-                        }
-                    }
-                }
-            }
-
-            
-
-            // const scalar coeff = -0.5*rhoRef*gMag_*(sqr(zetaZ));
-            const vector coeff = -0.5*rhoRef*gMag_*(sqr(zetaZ) * n + 2 * (Un_Uc + U_Ucn) * zetaZ/gMag_); // include forward speed effect
             const vector fEdge = coeff * L;
 
             Fzeta += fEdge;
             Mzeta += (mid - origin) ^ fEdge;
         }
-
-        // then add + reduce as before
-        sumPatchForcesP_  += Fzeta;
-        sumPatchMomentsP_ += Mzeta;
-
     }
 
-    // ---------------------------------------------------------------------
-    // 3. Parallel reduction
-    // ---------------------------------------------------------------------
+    sumPatchForcesP_  += Fzeta;
+    sumPatchMomentsP_ += Mzeta;
+
     reduce(sumPatchForcesP_,   sumOp<vector>());
     reduce(sumPatchMomentsP_,  sumOp<vector>());
     reduce(sumInternalForces_, sumOp<vector>());
@@ -836,7 +841,6 @@ bool Foam::functionObjects::meanWaveLoads::write()
     if (writeFields_)
     {
         Log << "    writing force and moment fields." << endl;
-
         force().write();
         moment().write();
     }
@@ -845,6 +849,5 @@ bool Foam::functionObjects::meanWaveLoads::write()
 
     return true;
 }
-
 
 // ************************************************************************* //
