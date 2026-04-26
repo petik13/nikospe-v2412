@@ -34,62 +34,6 @@ License
 #include "addToRunTimeSelectionTable.H"
 #include "processorPolyPatch.H"
 
-
-namespace
-{
-
-inline bool ownerSideOrNonProcessorFace(const Foam::fvMesh& mesh, const Foam::label facei)
-{
-    if (!Foam::Pstream::parRun() || facei < mesh.nInternalFaces())
-    {
-        return true;
-    }
-
-    const Foam::polyBoundaryMesh& pbm = mesh.boundaryMesh();
-    const Foam::label patchi = pbm.whichPatch(facei);
-
-    if (patchi < 0 || !Foam::isA<Foam::processorPolyPatch>(pbm[patchi]))
-    {
-        return true;
-    }
-
-    const Foam::processorPolyPatch& ppp =
-        Foam::refCast<const Foam::processorPolyPatch>(pbm[patchi]);
-
-    return ppp.owner();
-}
-
-inline bool inwardHorizontalUnitNormal
-(
-    const Foam::fvMesh& mesh,
-    const Foam::label facei,
-    const Foam::point& cvPoint,
-    Foam::vector& nHat
-)
-{
-    Foam::vector n = mesh.Sf()[facei];
-    const Foam::vector d = mesh.Cf()[facei] - cvPoint;
-
-    if ((n & d) < 0)
-    {
-        n = -n;
-    }
-
-    n.z() = 0;
-    const Foam::scalar magN = Foam::mag(n);
-
-    if (magN < Foam::SMALL)
-    {
-        nHat = Foam::vector::zero;
-        return false;
-    }
-
-    nHat = n/magN;
-    return true;
-}
-
-} // End anonymous namespace
-
 // * * * * * * * * * * * * * * Static Data Members * * * * * * * * * * * * * //
 
 namespace Foam
@@ -550,46 +494,6 @@ bool Foam::functionObjects::meanWaveLoads::read(const dictionary& dict)
 }
 
 
-// void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
-// {
-    // initialise();
-
-    // reset();
-
-    // const point& origin = coordSysPtr_->origin();
-
-
-    // const auto& Phi = lookupObject<volScalarField>(PhiName_);
-    // tmp<volVectorField> tgradPhi = fvc::grad(Phi);
-    // const volVectorField& gradPhi = tgradPhi();          // materialize from tmp !! otherwise cant calculate gradient
-    // const auto& gradPhib = gradPhi.boundaryField();      // fvPatchVectorField list
-
-    // const auto& Sfb = mesh_.Sf().boundaryField();
-    // const auto& Cb = mesh_.C().boundaryField();
-
-    // // const auto& U = lookupObject<volVectorField>(UName_);
-    // // tmp<volTensorField> tgradU = fvc::grad(U);
-    // // const volTensorField& gradU = tgradU();
-    // // const auto& gradUb = gradU.boundaryField();
-
-    // const scalar rhoRef = rho(Phi); // create rho field as Phi?
-
-//     for (const label patchi : patchIDs_)
-//     {
-//         const vectorField Md(Cb[patchi] - origin);
-
-//         const auto& dphidnSb = gradPhib[patchi] & Sfb[patchi];
-//         const vectorField fP(rhoRef*(0.5*Sfb[patchi]*(gradPhib[patchi] & gradPhib[patchi]) - gradPhib[patchi]*dphidnSb));
-
-//         addToPatchFields(patchi, Md, fP);
-//     }
-
-
-//     reduce(sumPatchForcesP_, sumOp<vector>()); // sums per-rank forces into a single global total force vector
-//     reduce(sumPatchMomentsP_, sumOp<vector>());
-//     reduce(sumInternalForces_, sumOp<vector>());
-//     reduce(sumInternalMoments_, sumOp<vector>());
-// }
 
 void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
 {
@@ -598,23 +502,17 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
 
     const point& origin = coordSysPtr_->origin();
 
-    // Total velocity Potential = Phi + PhiCur
-    const auto& Phi_ = lookupObject<volScalarField>(PhiName_);
-    const auto& PhiCur = mesh_.lookupObject<volScalarField>("PhiCur");
-    const volScalarField Phi = Phi_;
-
-    const auto& Sfb = mesh_.Sf().boundaryField();
-    const auto& Cb  = mesh_.C().boundaryField();
+    const auto& Phi = lookupObject<volScalarField>(PhiName_);
 
     const scalar rhoRef = rho(Phi);
 
-    const auto& U_ = lookupObject<volVectorField>("U");  // or UName_ from dict
-    const auto& Ucur = lookupObject<volVectorField>("Ucur");
-    const volVectorField U = U_;
+    const auto& U = lookupObject<volVectorField>("U");  // or UName_ from dict
+    const auto& Ucur = lookupObject<volVectorField>("Ucur");  // for forward speed effect in line integral term
     tmp<surfaceVectorField> tUf = fvc::interpolate(U);
     const surfaceVectorField& Uf = tUf();
+    const auto& Ufb = Uf.boundaryField();
 
-    const auto& gradPhib = U.boundaryField();   // fvPatchVectorField list
+    // const auto& gradPhib = U.boundaryField();   // fvPatchVectorField list
 
 
     // ---------------------------------------------------------------------
@@ -696,7 +594,7 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
                 const label patchi = pbm.whichPatch(facei);
                 const label localFacei = pbm[patchi].whichFace(facei);
 
-                gradPhi_f = gradPhib[patchi][localFacei];
+                gradPhi_f = Ufb[patchi][localFacei];
             }
 
             // Face centre and area vector
@@ -735,113 +633,142 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
     }
 
     // ---------------------------------------------------------------------
-    // 3. Line integral term on Γ_c = C ∩ F0
-    //
-    //    Reworked implementation: iterate the control-surface faces first and
-    //    integrate only the FREE-SURFACE EDGES that belong to each control face.
-    //    This avoids the previous "any free-surface edge touching any CV face"
-    //    logic, which could associate an edge with an arbitrary control face and
-    //    made the result very sensitive to control-volume size and placement.
+    // 3. Line integral term: -0.5*rho*g ∫_C n*zeta^2 dl
+    //     C = intersection of CV vertical sides (faceZone) with free surface
     // ---------------------------------------------------------------------
 
     if (faceZoneID_ >= 0)
     {
-        const auto& zeta = mesh_.lookupObject<volVectorField>(zetaName_);
+        const auto& zeta =
+            mesh_.lookupObject<volVectorField>(zetaName_);
         const polyBoundaryMesh& pbm = mesh_.boundaryMesh();
         const polyPatch& fsPatch = pbm[freeSurfacePatchID_];
 
-        const label fsStart = fsPatch.start();
-        const label fsEnd = fsStart + fsPatch.size();
-
+        // Make a quick lookup for “is face in CV zone”
         const faceZone& fz = mesh_.faceZones()[faceZoneID_];
+        boolList isCVFace(mesh_.nFaces(), false);
+        forAll(fz, i) { isCVFace[fz[i]] = true; } // mark CV faces
+
+        // Mark free-surface faces
+        boolList isFSFace(mesh_.nFaces(), false);
+        forAll(fsPatch, i)
+        {
+            isFSFace[fsPatch.start() + i] = true;
+        }
+
         const edgeList& edges = mesh_.edges();
         const pointField& pts = mesh_.points();
+        const labelList& fsMeshEdges = fsPatch.meshEdges();
 
         const fvPatchVectorField& zetaPatch = zeta.boundaryField()[freeSurfacePatchID_];
-        const fvPatchVectorField& U_p = U_.boundaryField()[freeSurfacePatchID_];
+
+        // For forward speed terms
+        const fvPatchVectorField& U_p = U.boundaryField()[freeSurfacePatchID_];
         const fvPatchVectorField& Ucur_p = Ucur.boundaryField()[freeSurfacePatchID_];
 
         vector Fzeta(Zero);
         vector Mzeta(Zero);
 
-        forAll(fz, zI)
+        forAll(fsMeshEdges, ei)
         {
-            const label cvFace = fz[zI];
+            const label edgei = fsMeshEdges[ei];
 
-            if (!ownerSideOrNonProcessorFace(mesh_, cvFace))
+
+            const labelList& eFaces = mesh_.edgeFaces()[edgei];
+
+            // Does this edge touch ANY CV face?
+            bool touchesCV = false;
+            forAll(eFaces, k)
             {
-                continue;
-            }
-
-            vector nHat(Zero);
-            if (!inwardHorizontalUnitNormal(mesh_, cvFace, cvPoint_, nHat))
-            {
-                continue;
-            }
-
-            const labelList& cvFaceEdges = mesh_.faceEdges()[cvFace];
-
-            forAll(cvFaceEdges, feI)
-            {
-                const label edgei = cvFaceEdges[feI];
-                const labelList& eFaces = mesh_.edgeFaces()[edgei];
-
-                scalar zetaZ = 0.0;
-                vector Un_Uc = vector::zero;
-                vector U_Ucn = vector::zero;
-                label nFS = 0;
-
-                forAll(eFaces, k)
+                if (isCVFace[eFaces[k]])
                 {
-                    const label facei = eFaces[k];
+                    touchesCV = true;
+                    break;
+                }
+            }
+            if (!touchesCV) continue;
 
-                    if (facei < fsStart || facei >= fsEnd)
+            // Need outward/inward horizontal normal of CV side at that edge:
+            // simplest: grab ANY cv face among eFaces and use its Sf, then project horizontal
+            label cvFace = -1;
+            forAll(eFaces, k) { if (isCVFace[eFaces[k]]) { cvFace = eFaces[k]; break; } }
+            if (cvFace < 0) continue;
+
+            vector n = mesh_.Sf()[cvFace];
+
+            // Flip inward wrt cvPoint_
+            const vector d = mesh_.Cf()[cvFace] - cvPoint_;
+            if ((n & d) < 0) n = -n;
+
+            // Make horizontal and unit
+            n.z() = 0;
+            const scalar nm = mag(n);
+            if (nm < SMALL) continue;
+            n /= nm;
+            
+
+            // It’s on free-surface patch by construction, now get an averaged zeta
+            scalar zetaZ = 0.0;
+            label nFS = 0;
+            vector Un_Uc = vector::zero;
+            vector U_Ucn = vector::zero;
+            forAll(eFaces, k)
+            {
+                const label facei = eFaces[k];
+                if (!isFSFace[facei]) continue;
+
+                const label fsLocalFace = facei - fsPatch.start();
+                zetaZ += zetaPatch[fsLocalFace].z();
+                Un_Uc += (U_p[fsLocalFace] & n) * (Ucur_p[fsLocalFace]);
+                U_Ucn += U_p[fsLocalFace] * (Ucur_p[fsLocalFace] & n);
+                ++nFS;
+            }
+            if (nFS == 0) continue;          // should not happen, but safe
+            zetaZ /= nFS;
+            Un_Uc /= nFS;
+            U_Ucn /= nFS;
+
+            // Edge geometry
+            const edge& e = edges[edgei];
+            const point mid = 0.5*(pts[e[0]] + pts[e[1]]);
+            const scalar L = mag(pts[e[1]] - pts[e[0]]);
+            
+            // Avoid double counting on processor patches (unlikely but just in case)
+            if (Pstream::parRun())
+            {
+                // If cvFace is on a processor patch, only integrate on the owner side
+                if (cvFace >= mesh_.nInternalFaces())
+                {
+                    const polyBoundaryMesh& pbm = mesh_.boundaryMesh();
+                    const label patchi = pbm.whichPatch(cvFace);
+
+                    if (isA<processorPolyPatch>(pbm[patchi]))
                     {
-                        continue;
+                        const processorPolyPatch& ppp =
+                            refCast<const processorPolyPatch>(pbm[patchi]);
+
+                        if (!ppp.owner())
+                        {
+                            continue; // skip neighbour side to prevent double counting
+                        }
                     }
-
-                    const label fsLocalFace = facei - fsStart;
-                    zetaZ += zetaPatch[fsLocalFace].z();
-                    Un_Uc += (U_p[fsLocalFace] & nHat) * Ucur_p[fsLocalFace];
-                    U_Ucn += U_p[fsLocalFace] * (Ucur_p[fsLocalFace] & nHat);
-                    ++nFS;
                 }
-
-                if (nFS == 0)
-                {
-                    continue;
-                }
-
-                zetaZ /= nFS;
-                Un_Uc /= nFS;
-                U_Ucn /= nFS;
-
-                const edge& e = edges[edgei];
-                const point mid = 0.5*(pts[e[0]] + pts[e[1]]);
-                const scalar L = mag(pts[e[1]] - pts[e[0]]);
-
-                if (L < SMALL)
-                {
-                    continue;
-                }
-
-                const vector coeff =
-                    -0.5*rhoRef*gMag_
-                   *
-                    (
-                        sqr(zetaZ)*nHat
-                      + 2.0*(Un_Uc + U_Ucn)*zetaZ/gMag_
-                    );
-
-                const vector fEdge = coeff*L;
-
-                Fzeta += fEdge;
-                Mzeta += (mid - origin) ^ fEdge;
             }
+
+            
+
+            // const scalar coeff = -0.5*rhoRef*gMag_*(sqr(zetaZ));
+            const vector coeff = -0.5*rhoRef*gMag_*(sqr(zetaZ) * n + 2 * (Un_Uc + U_Ucn) * zetaZ/gMag_); // include forward speed effect
+            const vector fEdge = coeff * L;
+
+            Fzeta += fEdge;
+            Mzeta += (mid - origin) ^ fEdge;
         }
 
-        sumPatchForcesP_ += Fzeta;
+        // then add + reduce as before
+        sumPatchForcesP_  += Fzeta;
         sumPatchMomentsP_ += Mzeta;
+
     }
 
     // ---------------------------------------------------------------------

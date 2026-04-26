@@ -328,6 +328,35 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
 
     heading_ = rbDict.lookupOrDefault<scalar>("heading", 0.0);
 
+    IOdictionary waveCurConditions
+    (
+        IOobject
+        (
+            "waveCurConditions",
+            db().time().constant(),
+            db(),
+            IOobject::MUST_READ_IF_MODIFIED,
+            IOobject::NO_WRITE
+        )
+    );
+    
+    scalar steepness = waveCurConditions.lookupOrDefault<scalar>("steepness", 0.01);
+	scalar wavelength = waveCurConditions.lookupOrDefault<scalar>("wavelength", 2.0);
+	scalar U0 = waveCurConditions.lookupOrDefault<scalar>("currentspeed", 0.0);
+	scalar hdepth = waveCurConditions.lookupOrDefault<scalar>("waterdepth", 1.0);
+    scalar xdamp = waveCurConditions.lookupOrDefault<scalar>("xdamp", 0.0);
+    scalar currentspeed = waveCurConditions.lookupOrDefault<scalar>("currentspeed", 0.0);
+    scalar head_ang = waveCurConditions.lookupOrDefault<scalar>("head_ang", 0.0);
+    scalar rampperiod = waveCurConditions.lookupOrDefault<scalar>("rampperiod", 0.0);
+
+    scalar amp = 0.5 * steepness * wavelength;
+    scalar wavenumber = 2.0 * M_PI / wavelength;
+    scalar w = sqrt(9.81 * wavenumber * tanh(wavenumber * hdepth));
+
+    const scalar T(2.0 * Foam::constant::mathematical::pi / w);
+    const scalar ramp_time(rampperiod * T);
+    const scalar ramp_factor = 0.5 * (1.0 - Foam::cos(Foam::constant::mathematical::pi * min(1.0, db().time().value() / ramp_time)));
+
     // Init on first step
     if (runTime.timeIndex() == 1)
     {
@@ -384,6 +413,16 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
 
     // Roll damping: 2% * 2 * sqrt(I44*C44_) - 2% of the critical damping for roll - As in Seo's paper
     C[3][3] = 0.02 * 2.0 * sqrt(I4_ * C44_);
+    scalar time = db().time().value();
+    if (time < ramp_time)
+    {
+        C[0][0] = 2*sqrt(K[0][0]*M[0][0]) * ((ramp_time - time)/ramp_time); // ramp up damping on surge/sway to avoid initial transients
+        C[1][1] = 2*sqrt(K[1][1]*M[1][1]) * ((ramp_time - time)/ramp_time);
+        C[2][2] = 2*sqrt(K[2][2]*M[2][2]) * ((ramp_time - time)/ramp_time);
+        C[3][3] = 2*sqrt(K[3][3]*M[3][3]) * ((ramp_time - time)/ramp_time);
+        C[4][4] = 2*sqrt(K[4][4]*M[4][4]) * ((ramp_time - time)/ramp_time);
+        C[5][5] = 2*sqrt(K[5][5]*M[5][5]) * ((ramp_time - time)/ramp_time);
+    }
 
 
     // --- External load at n+1: wrench W=(M,F) -> f=[F,M]
@@ -431,10 +470,10 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
         qdd_np1[i] = aDamp_*(aRelax_*qdd_np1[i] + (1.0 - aRelax_)*qdd_prev[i]);
     }
     // keep body fixed for first second.
-    if (runTime.value() < 1.0)
-    {
-        for (int i=0;i<6;++i) qdd_np1[i] = 0;
-    }
+    // if (runTime.value() < 1.0)
+    // {
+    //     for (int i=0;i<6;++i) qdd_np1[i] = 0;
+    // }
 
     // Update v and x
     const Vec6 qd_np1 = add6(vStar, scal6(gamma*dt, qdd_np1));
@@ -470,10 +509,26 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
     const vector Ulin(qd_np1[0] * cH + qd_np1[1] * sH, -qd_np1[0] * sH + qd_np1[1] * cH, qd_np1[2]);
     const vector omega(qd_np1[3] * cH + qd_np1[4] * sH, -qd_np1[3] * sH + qd_np1[4] * cH, qd_np1[5]);
 
+
     vectorField UbFace(Cf.size());
+    vectorField UIFace(Cf.size());
     forAll(Cf, i)
     {
         UbFace[i] = Ulin + (omega ^ (Cf[i] - xRef));
+        UIFace[i] = vector
+        (
+            amp * wavenumber * 9.81 / w
+        * Foam::cosh(wavenumber*(hdepth + Cf[i].z())) / Foam::cosh(wavenumber*hdepth)
+        * Foam::cos(wavenumber * Cf[i].x() - (w + wavenumber * currentspeed * Foam::cos(head_ang)) * db().time().value())
+        * ramp_factor,   
+
+            0.0,
+
+            amp * wavenumber * 9.81 / w
+        * Foam::sinh(wavenumber*(hdepth + Cf[i].z())) / Foam::cosh(wavenumber*hdepth)
+        * Foam::sin(wavenumber * Cf[i].x() - (w + wavenumber * currentspeed * Foam::cos(head_ang)) * db().time().value())
+        * ramp_factor
+        );
     }
 
     // mj term:
@@ -519,7 +574,7 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
 
     
 	// Info << "mj sample: " << mj[0] << endl;
-    scalarField rhsBC = -(n & UbFace) - mj;
+    scalarField rhsBC = -(n & UbFace) + (n & UIFace) - mj;
     // scalarField rhsBC = -(n & UbFace);
     this->gradient() = rhsBC;
     // Info<< "Updated linearized rigid body BC on patch " << patch().name()

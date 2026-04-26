@@ -83,10 +83,10 @@ waveCurrentPotential3DFvPatchScalarField
 :
     fixedValueFvPatchScalarField(p, iF),
     phiName_("phi"),
-    zetaName_("zeta"),
+    zetaName_("zetaD"),
     rhoName_("rho"),
-	PHIName_("Phi"),
-	UName_("U"),
+	PHIName_("PhiD"),
+	UName_("UD"),
 	shape_(100.0)
 	
 	
@@ -103,10 +103,10 @@ waveCurrentPotential3DFvPatchScalarField
 :
     fixedValueFvPatchScalarField(p, iF, dict),
     phiName_(dict.getOrDefault<word>("phi", "phi")),
-    zetaName_(dict.getOrDefault<word>("zeta", "zeta")),
+    zetaName_(dict.getOrDefault<word>("zetaD", "zetaD")),
     rhoName_(dict.getOrDefault<word>("rho", "rho")),
-	PHIName_(dict.getOrDefault<word>("Phi", "Phi")),
-	UName_(dict.getOrDefault<word>("U", "U")),
+	PHIName_(dict.getOrDefault<word>("PhiD", "PhiD")),
+	UName_(dict.getOrDefault<word>("UD", "UD")),
 	shape_(dict.getOrDefault<scalar>("shape", 100.0)) 
 	
 	
@@ -272,22 +272,22 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 		// Info<< "Current speed U0 =" << U0 << nl;
 
 		// - Incident wave vertical velocity
-		vectorField Wn0
-		(
-			amp * wavenumber * 9.81 / w 
-		 * (Foam::sinh(wavenumber *(hdepth+zComponents))/Foam::cosh(wavenumber*hdepth))
-		 * Foam::sin(wavenumber * xComponents- (w + wavenumber * U0 * cos(head_ang))*tt) * ramp_factor * nfRef
-		);
+		// vectorField Wn0
+		// (
+		// 	amp * wavenumber * 9.81 / w 
+		//  * Foam::sinh(wavenumber *(hdepth+zComponents))/Foam::cosh(wavenumber*hdepth)
+		//  * Foam::sin(wavenumber * xComponents*0.707 + wavenumber * yComponents*0.707 - (w + wavenumber * U0 * cos(head_ang))*tt) * nfRef
+		// );
 
 		// - damping factor
 		scalarField dampingterm=
 		    // x-side damping active for x > xdamp
 		    pos(xComponents - xdamp) * v0 * ((xComponents - xdamp) / (Lxdamp)) * ((xComponents - xdamp) / (Lxdamp)) * (nfRef & (Wn))
 		    // y-side damping active only when x > 5
-		   + pos(xComponents-xsponge)*pos(xdamp-xComponents)*pos(yComponents - ydamp) * v0 * ((yComponents - ydamp) / (Lydamp)) * ((yComponents - ydamp) / (Lydamp)) * (nfRef & (Wn - Wn0))
-		   + pos(xComponents-xsponge)*pos(xdamp-xComponents)*pos(-yComponents - ydamp) * v0 * ((-yComponents - ydamp) / (Lydamp)) * ((-yComponents - ydamp) / (Lydamp)) * (nfRef & (Wn - Wn0))
+		   + pos(xdamp-xComponents)*pos(yComponents - ydamp) * v0 * ((yComponents - ydamp) / (Lydamp)) * ((yComponents - ydamp) / (Lydamp)) * (nfRef & (Wn))
+		   + pos(xdamp-xComponents)*pos(-yComponents - ydamp) * v0 * ((-yComponents - ydamp) / (Lydamp)) * ((-yComponents - ydamp) / (Lydamp)) * (nfRef & (Wn))
 		    // inlet reflection damping: active for x in [0,5], stronger near x=0
-		   + pos(xsponge - xComponents) * v0 * ((xsponge - xComponents) / (Lsponge)) * ((xsponge - xComponents) / (Lsponge)) * (nfRef & (Wn - Wn0));
+		   + pos(xsponge - xComponents) * v0 * ((xsponge - xComponents) / (Lsponge)) * ((xsponge - xComponents) / (Lsponge)) * (nfRef & (Wn));
 		
 
 		const volVectorField& zeta0 = zeta.oldTime(); 
@@ -343,26 +343,12 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 			const volScalarField& PhiCurDz2 = db().lookupObjectRef<volScalarField>("PhiCurDz2");
 			const scalarField& PhiCurDz2_p = PhiCurDz2.boundaryField()[patchi];
 			Wcurdz_zeta0p = PhiCurDz2_p * zeta0p;
-
-			
-
-			
 			
 			forAll(turgut, i)
 			{
 				turgut[i] = Ucur_p[i][vector::X] * PhiDx_[i]+Ucur_p[i][vector::Y] * PhiDy_[i];// + 0.5*((Ucur_p[i] & Ucur_p[i]) - U0*U0) ;   //BUNU modify ettim
 			}
 		}
-
-		
-
-		
-		//BUNLAR PARALLELDE CALISMIYOR
-		//Info << "zetaDx_p [0] :"  << zetaDx_p[0] << endl;
-		//Info << "UetaDX [0] :"  << UetaDx[0] << endl;
-		//Info << "PhiDxPatch [0] :"  << PhiDxPatch[0] << endl;
-		//Info << "zeta0p[1]:" << zeta0p[1] << endl;
-	    //Info << "zetap[1] before the update:" << zetap[1] << endl;
 		
 		
 		// Retriving g
@@ -408,10 +394,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 				break;
 			}
 			case tsBackward:
-			{
-				
-				// Info << "Time Scheme = " << ddtSchemeTypeNames_[ddtScheme] << endl;
-				
+			{				
 				if ( db().time().timeIndex() == 1 )	 
 				{
 					if ( std::fabs(U0) > 0.0 )
@@ -438,24 +421,23 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 				}	 
 				else if ( db().time().timeIndex() == 2 )	 	 
 				{
-					 if ( std::fabs(U0) > 0.0 ){
-									
-					//zetaInt = zeta0p+0.5*dt*((Wn-UetaDx)+WnOld_);
-					//phiInt = (1.5*((gVal & zeta0p)+(0.5)*turgut)-0.5*DPhiold_)*dt + Phi0Patch;
+					 if ( std::fabs(U0) > 0.0 )
+					 {
 					
-					Info << "Current speed is nonzero " << endl;
-					zetap=zeta0p+dt*(1.5*(Wn+Wcurdz_zeta0p-UetaDx)-0.5*WnOld_);
-					phiCalc = (1.5*((gVal & zeta0p)+turgut + dampingterm)-0.5*DPhiold_)*dt + Phi0Patch;
-					
-					
-					WnOld2_=WnOld_;
-					DPhiold2_=DPhiold_;
-					
-					WnOld_=(Wn+Wcurdz_zeta0p-UetaDx);
-					DPhiold_=((gVal & zeta0p)+turgut + dampingterm);
+						Info << "Current speed is nonzero " << endl;
+						zetap=zeta0p+dt*(1.5*(Wn+Wcurdz_zeta0p-UetaDx)-0.5*WnOld_);
+						phiCalc = (1.5*((gVal & zeta0p)+turgut + dampingterm)-0.5*DPhiold_)*dt + Phi0Patch;
+						
+						
+						WnOld2_=WnOld_;
+						DPhiold2_=DPhiold_;
+						
+						WnOld_=(Wn+Wcurdz_zeta0p-UetaDx);
+						DPhiold_=((gVal & zeta0p)+turgut + dampingterm);
 					
 					}
-					else{
+					else
+					{
 					
 					
 						Info << "Current speed U0 is zero " << endl;
@@ -475,7 +457,8 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 				 }
 				else
 				{
-					if ( std::fabs(U0) > 0.0 ){
+					if ( std::fabs(U0) > 0.0 )
+					{
 									
 						//zetaInt = zeta0p+0.5*dt*((Wn-UetaDx)+WnOld_);
 						//phiInt = (1.5*((gVal & zeta0p)+(0.5)*turgut)-0.5*DPhiold_)*dt + Phi0Patch;
@@ -711,7 +694,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::applyKreissOligerFilter
 		}
 	};
 
-	const scalar epsilon = 0.000;
+	const scalar epsilon = 0.0005;
 
 	forAll(zetap, i)
 	{

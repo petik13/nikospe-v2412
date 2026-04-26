@@ -12,6 +12,33 @@ volVectorField U
     mesh
 );
 
+Info<< "Reading velocity field UD\n" << endl;
+volVectorField UD
+(
+    IOobject
+    (
+        "UD",
+        runTime.timeName(),
+        mesh,
+        IOobject::MUST_READ,
+        IOobject::AUTO_WRITE
+    ),
+    mesh
+);
+
+Info<< "Reading velocity field UD\n" << endl;
+volVectorField UI
+(
+    IOobject
+    (
+        "UI",
+        runTime.timeName(),
+        mesh,
+        IOobject::MUST_READ,
+        IOobject::AUTO_WRITE
+    ),
+    mesh
+);
 
 volVectorField Ucur
 (
@@ -51,6 +78,36 @@ volVectorField zeta
     IOobject
     (
         "zeta",
+        runTime.timeName(),
+        mesh,
+        IOobject::READ_IF_PRESENT,
+        IOobject::AUTO_WRITE
+    ),
+    mesh,
+    dimensionedVector(dimLength, Zero)
+);
+
+Info<< "Creating field zetaI\n" << endl;
+volVectorField zetaI
+(
+    IOobject
+    (
+        "zetaI",
+        runTime.timeName(),
+        mesh,
+        IOobject::READ_IF_PRESENT,
+        IOobject::AUTO_WRITE
+    ),
+    mesh,
+    dimensionedVector(dimLength, Zero)
+);
+
+Info<< "Creating field zetaD\n" << endl;
+volVectorField zetaD
+(
+    IOobject
+    (
+        "zetaD",
         runTime.timeName(),
         mesh,
         IOobject::READ_IF_PRESENT,
@@ -136,6 +193,42 @@ volScalarField Phi
     dimensionedScalar(dimLength*dimVelocity, Zero)
     
 );
+
+Info<< "Constructing total velocity potential field PhiI\n" << endl;
+volScalarField PhiI
+(
+    IOobject
+    (
+        "PhiI",
+        runTime.timeName(),
+        mesh,
+        IOobject::READ_IF_PRESENT,
+        IOobject::AUTO_WRITE,
+        IOobject::REGISTER
+    ),
+    mesh,
+    dimensionedScalar(dimLength*dimVelocity, Zero)
+    
+);
+
+Info<< "Constructing total velocity potential field PhiD\n" << endl;
+volScalarField PhiD
+(
+    IOobject
+    (
+        "PhiD",
+        runTime.timeName(),
+        mesh,
+        IOobject::READ_IF_PRESENT,
+        IOobject::AUTO_WRITE,
+        IOobject::REGISTER
+    ),
+    mesh,
+    dimensionedScalar(dimLength*dimVelocity, Zero)
+    
+);
+
+
 
 Info<< "Constructing steady velocity potential field PhiCur\n" << endl;
 volScalarField PhiCur
