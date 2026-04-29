@@ -89,8 +89,23 @@ class linearizedRigidBodyFvPatchScalarField
 {
     // Private data
 
-        //- Name of the velocity field
-        word UName_;
+    // --- Rigid Body Properties ---
+    scalar mass_, xG_, zG_;
+    scalar I4_, I5_, I6_, I46_;
+    scalar C33_, C44_, C55_, C35_;
+    scalar heading_;
+
+    // --- Wave Properties ---
+    scalar steepness_, wavelength_, currentspeed_, hdepth_, head_ang_, rampperiod_;
+
+    // --- Pre-calculated Wave Kinematics (Massive Speedup!) ---
+    scalar amp_, wavenumber_, w_, omega_e_, U_amp_, cosH_, sinH_;
+
+    // --- Initialization Helper ---
+    void readDicts();
+
+    //- Name of the velocity field
+    word UName_;
 	
 
 	mutable autoPtr<Foam::OFstream> motionFilePtr_;
@@ -106,15 +121,7 @@ class linearizedRigidBodyFvPatchScalarField
     spatialVector Xb_old_, Xb_new_;
     spatialVector Ub_old_, Ub_new_;
 
-    // Rigid-body parameters
-    scalar mass_;
-    scalar xG_, zG_;
-
-    scalar I4_, I5_, I6_, I46_;
-
-    scalar C33_, C44_, C55_, C35_;
-
-	scalar heading_;
+    
 	
 public:
 

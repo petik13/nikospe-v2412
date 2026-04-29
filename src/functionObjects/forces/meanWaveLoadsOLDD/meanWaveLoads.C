@@ -175,11 +175,6 @@ void Foam::functionObjects::meanWaveLoads::reset()
     sumPatchForcesP_ = Zero;
     sumPatchMomentsP_ = Zero;
 
-    sumSurfaceForces_ = Zero;
-    sumLineForces_ = Zero;
-    sumSurfaceMoments_ = Zero;
-    sumLineMoments_ = Zero;
-
     sumInternalForces_ = Zero;
     sumInternalMoments_ = Zero;
 
@@ -292,17 +287,15 @@ void Foam::functionObjects::meanWaveLoads::writeIntegratedDataFileHeader
     const auto& coordSys = coordSysPtr_();
     const auto vecDesc = [](const word& root)->string
     {
-        return root + "_x\t" + root + "_y\t" + root + "_z";
+        return root + "_x " + root + "_y " + root + "_z";
     };
     writeHeader(os, header);
     writeHeaderValue(os, "CofR", coordSys.origin());
     writeHeader(os, "");
     writeCommented(os, "Time");
-    
-    // Create new headers for the columns
     writeTabbed(os, vecDesc("total"));
-    writeTabbed(os, vecDesc("surfaceCV"));
-    writeTabbed(os, vecDesc("lineFS"));
+    writeTabbed(os, vecDesc("pressure"));
+
 
     os  << endl;
 }
@@ -314,17 +307,15 @@ void Foam::functionObjects::meanWaveLoads::writeIntegratedDataFiles()
 
     writeIntegratedDataFile
     (
-        coordSys.localVector(sumPatchForcesP_),   // total
-        coordSys.localVector(sumSurfaceForces_),  // surface
-        coordSys.localVector(sumLineForces_),     // line
+        coordSys.localVector(sumPatchForcesP_),
+        coordSys.localVector(sumInternalForces_),
         forceFilePtr_()
     );
 
     writeIntegratedDataFile
     (
         coordSys.localVector(sumPatchMomentsP_),
-        coordSys.localVector(sumSurfaceMoments_),
-        coordSys.localVector(sumLineMoments_),
+        coordSys.localVector(sumInternalMoments_),
         momentFilePtr_()
     );
 }
@@ -332,17 +323,16 @@ void Foam::functionObjects::meanWaveLoads::writeIntegratedDataFiles()
 
 void Foam::functionObjects::meanWaveLoads::writeIntegratedDataFile
 (
-    const vector& total,
-    const vector& surface,
-    const vector& line,
+    const vector& pres,
+    const vector& internal,
     OFstream& os
 ) const
 {
     writeCurrentTime(os);
 
-    writeValue(os, total);
-    writeValue(os, surface);
-    writeValue(os, line);
+    writeValue(os, pres + internal);
+    writeValue(os, pres);
+
 
     os  << endl;
 }
@@ -605,9 +595,6 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
                 const label localFacei = pbm[patchi].whichFace(facei);
 
                 gradPhi_f = Ufb[patchi][localFacei];
-                // Pout << "Face " << facei << " is a boundary face on patch " << patchi
-                //     << " with local index " << localFacei
-                //     << " and gradPhi_f = " << gradPhi_f << endl;
             }
 
             // Face centre and area vector
@@ -640,8 +627,8 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
             //     )
             );
 
-            sumSurfaceForces_  += fP;
-            sumSurfaceMoments_ += Md ^ fP;
+            sumPatchForcesP_  += fP;
+            sumPatchMomentsP_ += Md ^ fP;
         }
     }
 
@@ -735,9 +722,6 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
                 Un_Uc += (U_p[fsLocalFace] & n) * (Ucur_p[fsLocalFace]);
                 U_Ucn += U_p[fsLocalFace] * (Ucur_p[fsLocalFace] & n);
                 ++nFS;
-
-                // Print U_p
-                // Pout << "U_p = " << U_p[fsLocalFace] << ", Ucur_p = " << Ucur_p[fsLocalFace] << endl;
             }
             if (nFS == 0) continue;          // should not happen, but safe
             zetaZ /= nFS;
@@ -774,7 +758,7 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
             
 
             // const scalar coeff = -0.5*rhoRef*gMag_*(sqr(zetaZ));
-            const vector coeff = -0.5*rhoRef*gMag_*(sqr(zetaZ) * n + 2 * (Un_Uc + U_Ucn) * zetaZ/gMag_); // include forward speed effect
+            const vector coeff = -0.5*rhoRef*gMag_*(sqr(zetaZ) * n  + 2 * (Un_Uc + U_Ucn) * zetaZ/gMag_); // include forward speed effect
             const vector fEdge = coeff * L;
 
             Fzeta += fEdge;
@@ -782,26 +766,18 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
         }
 
         // then add + reduce as before
-        sumLineForces_  += Fzeta;
-        sumLineMoments_ += Mzeta;
+        sumPatchForcesP_  += Fzeta;
+        sumPatchMomentsP_ += Mzeta;
 
     }
 
     // ---------------------------------------------------------------------
-    // 4. Parallel reduction and Total Summation
+    // 3. Parallel reduction
     // ---------------------------------------------------------------------
-    // Reduce the individual components across all processors
-    reduce(sumSurfaceForces_,  sumOp<vector>());
-    reduce(sumSurfaceMoments_, sumOp<vector>());
-    reduce(sumLineForces_,     sumOp<vector>());
-    reduce(sumLineMoments_,    sumOp<vector>());
-
+    reduce(sumPatchForcesP_,   sumOp<vector>());
+    reduce(sumPatchMomentsP_,  sumOp<vector>());
     reduce(sumInternalForces_, sumOp<vector>());
     reduce(sumInternalMoments_,sumOp<vector>());
-
-    // Reconstruct the totals for standard OpenFOAM logging
-    sumPatchForcesP_  = sumSurfaceForces_ + sumLineForces_;
-    sumPatchMomentsP_ = sumSurfaceMoments_ + sumLineMoments_;
 }
 
 

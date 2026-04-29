@@ -296,6 +296,26 @@ volScalarField PhiCurDz2
     
 );
 
+Info<< "Calculating steady current gradient gradUcur\n" << endl;
+volTensorField gradUcur
+(
+    IOobject
+    (
+        "gradUcur",
+        runTime.timeName(),
+        mesh,
+        IOobject::NO_READ,
+        IOobject::AUTO_WRITE
+    ),
+    fvc::grad(Ucur)
+);
+
+volScalarField ddtPhiI
+(
+    IOobject("ddtPhiI", runTime.timeName(), mesh, IOobject::NO_READ, IOobject::NO_WRITE),
+    mesh,
+    dimensionedScalar("zero", dimArea/dimTime/dimTime, 0.0) // Dimensions of ddt(Phi)
+);
 
 
 

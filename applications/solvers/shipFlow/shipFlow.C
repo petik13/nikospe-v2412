@@ -211,6 +211,10 @@ int main(int argc, char *argv[])
     const volTensorField PhiCurD2 = fvc::grad(fvc::grad(PhiCur));
     //PhiCurDz2 = PhiCurD2.component(tensor::ZZ);
 
+    // For the mj terms in the linearized BC
+    gradUcur = fvc::grad(Ucur);
+    gradUcur.write();
+
     // ---------- Set PhiCur instead using NKL everywhere in the domain (as a freestream undisturbed potential) ---------------------------------
     //scalar heading	=  -30.0;
     //scalar U0	=  0.3087;
@@ -275,43 +279,95 @@ int main(int argc, char *argv[])
             const scalar zc = cellCenters[cellI].z();
             
             const scalar coshTerm = Foam::cosh(wavenumber*(hdepth + zc)) / Foam::cosh(wavenumber*hdepth);
+            const scalar sinhTerm = Foam::sinh(wavenumber*(hdepth + zc)) / Foam::cosh(wavenumber*hdepth);
+            const scalar phase = wavenumber * xc - (w + wavenumber * currentspeed * Foam::cos(head_ang)) * t;
 
             PhiI_internal[cellI] = -amp * (9.81 / w)
                 * coshTerm
                 * Foam::sin(wavenumber * xc  - (w + wavenumber * currentspeed * Foam::cos(head_ang)) * t)
                 * ramp_factor;
             
+
+            UI[cellI] = vector(
+                amp * (9.81 * wavenumber / w) * coshTerm * Foam::cos(phase) * ramp_factor,
+                0.0,
+                amp * (9.81 * wavenumber / w) * sinhTerm * Foam::sin(phase) * ramp_factor
+            );
+            
         }
 
-        // Safely update the boundary patch
-        const polyBoundaryMesh& patches = mesh.boundaryMesh();
-        const label upperPatchID = patches.findPatchID("upper");
-        
-        if (upperPatchID != -1) // Always check if patch exists to prevent segfaults
+        // Set values on boundaries!
+        forAll(mesh.boundary(), patchI)
         {
-            const fvPatch& upperPatch = mesh.boundary()[upperPatchID];
-            vectorField& zetaIUpper = zetaI.boundaryFieldRef()[upperPatchID];
-            scalarField& PhiIUpper = PhiI.boundaryFieldRef()[upperPatchID];
-            vectorField& UIupper = UI.boundaryFieldRef()[upperPatchID]; 
-            const vectorField& upperFaceCenters = upperPatch.Cf();
-
-            forAll(upperFaceCenters, faceI)
-            {
-                const scalar xc = upperFaceCenters[faceI].x();
-                const scalar zc = upperFaceCenters[faceI].z();
+            vectorField& UIPatch = UI.boundaryFieldRef()[patchI];
+            scalarField& PhiIPatch = PhiI.boundaryFieldRef()[patchI];
+            vectorField& zetaIPatch = zetaI.boundaryFieldRef()[patchI];
             
-                const scalar coshTerm = Foam::cosh(wavenumber*(hdepth + zc)) / Foam::cosh(wavenumber*hdepth);
+            const vectorField& CfPatch = mesh.boundary()[patchI].Cf();
 
-                zetaIUpper[faceI] = vector(0.0, 0.0, 
-                    amp * Foam::cos(wavenumber * xc - (w + wavenumber * currentspeed * Foam::cos(head_ang)) * t) * ramp_factor);
-                PhiIUpper[faceI] = -amp * (9.81 / w) * coshTerm * Foam::sin(wavenumber * xc- (w + wavenumber * currentspeed * Foam::cos(head_ang)) * t) * ramp_factor;
+            forAll(CfPatch, faceI)
+            {
+                const scalar xc = CfPatch[faceI].x();
+                const scalar zc = CfPatch[faceI].z();
+                const scalar coshTerm = Foam::cosh(wavenumber*(hdepth + zc)) / Foam::cosh(wavenumber*hdepth);
+                const scalar sinhTerm = Foam::sinh(wavenumber*(hdepth + zc)) / Foam::cosh(wavenumber*hdepth);
+                const scalar phase = wavenumber * xc - (w + wavenumber * currentspeed * Foam::cos(head_ang)) * t;
+
+                PhiIPatch[faceI] = -amp * (9.81 / w) * coshTerm * Foam::sin(phase) * ramp_factor;
+                
+                UIPatch[faceI] = vector(
+                    amp * (9.81 * wavenumber / w) * coshTerm * Foam::cos(phase) * ramp_factor,
+                    0.0,
+                    amp * (9.81 * wavenumber / w) * sinhTerm * Foam::sin(phase) * ramp_factor
+                );
+
+                // Only apply zeta to the upper patch (assuming patch 0 or check name)
+                if (mesh.boundary()[patchI].name() == "upper") {
+                    zetaIPatch[faceI] = vector(0.0, 0.0, amp * Foam::cos(phase) * ramp_factor);
+                }
+            }
+        }
+
+        forAll(cellCenters, cellI)
+        {
+            const scalar xc = cellCenters[cellI].x();
+            const scalar zc = cellCenters[cellI].z();
+            
+            const scalar we = w + wavenumber * currentspeed * Foam::cos(head_ang);
+            const scalar coshTerm = Foam::cosh(wavenumber*(hdepth + zc)) / Foam::cosh(wavenumber*hdepth);
+            const scalar phase = wavenumber * xc - we * t;
+
+
+            // Analytical time derivative of PhiI!
+            ddtPhiI[cellI] = we/w*amp * 9.81 * coshTerm * Foam::cos(phase) * ramp_factor;
+        }
+
+        // Force it onto the boundaries just like you did for PhiI and UI
+        const fvBoundaryMesh& boundary = mesh.boundary();
+        forAll(boundary, patchI)
+        {
+            scalarField& ddtPhiIPatch = ddtPhiI.boundaryFieldRef()[patchI];
+            
+            // Get the face centers from the fvPatch, not the polyPatch!
+            const vectorField& CfPatch = boundary[patchI].Cf();
+            
+            forAll(CfPatch, faceI)
+            {
+                const scalar xc = CfPatch[faceI].x();
+                const scalar zc = CfPatch[faceI].z();
+                const scalar we = w + wavenumber * currentspeed * Foam::cos(head_ang);
+                const scalar coshTerm = Foam::cosh(wavenumber*(hdepth + zc)) / Foam::cosh(wavenumber*hdepth);
+                const scalar phase = wavenumber * xc - we* t;
+                
+                ddtPhiIPatch[faceI] = we/w*amp * 9.81 * coshTerm * Foam::cos(phase) * ramp_factor;
             }
         }
 
         // CRITICAL: Synchronize parallel ghost cells and update other boundaries
         PhiI.correctBoundaryConditions();
         zetaI.correctBoundaryConditions();
-
+        UI.correctBoundaryConditions();       
+        ddtPhiI.correctBoundaryConditions(); 
         
         // =========================================================================
         // PHASE 2: SOLVER EQUATIONS (Your Scattered Potential)
@@ -327,31 +383,41 @@ int main(int argc, char *argv[])
 
             PhiEqn.setReference(PhiRefCell, PhiRefValue); 
             PhiEqn.solve();
+
+            // 1. Calculate UD first
+            UD = -fvc::grad(PhiD);
             
-            // 2. Reconstruct the total potential
+            // 2. Sum Phi and U BEFORE taking gradients/fluxes!
             Phi = PhiI + PhiD;
+            U = UI + UD;
+            zeta = zetaI + zetaD;
+
+            // Now the BC will see the updated pressure on the next iteration!
+            p = ddtPhiI + fvc::ddt(PhiD) - (Ucur & U);
+            p2 = ddtPhiI + fvc::ddt(PhiD) - (Ucur & U);
+            
 
             // 3. Update total velocities and fluxes
             if (turgutFlow.finalNonOrthogonalIter())
             {
-                // Calculate total velocity at cell centers
-                U = -fvc::grad(Phi);
-                UD = -fvc::grad(PhiD);
-                
-                // Calculate total flux at faces directly from the total potential
+                // 3. NOW calculate the total flux perfectly!
                 phi = -fvc::snGrad(Phi) * mesh.magSf();
             }
             
         }
 
-        Phi = PhiI + PhiD;
+        // U.correctBoundaryConditions();
+        Phi.correctBoundaryConditions();
+        zeta.correctBoundaryConditions();
+        // Sum to total
+        
+
         
         Info << "Iterative loop ended \n" << endl;
         Info << "Continuity error from phi = " << mag(fvc::div(phi))().weightedAverage(mesh.V()).value() << endl;
         
-        p = fvc::ddt(Phi)-(Ucur & U); 
-        U = -fvc::grad(Phi);
-        p2 = fvc::ddt(Phi)-(Ucur & U);
+        // p = ddtPhiI + fvc::ddt(PhiD)-(Ucur & U); 
+        // p2 = ddtPhiI + fvc::ddt(PhiD)-(Ucur & U);
         p3 = 0.5*(U & U);
         
         Info << "Continuity error from U = " << mag(fvc::div(U))().weightedAverage(mesh.V()).value() << endl;
@@ -365,6 +431,7 @@ int main(int argc, char *argv[])
 
         if (runTime.writeTime())
         {
+            U.write();
             zetaDx.write();
             PhiDx.write();
             PhiDy.write();

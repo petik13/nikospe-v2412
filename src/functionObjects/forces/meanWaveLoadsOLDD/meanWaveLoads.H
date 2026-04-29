@@ -210,11 +210,6 @@ protected:
             //- Sum of internal moments
             vector sumInternalMoments_;
 
-            vector sumSurfaceForces_;
-            vector sumLineForces_;
-            vector sumSurfaceMoments_;
-            vector sumLineMoments_;
-
         // File streams
 
             //- File stream for forces
@@ -329,9 +324,8 @@ protected:
         //- Write integrated data to a file
         void writeIntegratedDataFile
         (
-            const vector& total,
-            const vector& surface,
-            const vector& line,
+            const vector& pres,
+            const vector& internal,
             OFstream& os
         ) const;
 
