@@ -301,7 +301,7 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
     const Time& runTime = db().time();
     const scalar dt = runTime.deltaTValue();
 
-    const scalar aRelax_ = 0.3;
+    const scalar aRelax_ = 1.0;
     const scalar aDamp_  = 1.0;
 
     // Newmark parameters
@@ -360,9 +360,9 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
     K[4][2] = C35_;
 
     // - Soft Mooring
-    K[0][0] = 200.0;
-    K[1][1] = 200.0;
-    K[5][5] = 280.0;
+    //K[0][0] = 200.0;
+    //K[1][1] = 200.0;
+    //K[5][5] = 280.0;
 
     Mat6 C = zero66();  // no damping yet
 
@@ -379,7 +379,7 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
 
     // Roll damping: 2% * 2 * sqrt(I44*C44_) - 2% of the critical damping for roll - As in Seo's paper
     C[3][3] = 0.02 * 2.0 * sqrt(I4_ * C44_);
-    C[0][0] = 2*sqrt((M[0][0] + A_add[0][0]) * K[0][0]);
+    //C[0][0] = 2*sqrt((M[0][0] + A_add[0][0]) * K[0][0]);
     // C[1][1] = 2*sqrt((M[1][1] + A_add[1][1]) * K[1][1]);
     // C[5][5] = 2*sqrt((M[5][5] + A_add[5][5]) * K[5][5]);
 
@@ -432,10 +432,10 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
     const Vec6 vStar = add6( qd_n, scal6(dt*(1.0 - gamma), qdd_n) );
 
     // Effective system: A*qdd_{n+1} = f - C*vStar - K*xStar
-    Mat6 A = add66( add66(M, scal66(gamma*dt, C)),
+    Mat6 A = add66( add66(M_eff, scal66(gamma*dt, C)),
                     scal66(beta*dt*dt, K) );
 
-    Vec6 rhs = sub6( sub6(f, matVec6(C, vStar)),
+    Vec6 rhs = sub6( sub6(f_eff, matVec6(C, vStar)),
                     matVec6(K, xStar) );
 
     // Solve for acceleration at n+1
