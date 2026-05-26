@@ -376,14 +376,14 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
     K[4][2] = C35_;
 
     // - Soft Mooring
-    K[0][0] = 100.0;
-    K[1][1] = 100.0;
-    K[5][5] = 280.0;
+    // K[0][0] = 100.0;
+    // K[1][1] = 100.0;
+    // K[5][5] = 280.0;
 
     Mat6 C = zero66();  // no damping yet
 
-    // Roll damping: 2% * 2 * sqrt(I44*C44_) - 2% of the critical damping for roll - As in Seo's paper
-    C[3][3] = 0.02 * 2.0 * sqrt(I4_ * C44_);
+    // Roll damping: 5% * 2 * sqrt(I44*C44_) - 5% of the critical damping for roll - As in Seo's paper
+    C[3][3] = 0.05 * 2.0 * sqrt(I4_ * C44_);
 
 
     // --- External load at n+1: wrench W=(M,F) -> f=[F,M]
