@@ -1,0 +1,4 @@
+SOURCE = \
+waveCurrentPotential3DFvPatchScalarField.C \
+
+# sources

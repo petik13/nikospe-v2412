@@ -360,9 +360,9 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
     K[4][2] = C35_;
 
     // - Soft Mooring
-    //K[0][0] = 200.0;
-    //K[1][1] = 200.0;
-    //K[5][5] = 280.0;
+    K[0][0] = 200.0;
+    K[1][1] = 200.0;
+    K[5][5] = 280.0;
 
     Mat6 C = zero66();  // no damping yet
 
