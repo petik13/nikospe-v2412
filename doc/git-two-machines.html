@@ -1,0 +1,1225 @@
+<title>Git Across Two Machines</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,500;1,400&display=swap">
+
+<style>
+  :root {
+    --ground:      #F3F6F6;
+    --surface:     #FFFFFF;
+    --surface-2:   #E8EFEF;
+    --ink:         #121E26;
+    --ink-2:       #3D525E;
+    --ink-3:       #6C818D;
+    --rule:        #D2DDDD;
+    --rule-soft:   #E3EAEA;
+    --accent:      #0B6A70;
+    --accent-2:    #0E8A90;
+    --accent-wash: #E0EFEF;
+    --warn:        #8A5300;
+    --warn-wash:   #FAEFDC;
+    --warn-edge:   #D9A44E;
+    --danger:      #9C2F1C;
+    --danger-wash: #F9E6E1;
+    --danger-edge: #C97A66;
+    --ok:          #26643F;
+    --ok-wash:     #E1EFE7;
+    --ok-edge:     #79B393;
+    --term-bg:     #0F2329;
+    --term-ink:    #DBE9E9;
+    --term-dim:    #7E9AA0;
+    --term-accent: #61C6C9;
+    --shadow: 0 1px 2px rgba(18,30,38,.06), 0 6px 20px -12px rgba(18,30,38,.28);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:      #0D151A;
+      --surface:     #131E24;
+      --surface-2:   #1A272E;
+      --ink:         #E6EEEF;
+      --ink-2:       #AABFC7;
+      --ink-3:       #7E949E;
+      --rule:        #26363E;
+      --rule-soft:   #1E2C33;
+      --accent:      #4FBCC0;
+      --accent-2:    #74D3D6;
+      --accent-wash: #113034;
+      --warn:        #E3AC61;
+      --warn-wash:   #302510;
+      --warn-edge:   #7A5C25;
+      --danger:      #EC8A72;
+      --danger-wash: #331A14;
+      --danger-edge: #8A4433;
+      --ok:          #74C594;
+      --ok-wash:     #112E1E;
+      --ok-edge:     #3A6B4E;
+      --term-bg:     #08151A;
+      --term-ink:    #D6E7E7;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 20px -12px rgba(0,0,0,.8);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground:      #0D151A;
+    --surface:     #131E24;
+    --surface-2:   #1A272E;
+    --ink:         #E6EEEF;
+    --ink-2:       #AABFC7;
+    --ink-3:       #7E949E;
+    --rule:        #26363E;
+    --rule-soft:   #1E2C33;
+    --accent:      #4FBCC0;
+    --accent-2:    #74D3D6;
+    --accent-wash: #113034;
+    --warn:        #E3AC61;
+    --warn-wash:   #302510;
+    --warn-edge:   #7A5C25;
+    --danger:      #EC8A72;
+    --danger-wash: #331A14;
+    --danger-edge: #8A4433;
+    --ok:          #74C594;
+    --ok-wash:     #112E1E;
+    --ok-edge:     #3A6B4E;
+    --term-bg:     #08151A;
+    --term-ink:    #D6E7E7;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 20px -12px rgba(0,0,0,.8);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "IBM Plex Serif", Georgia, serif;
+    font-size: 17px;
+    line-height: 1.65;
+    margin: 0;
+    padding: 0 20px 96px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 820px; margin: 0 auto; }
+
+  /* ---------- masthead ---------- */
+  .masthead {
+    padding: 64px 0 32px;
+    border-bottom: 2px solid var(--ink);
+    margin-bottom: 40px;
+  }
+  .eyebrow {
+    font-family: "IBM Plex Sans", system-ui, sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 14px;
+  }
+  h1 {
+    font-family: "IBM Plex Sans", system-ui, sans-serif;
+    font-size: clamp(34px, 6vw, 50px);
+    font-weight: 700;
+    line-height: 1.05;
+    letter-spacing: -.022em;
+    margin: 0 0 18px;
+    text-wrap: balance;
+  }
+  .standfirst {
+    font-size: 19px;
+    color: var(--ink-2);
+    margin: 0;
+    max-width: 60ch;
+  }
+  .standfirst em { color: var(--ink); font-style: italic; }
+
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 28px;
+    margin-top: 26px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12.5px;
+    color: var(--ink-3);
+  }
+  .meta b { color: var(--ink-2); font-weight: 500; }
+
+  /* ---------- contents ---------- */
+  .toc {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 22px 26px;
+    margin-bottom: 52px;
+    box-shadow: var(--shadow);
+  }
+  .toc h2 {
+    font-family: "IBM Plex Sans", system-ui, sans-serif;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 0 0 14px;
+  }
+  .toc ol { margin: 0; padding: 0; list-style: none; counter-reset: toc; }
+  .toc li { counter-increment: toc; border-top: 1px solid var(--rule-soft); }
+  .toc li:first-child { border-top: 0; }
+  .toc a {
+    display: flex;
+    gap: 14px;
+    align-items: baseline;
+    padding: 9px 0;
+    color: var(--ink);
+    text-decoration: none;
+    font-family: "IBM Plex Sans", system-ui, sans-serif;
+    font-size: 15px;
+  }
+  .toc a::before {
+    content: counter(toc, decimal-leading-zero);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+    color: var(--accent);
+    font-weight: 500;
+    flex: none;
+  }
+  .toc a:hover { color: var(--accent); }
+  .toc a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .toc .sub { color: var(--ink-3); font-size: 13.5px; margin-left: auto; text-align: right; }
+
+  /* ---------- sections ---------- */
+  section { margin-bottom: 64px; scroll-margin-top: 20px; }
+
+  .sec-head {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 12px;
+    margin-bottom: 26px;
+  }
+  .sec-num {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent);
+    flex: none;
+    letter-spacing: .04em;
+  }
+  h2.sec-title {
+    font-family: "IBM Plex Sans", system-ui, sans-serif;
+    font-size: clamp(23px, 3.4vw, 29px);
+    font-weight: 600;
+    letter-spacing: -.015em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  h3 {
+    font-family: "IBM Plex Sans", system-ui, sans-serif;
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -.008em;
+    margin: 36px 0 12px;
+    text-wrap: balance;
+  }
+  h4 {
+    font-family: "IBM Plex Sans", system-ui, sans-serif;
+    font-size: 13.5px;
+    font-weight: 600;
+    letter-spacing: .02em;
+    margin: 26px 0 10px;
+    color: var(--ink-2);
+  }
+
+  p { margin: 0 0 15px; max-width: 68ch; }
+  ul, ol { max-width: 66ch; padding-left: 22px; margin: 0 0 16px; }
+  li { margin-bottom: 7px; }
+  li::marker { color: var(--accent); }
+
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  strong { font-weight: 600; color: var(--ink); }
+
+  code {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .87em;
+    background: var(--surface-2);
+    border: 1px solid var(--rule-soft);
+    border-radius: 3px;
+    padding: 1px 5px;
+    color: var(--ink);
+    word-break: break-word;
+  }
+
+  /* ---------- terminal blocks ---------- */
+  .term {
+    background: var(--term-bg);
+    border-radius: 4px;
+    padding: 16px 18px;
+    margin: 0 0 18px;
+    overflow-x: auto;
+    border: 1px solid rgba(97,198,201,.16);
+  }
+  .term pre {
+    margin: 0;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 13.5px;
+    line-height: 1.72;
+    color: var(--term-ink);
+    white-space: pre;
+  }
+  .term .c { color: var(--term-dim); }            /* comment */
+  .term .p { color: var(--term-accent); }         /* prompt / emphasis */
+  .term .o { color: #9FB6BC; }                    /* command output */
+  .term-label {
+    font-family: "IBM Plex Sans", system-ui, sans-serif;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 0 0 7px;
+  }
+
+  /* ---------- callouts ---------- */
+  .note {
+    border-left: 3px solid var(--accent);
+    background: var(--accent-wash);
+    padding: 15px 18px;
+    margin: 0 0 20px;
+    border-radius: 0 3px 3px 0;
+  }
+  .note.warn   { border-left-color: var(--warn-edge);   background: var(--warn-wash); }
+  .note.danger { border-left-color: var(--danger-edge); background: var(--danger-wash); }
+  .note.ok     { border-left-color: var(--ok-edge);     background: var(--ok-wash); }
+  .note p:last-child { margin-bottom: 0; }
+  .note-title {
+    font-family: "IBM Plex Sans", system-ui, sans-serif;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    margin: 0 0 7px;
+    color: var(--accent);
+  }
+  .note.warn   .note-title { color: var(--warn); }
+  .note.danger .note-title { color: var(--danger); }
+  .note.ok     .note-title { color: var(--ok); }
+
+  /* ---------- flow diagram ---------- */
+  .flow {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0;
+    margin: 26px 0 12px;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+  }
+  .stage { padding: 18px 14px; border-right: 1px solid var(--rule-soft); }
+  .stage:last-child { border-right: 0; }
+  .stage-n {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .stage-name {
+    font-family: "IBM Plex Sans", system-ui, sans-serif;
+    font-size: 14.5px;
+    font-weight: 600;
+    margin: 5px 0 5px;
+    line-height: 1.25;
+  }
+  .stage-desc { font-size: 13px; color: var(--ink-3); line-height: 1.5; }
+  .flow-cmds {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+  .flow-cmd {
+    text-align: center;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12.5px;
+    color: var(--accent);
+    background: var(--accent-wash);
+    border-radius: 3px;
+    padding: 7px 4px;
+    font-weight: 500;
+  }
+  .flow-cmd span { display: block; color: var(--ink-3); font-size: 10.5px; margin-top: 2px; }
+
+  /* ---------- tables ---------- */
+  .table-scroll { overflow-x: auto; margin: 0 0 20px; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: "IBM Plex Sans", system-ui, sans-serif;
+    font-size: 14px;
+    min-width: 540px;
+  }
+  th {
+    text-align: left;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    border-bottom: 1.5px solid var(--rule);
+    padding: 0 14px 8px 0;
+    vertical-align: bottom;
+  }
+  td {
+    padding: 11px 14px 11px 0;
+    border-bottom: 1px solid var(--rule-soft);
+    vertical-align: top;
+    color: var(--ink-2);
+  }
+  td:first-child { color: var(--ink); }
+  td code, th code { font-size: 12.5px; }
+
+  /* ---------- rules card ---------- */
+  .rules { display: grid; gap: 12px; margin: 0 0 20px; }
+  .rule-item {
+    display: grid;
+    grid-template-columns: 30px 1fr;
+    gap: 14px;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 15px 17px;
+    box-shadow: var(--shadow);
+  }
+  .rule-n {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--accent);
+    line-height: 1.4;
+  }
+  .rule-item h4 { margin: 0 0 4px; font-size: 15px; color: var(--ink); letter-spacing: -.005em; }
+  .rule-item p { margin: 0; font-size: 14.5px; color: var(--ink-2); }
+
+  /* ---------- machine columns ---------- */
+  .machines { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 0 0 20px; }
+  .machine {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 18px 20px;
+    box-shadow: var(--shadow);
+  }
+  .machine h4 {
+    margin: 0 0 4px;
+    font-size: 15px;
+    color: var(--ink);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .machine .where {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px;
+    color: var(--ink-3);
+    margin: 0 0 12px;
+  }
+  .machine p { font-size: 14.5px; margin-bottom: 10px; }
+  .machine .term { margin-bottom: 0; }
+
+  /* ---------- reference card ---------- */
+  .refcard {
+    background: var(--surface);
+    border: 2px solid var(--ink);
+    border-radius: 4px;
+    padding: 26px 28px;
+  }
+  .refcard h3 { margin-top: 0; }
+  .ref-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 26px 34px; }
+  .ref-col h4 {
+    margin: 0 0 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--rule);
+    color: var(--accent);
+    font-size: 11.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+  }
+  .ref-col dl { margin: 0; font-size: 13.5px; }
+  .ref-col dt {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12.5px;
+    color: var(--ink);
+    margin-top: 9px;
+    font-weight: 500;
+  }
+  .ref-col dt:first-child { margin-top: 0; }
+  .ref-col dd {
+    margin: 1px 0 0;
+    color: var(--ink-3);
+    font-family: "IBM Plex Sans", system-ui, sans-serif;
+    font-size: 12.5px;
+    line-height: 1.45;
+  }
+
+  footer {
+    margin-top: 56px;
+    padding-top: 22px;
+    border-top: 1px solid var(--rule);
+    font-family: "IBM Plex Sans", system-ui, sans-serif;
+    font-size: 13px;
+    color: var(--ink-3);
+  }
+
+  @media (max-width: 680px) {
+    body { font-size: 16px; padding: 0 16px 64px; }
+    .flow { grid-template-columns: 1fr 1fr; }
+    .stage { border-bottom: 1px solid var(--rule-soft); }
+    .flow-cmds { grid-template-columns: 1fr; }
+    .machines, .ref-grid { grid-template-columns: 1fr; }
+    .toc .sub { display: none; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+
+  /* ---------- print / PDF ---------- */
+  @media print {
+    @page { margin: 16mm 14mm; }
+    body {
+      background: #fff; color: #000;
+      font-size: 10.5pt; line-height: 1.5;
+      padding: 0;
+    }
+    .wrap { max-width: none; }
+    .masthead { padding-top: 0; }
+    .toc, .no-print { display: none; }
+    section { margin-bottom: 26px; page-break-inside: auto; }
+    .sec-head { page-break-after: avoid; }
+    h3, h4 { page-break-after: avoid; }
+    .term, .note, .rule-item, .machine, table, .flow, .refcard { page-break-inside: avoid; }
+    .term { background: #F4F7F7; border: 1px solid #BBC9C9; }
+    .term pre { color: #10242A; font-size: 9pt; }
+    .term .c, .term .o { color: #55686E; }
+    .term .p { color: #0B6A70; }
+    .note { border: 1px solid #BBC9C9; border-left-width: 3px; background: #F7FAFA; }
+    .rule-item, .machine, .refcard, .flow { box-shadow: none; }
+    a { color: #000; text-decoration: none; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="eyebrow">Working Manual</p>
+    <h1>Git Across Two Machines</h1>
+    <p class="standfirst">
+      Keeping one OpenFOAM codebase in step across a laptop and a remote workstation —
+      how to stage, commit, push and pull with confidence, and <em>how to get out of trouble</em>
+      when something goes wrong.
+    </p>
+    <div class="meta">
+      <span><b>Repository</b> petik13/nikospe-v2412</span>
+      <span><b>Branch</b> main</span>
+      <span><b>Written for</b> OpenFOAM v2412</span>
+    </div>
+  </header>
+
+  <nav class="toc no-print">
+    <h2>Contents</h2>
+    <ol>
+      <li><a href="#model">How git actually works<span class="sub">four places a file can live</span></a></li>
+      <li><a href="#loop">The daily loop<span class="sub">pull → work → commit → push</span></a></li>
+      <li><a href="#twomachines">Working on two machines<span class="sub">the rules that prevent pain</span></a></li>
+      <li><a href="#credentials">Setting up credentials<span class="sub">on the remote workstation</span></a></li>
+      <li><a href="#openfoam">What never to commit<span class="sub">OpenFOAM build artifacts</span></a></li>
+      <li><a href="#trouble">When things go wrong<span class="sub">real errors, real fixes</span></a></li>
+      <li><a href="#reference">Quick reference<span class="sub">one-page cheat sheet</span></a></li>
+    </ol>
+  </nav>
+
+  <!-- ============ 1 ============ -->
+  <section id="model">
+    <div class="sec-head">
+      <span class="sec-num">01</span>
+      <h2 class="sec-title">How git actually works</h2>
+    </div>
+
+    <p>
+      Almost every confusing git message makes sense once you know this: your code exists in
+      <strong>four separate places</strong>, and git commands are just moves between them.
+      Most people learn the commands without the map, which is why the errors feel random.
+    </p>
+
+    <div class="flow">
+      <div class="stage">
+        <div class="stage-n">01</div>
+        <div class="stage-name">Working tree</div>
+        <div class="stage-desc">Your actual files on disk. What you edit in VSCode.</div>
+      </div>
+      <div class="stage">
+        <div class="stage-n">02</div>
+        <div class="stage-name">Staging area</div>
+        <div class="stage-desc">A shortlist of changes you've marked for the next commit.</div>
+      </div>
+      <div class="stage">
+        <div class="stage-n">03</div>
+        <div class="stage-name">Local repository</div>
+        <div class="stage-desc">Your commit history, saved in the hidden <code>.git</code> folder.</div>
+      </div>
+      <div class="stage">
+        <div class="stage-n">04</div>
+        <div class="stage-name">GitHub</div>
+        <div class="stage-desc">The shared copy both machines talk to. Called <code>origin</code>.</div>
+      </div>
+    </div>
+
+    <div class="flow-cmds">
+      <div class="flow-cmd">git add<span>tree → staging</span></div>
+      <div class="flow-cmd">git commit<span>staging → local</span></div>
+      <div class="flow-cmd">git push<span>local → GitHub</span></div>
+    </div>
+
+    <p>
+      And <code>git pull</code> runs the whole chain backwards: it brings commits down from GitHub
+      and updates your files.
+    </p>
+
+    <div class="note">
+      <p class="note-title">Why the staging area exists</p>
+      <p>
+        It lets you commit <em>some</em> of your changes and not others. If you fixed a boundary
+        condition and also left some debug printing in a solver, you can stage and commit just the
+        fix. Everything not staged simply stays as it is, uncommitted, waiting for you.
+      </p>
+    </div>
+
+    <h3>Reading <code>git status</code></h3>
+    <p>
+      This is the single most useful command in git. Run it constantly — before staging, before
+      committing, before pulling, whenever you are unsure. It tells you where you are and what
+      state everything is in.
+    </p>
+
+    <div class="term">
+      <p class="term-label">Terminal</p>
+      <pre><span class="p">$</span> git status
+
+<span class="o">On branch main
+Your branch is up to date with 'origin/main'.</span>          <span class="c"># in step with GitHub</span>
+
+<span class="o">Changes to be committed:</span>                                <span class="c"># STAGED — will be in next commit</span>
+<span class="o">        modified:   src/.../meanWaveLoads.C</span>
+
+<span class="o">Changes not staged for commit:</span>                          <span class="c"># edited but NOT staged</span>
+<span class="o">        modified:   applications/solvers/shipFlow/shipFlow.C</span>
+
+<span class="o">Untracked files:</span>                                        <span class="c"># brand new, git ignores until added</span>
+<span class="o">        src/.../newBoundaryCondition/</span></pre>
+    </div>
+
+    <p>
+      Three groups, three meanings. <strong>Staged</strong> goes into your next commit.
+      <strong>Not staged</strong> means git knows the file but you haven't marked the change.
+      <strong>Untracked</strong> means git has never seen this file and will keep ignoring it
+      until you <code>git add</code> it — this is why new files are so easy to lose.
+    </p>
+  </section>
+
+  <!-- ============ 2 ============ -->
+  <section id="loop">
+    <div class="sec-head">
+      <span class="sec-num">02</span>
+      <h2 class="sec-title">The daily loop</h2>
+    </div>
+
+    <p>
+      This is the whole workflow. Five commands, in this order, every working session.
+      If you do nothing else in this guide, do this.
+    </p>
+
+    <div class="term">
+      <p class="term-label">A complete session</p>
+      <pre><span class="c"># 1. START — always pull first, before touching anything</span>
+<span class="p">$</span> cd ~/OpenFOAM/nikospe-v2412
+<span class="p">$</span> git pull
+
+<span class="c"># 2. WORK — edit code, compile, run cases</span>
+<span class="p">$</span> ./Allmake.sh --no-clean
+
+<span class="c"># 3. REVIEW — see exactly what you changed</span>
+<span class="p">$</span> git status
+<span class="p">$</span> git diff                       <span class="c"># line-by-line, q to quit</span>
+
+<span class="c"># 4. STAGE + COMMIT — describe what you did</span>
+<span class="p">$</span> git add -A
+<span class="p">$</span> git commit -m "Add 2nd-order damping term to wave BC"
+
+<span class="c"># 5. FINISH — send it to GitHub</span>
+<span class="p">$</span> git push</pre>
+    </div>
+
+    <h3>Staging: choosing what goes in</h3>
+
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Command</th><th>What it stages</th><th>When to use it</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>git add -A</code></td>
+            <td>Everything changed, new, and deleted</td>
+            <td>The usual choice. Safe once <code>.gitignore</code> is set up.</td>
+          </tr>
+          <tr>
+            <td><code>git add path/to/file.C</code></td>
+            <td>One specific file</td>
+            <td>When you want to commit one fix separately.</td>
+          </tr>
+          <tr>
+            <td><code>git add src/</code></td>
+            <td>Everything under a folder</td>
+            <td>Committing one library's worth of work.</td>
+          </tr>
+          <tr>
+            <td><code>git restore --staged f.C</code></td>
+            <td>Un-stages it (keeps your edits)</td>
+            <td>You staged something by mistake.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Writing commit messages</h3>
+    <p>
+      Future-you reads these while trying to find when a result changed. Say <em>what changed and
+      why</em>, not "update" or "stuff". A good message finishes the sentence
+      "this commit will…".
+    </p>
+
+    <div class="note ok">
+      <p class="note-title">Good</p>
+      <p>
+        <code>Fix mean wave loads by including y-density term</code><br>
+        <code>Add forward-speed effect to line integral in meanWaveLoads</code><br>
+        <code>Reduce roll damping from 5% to 2% of critical</code>
+      </p>
+    </div>
+
+    <div class="note danger">
+      <p class="note-title">Useless six months later</p>
+      <p>
+        <code>update</code> &nbsp;·&nbsp; <code>stashing</code> &nbsp;·&nbsp;
+        <code>fix</code> &nbsp;·&nbsp; <code>asdf</code> &nbsp;·&nbsp; <code>new code</code>
+      </p>
+    </div>
+
+    <h3>Committing often is free</h3>
+    <p>
+      A commit is a save point, not a publication. Commit whenever something works, even
+      partially. Small frequent commits make it far easier to find where a bug crept in — and
+      cost you nothing. You can push several commits at once.
+    </p>
+  </section>
+
+  <!-- ============ 3 ============ -->
+  <section id="twomachines">
+    <div class="sec-head">
+      <span class="sec-num">03</span>
+      <h2 class="sec-title">Working on two machines</h2>
+    </div>
+
+    <p>
+      GitHub is the meeting point. Neither machine talks to the other directly — both talk to
+      <code>origin</code>. Think of it as the single source of truth that both copies sync against.
+    </p>
+
+    <div class="machines">
+      <div class="machine">
+        <h4>Laptop</h4>
+        <p class="where">~/OpenFOAM/nikospe-v2412</p>
+        <p>Finish a session by pushing, so the work is on GitHub before you walk away.</p>
+        <div class="term">
+          <pre><span class="p">$</span> git add -A
+<span class="p">$</span> git commit -m "..."
+<span class="p">$</span> git push</pre>
+        </div>
+      </div>
+      <div class="machine">
+        <h4>Remote workstation</h4>
+        <p class="where">where you run the big cases</p>
+        <p>Start a session by pulling, so you begin from the latest work.</p>
+        <div class="term">
+          <pre><span class="p">$</span> git pull
+<span class="p">$</span> ./Allmake.sh
+<span class="c"># ... run cases ...</span></pre>
+        </div>
+      </div>
+    </div>
+
+    <h3>The four rules</h3>
+
+    <div class="rules">
+      <div class="rule-item">
+        <div class="rule-n">1</div>
+        <div>
+          <h4>Pull before you start. Push before you stop.</h4>
+          <p>
+            Make it muscle memory. Nearly every painful git situation traces back to a skipped
+            pull or an un-pushed commit sitting on the wrong machine.
+          </p>
+        </div>
+      </div>
+      <div class="rule-item">
+        <div class="rule-n">2</div>
+        <div>
+          <h4>Never copy the project folder between machines.</h4>
+          <p>
+            Use <code>git push</code> and <code>git pull</code> only. Copying with
+            <code>scp</code>, <code>rsync</code> or a file manager also copies the hidden
+            <code>.git</code> folder, which silently replaces the entire history on the receiving
+            machine — commits and all.
+          </p>
+        </div>
+      </div>
+      <div class="rule-item">
+        <div class="rule-n">3</div>
+        <div>
+          <h4>Don't leave work uncommitted overnight.</h4>
+          <p>
+            Uncommitted changes exist on exactly one machine and in no history. They are the
+            easiest thing in the world to lose. Commit, then push.
+          </p>
+        </div>
+      </div>
+      <div class="rule-item">
+        <div class="rule-n">4</div>
+        <div>
+          <h4>Work on one machine at a time.</h4>
+          <p>
+            Editing the same files on both machines before pushing creates a divergence you then
+            have to merge by hand. Finish, push, switch.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="note danger">
+      <p class="note-title">The mistake that cost the most</p>
+      <p>
+        Copying the whole project folder from the workstation onto the laptop overwrote the
+        laptop's <code>.git</code> directory. A completed merge commit vanished — not corrupted,
+        it simply no longer existed in that history. The code survived only because it happened to
+        still be sitting in the working tree, uncommitted. <strong>Copy files, or use git. Never
+        both.</strong>
+      </p>
+    </div>
+
+    <h3>If both machines have changes</h3>
+    <p>
+      Sooner or later you'll commit on both sides before pushing. Git will refuse the push and say
+      the remote "contains work that you do not have locally". This is git protecting you, not
+      breaking. Fix it by pulling first, which merges the two histories:
+    </p>
+
+    <div class="term">
+      <pre><span class="p">$</span> git pull                       <span class="c"># merges GitHub's work into yours</span>
+<span class="c"># resolve any conflicts (see section 06), then:</span>
+<span class="p">$</span> git push</pre>
+    </div>
+  </section>
+
+  <!-- ============ 4 ============ -->
+  <section id="credentials">
+    <div class="sec-head">
+      <span class="sec-num">04</span>
+      <h2 class="sec-title">Setting up credentials</h2>
+    </div>
+
+    <p>
+      GitHub stopped accepting account passwords over HTTPS years ago. You authenticate with
+      either a <strong>Personal Access Token</strong> or an <strong>SSH key</strong>. On a shared
+      or multi-user remote workstation, prefer SSH — a token saved with the <code>store</code>
+      helper is written to disk in plain text.
+    </p>
+
+    <h3>Option A — SSH key (recommended for the workstation)</h3>
+
+    <div class="term">
+      <p class="term-label">On the remote workstation</p>
+      <pre><span class="c"># 1. Create a key (press Enter at each prompt; add a passphrase if you like)</span>
+<span class="p">$</span> ssh-keygen -t ed25519 -C "nikos.petik@gmail.com"
+
+<span class="c"># 2. Show the PUBLIC key — copy the whole line</span>
+<span class="p">$</span> cat ~/.ssh/id_ed25519.pub
+<span class="o">ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... nikos.petik@gmail.com</span>
+
+<span class="c"># 3. On github.com: Settings → SSH and GPG keys → New SSH key</span>
+<span class="c">#    Paste it, give it a name like "workstation", save.</span>
+
+<span class="c"># 4. Test</span>
+<span class="p">$</span> ssh -T git@github.com
+<span class="o">Hi petik13! You've successfully authenticated...</span>
+
+<span class="c"># 5. Point the repo at the SSH address instead of HTTPS</span>
+<span class="p">$</span> cd &lt;your repo&gt;
+<span class="p">$</span> git remote set-url origin git@github.com:petik13/nikospe-v2412.git
+<span class="p">$</span> git remote -v                  <span class="c"># confirm it now says git@github.com</span></pre>
+    </div>
+
+    <div class="note">
+      <p class="note-title">Public vs private key</p>
+      <p>
+        Only ever share the <code>.pub</code> file. The matching file without the extension is your
+        private key — it never leaves the machine and never goes on GitHub.
+      </p>
+    </div>
+
+    <h3>Option B — Personal Access Token over HTTPS</h3>
+
+    <div class="term">
+      <pre><span class="c"># 1. On github.com: Settings → Developer settings →</span>
+<span class="c">#    Personal access tokens → Tokens (classic) → Generate new token</span>
+<span class="c">#    Scope: check "repo". Copy the token — shown only once.</span>
+
+<span class="c"># 2. Tell git to remember it after the first use</span>
+<span class="p">$</span> git config --global credential.helper store
+
+<span class="c"># 3. Push once; paste the TOKEN when asked for the password</span>
+<span class="p">$</span> git push
+<span class="o">Username: petik13
+Password: &lt;paste the token, not your GitHub password&gt;</span></pre>
+    </div>
+
+    <div class="note warn">
+      <p class="note-title">Where the token ends up</p>
+      <p>
+        <code>credential.helper store</code> writes it unencrypted to
+        <code>~/.git-credentials</code>. That is acceptable on a machine only you use. Never commit
+        that file, and never run <code>git init</code> in your home directory — a repo there would
+        put your token, shell history and SSH config one <code>git add -A</code> away from being
+        published.
+      </p>
+    </div>
+
+    <h3>Set your identity on each machine</h3>
+    <p>Commits are labelled with this. Do it once per machine.</p>
+
+    <div class="term">
+      <pre><span class="p">$</span> git config --global user.name  "petik13"
+<span class="p">$</span> git config --global user.email "nikos.petik@gmail.com"</pre>
+    </div>
+
+    <h3>Getting the repository onto a new machine</h3>
+    <p>Clone it — never copy it.</p>
+
+    <div class="term">
+      <pre><span class="p">$</span> git clone git@github.com:petik13/nikospe-v2412.git
+<span class="p">$</span> cd nikospe-v2412
+<span class="p">$</span> ./Allmake.sh                   <span class="c"># compile: binaries are not in git</span></pre>
+    </div>
+  </section>
+
+  <!-- ============ 5 ============ -->
+  <section id="openfoam">
+    <div class="sec-head">
+      <span class="sec-num">05</span>
+      <h2 class="sec-title">What never to commit</h2>
+    </div>
+
+    <p>
+      Git is for <strong>source</strong>. Everything OpenFOAM's <code>wmake</code> generates must
+      stay out of it. Compiled files are large, change on every build, and — critically — git
+      cannot merge them. Two machines that both compiled the same library produce two different
+      binaries, and every merge becomes a conflict git cannot resolve.
+    </p>
+
+    <div class="note danger">
+      <p class="note-title">What this cost, concretely</p>
+      <p>
+        One merge of this repository produced <strong>44 conflicts</strong>. Only <strong>4</strong>
+        were real source conflicts. The other 40 were <code>.o</code> files, <code>.so</code>
+        libraries and <code>lnInclude</code> symlinks — pure noise that buried the four that
+        actually mattered.
+      </p>
+    </div>
+
+    <h3>The <code>.gitignore</code> now in the repository</h3>
+
+    <div class="term">
+      <p class="term-label">.gitignore</p>
+      <pre><span class="c"># Compiled binaries and libraries (wmake output tree)</span>
+platforms/
+
+<span class="c"># Per-target build directories. The leading **/ is required —</span>
+<span class="c"># a pattern with a slash is otherwise anchored to the repo root.</span>
+**/Make/linux*/
+
+<span class="c"># Auto-generated symlink farms</span>
+lnInclude/
+
+<span class="c"># Objects, libraries, dependency files</span>
+*.o
+*.so
+*.a
+*.dep
+
+<span class="c"># Logs and editor noise</span>
+log
+*.log
+*~
+*.swp</pre>
+    </div>
+
+    <div class="note">
+      <p class="note-title">Keep these — they are source</p>
+      <p>
+        <code>Make/files</code> and <code>Make/options</code> are hand-written and belong in git.
+        Only the generated <code>Make/linux64GccDPInt32Opt/</code> directory beside them is ignored.
+      </p>
+    </div>
+
+    <h3>Always rebuild after pulling</h3>
+    <p>
+      Because binaries aren't in git, a fresh <code>clone</code> or a <code>pull</code> that
+      changes source leaves you without up-to-date libraries. Compile before running anything:
+    </p>
+
+    <div class="term">
+      <pre><span class="p">$</span> ./Allmake.sh                   <span class="c"># full rebuild (wclean + wmake)</span>
+<span class="p">$</span> ./Allmake.sh --no-clean        <span class="c"># incremental, much faster</span></pre>
+    </div>
+
+    <h3>If you already committed build files</h3>
+    <p>
+      <code>--cached</code> removes them from git while leaving them on your disk:
+    </p>
+
+    <div class="term">
+      <pre><span class="p">$</span> git rm -r --cached platforms/
+<span class="p">$</span> git commit -m "Stop tracking build artifacts"</pre>
+    </div>
+
+    <div class="note warn">
+      <p class="note-title">Expect deletions on the other machine</p>
+      <p>
+        When the other machine pulls this, git deletes those files there — they are no longer
+        tracked. That is intended, but it means the compiled solvers disappear until you run
+        <code>./Allmake.sh</code> again.
+      </p>
+    </div>
+  </section>
+
+  <!-- ============ 6 ============ -->
+  <section id="trouble">
+    <div class="sec-head">
+      <span class="sec-num">06</span>
+      <h2 class="sec-title">When things go wrong</h2>
+    </div>
+
+    <p>
+      Git error messages are blunt but honest. Here are the ones you'll actually meet, what each
+      means, and the fix.
+    </p>
+
+    <h3>Merge conflicts</h3>
+    <p>
+      A conflict means both sides changed the same lines and git won't guess. It marks the spot
+      and hands it to you:
+    </p>
+
+    <div class="term">
+      <pre>    scalar epsilon = 0.0;
+<span class="p">&lt;&lt;&lt;&lt;&lt;&lt;&lt; HEAD</span>                    <span class="c"># your version</span>
+    const scalar damping = 0.05;
+<span class="p">=======</span>
+    const scalar damping = 0.02;    <span class="c"># the incoming version</span>
+<span class="p">&gt;&gt;&gt;&gt;&gt;&gt;&gt; origin/main</span></pre>
+    </div>
+
+    <p>To resolve: open the file, delete the three marker lines, and leave the code you want —
+      which may be one side, the other, or a combination. Then:</p>
+
+    <div class="term">
+      <pre><span class="p">$</span> git add path/to/resolved/file.C
+<span class="p">$</span> git commit                     <span class="c"># finishes the merge</span></pre>
+    </div>
+
+    <div class="note warn">
+      <p class="note-title">Search before you commit</p>
+      <p>
+        Committed conflict markers are a real hazard — this repository had a file with
+        <code>&lt;&lt;&lt;&lt;&lt;&lt;&lt;</code> baked into a commit. Check first:
+        <code>git grep -n "&lt;&lt;&lt;&lt;&lt;&lt;&lt;"</code> should print nothing.
+      </p>
+    </div>
+
+    <h3>Common errors, decoded</h3>
+
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th style="width:38%">Message</th><th>Meaning &amp; fix</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>needs merge</code><br><code>you need to resolve your current index first</code></td>
+            <td>An unfinished merge is blocking you. Finish it, or abandon it with
+                <code>git merge --abort</code>.</td>
+          </tr>
+          <tr>
+            <td><code>Updates were rejected because the remote contains work that you do not have</code></td>
+            <td>The other machine pushed first. Run <code>git pull</code>, resolve anything that
+                conflicts, then <code>git push</code>.</td>
+          </tr>
+          <tr>
+            <td><code>could not read Username for 'https://github.com'</code></td>
+            <td>No credentials configured. See section 04.</td>
+          </tr>
+          <tr>
+            <td><code>Your branch is ahead of 'origin/main' by N commits</code></td>
+            <td>Not an error. You have N commits not yet on GitHub — <code>git push</code>.</td>
+          </tr>
+          <tr>
+            <td><code>Your local changes would be overwritten by merge</code></td>
+            <td>Uncommitted edits clash with what's coming in. Commit them, or stash with
+                <code>git stash</code>, pull, then <code>git stash pop</code>.</td>
+          </tr>
+          <tr>
+            <td><code>detached HEAD</code></td>
+            <td>You're viewing an old commit, not a branch. Get back with
+                <code>git switch main</code>.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Undoing things</h3>
+
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th style="width:44%">You want to…</th><th>Command</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Discard edits to one file (unrecoverable)</td><td><code>git restore file.C</code></td></tr>
+          <tr><td>Un-stage a file, keeping the edits</td><td><code>git restore --staged file.C</code></td></tr>
+          <tr><td>Change the last commit's message</td><td><code>git commit --amend</code></td></tr>
+          <tr><td>Undo the last commit, keep the changes</td><td><code>git reset --soft HEAD~1</code></td></tr>
+          <tr><td>Abandon an in-progress merge</td><td><code>git merge --abort</code></td></tr>
+          <tr><td>Undo a commit that's already pushed</td><td><code>git revert &lt;hash&gt;</code></td></tr>
+          <tr><td>Set work aside briefly</td><td><code>git stash</code> … <code>git stash pop</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note danger">
+      <p class="note-title">Handle with care</p>
+      <p>
+        <code>git reset --hard</code> and <code>git restore</code> <strong>permanently destroy
+        uncommitted work</strong> — there is no undo, because git never had a copy. Always run
+        <code>git status</code> first to see exactly what you're about to lose. Prefer
+        <code>git revert</code> for anything already pushed: it undoes a change by adding a new
+        commit, rather than rewriting history other machines have already seen.
+      </p>
+    </div>
+
+    <h3>The safety net: reflog</h3>
+    <p>
+      If you commit something and then lose it — a bad reset, a branch deleted too eagerly — git
+      remembers where you've been for about 90 days. <code>reflog</code> is the closest thing to an
+      undo history:
+    </p>
+
+    <div class="term">
+      <pre><span class="p">$</span> git reflog                     <span class="c"># every position HEAD has been in</span>
+<span class="o">d56e7c5 HEAD@{0}: commit: Allmake.sh: build every user library
+14a6caf HEAD@{1}: merge diffOnly: Merge made by the 'recursive' strategy
+888b3b3 HEAD@{2}: checkout: moving from diffOnly to main</span>
+
+<span class="p">$</span> git reset --hard 14a6caf       <span class="c"># go back to that exact state</span></pre>
+    </div>
+
+    <div class="note">
+      <p class="note-title">The limit worth knowing</p>
+      <p>
+        Reflog only covers commits <em>this</em> machine made. It cannot recover work that was
+        never committed, and it cannot recover a history that was overwritten by copying a
+        <code>.git</code> folder from elsewhere — which is exactly why rule 2 in section 03 matters.
+      </p>
+    </div>
+  </section>
+
+  <!-- ============ 7 ============ -->
+  <section id="reference">
+    <div class="sec-head">
+      <span class="sec-num">07</span>
+      <h2 class="sec-title">Quick reference</h2>
+    </div>
+
+    <div class="refcard">
+      <div class="ref-grid">
+        <div class="ref-col">
+          <h4>Every session</h4>
+          <dl>
+            <dt>git pull</dt><dd>Get the latest before you start</dd>
+            <dt>git status</dt><dd>Where am I, what changed</dd>
+            <dt>git diff</dt><dd>See the actual line changes</dd>
+            <dt>git add -A</dt><dd>Stage everything</dd>
+            <dt>git commit -m "..."</dt><dd>Save a checkpoint</dd>
+            <dt>git push</dt><dd>Send it to GitHub</dd>
+          </dl>
+        </div>
+        <div class="ref-col">
+          <h4>Looking around</h4>
+          <dl>
+            <dt>git log --oneline -10</dt><dd>Last ten commits</dd>
+            <dt>git log --oneline --graph</dt><dd>History with branch shape</dd>
+            <dt>git show &lt;hash&gt;</dt><dd>What one commit changed</dd>
+            <dt>git diff --cached</dt><dd>What's staged right now</dd>
+            <dt>git grep "&lt;&lt;&lt;&lt;&lt;&lt;&lt;"</dt><dd>Find stray conflict markers</dd>
+            <dt>git reflog</dt><dd>Everywhere HEAD has been</dd>
+          </dl>
+        </div>
+        <div class="ref-col">
+          <h4>Undo</h4>
+          <dl>
+            <dt>git restore f.C</dt><dd>Discard edits — no undo</dd>
+            <dt>git restore --staged f.C</dt><dd>Un-stage, keep edits</dd>
+            <dt>git commit --amend</dt><dd>Fix the last message</dd>
+            <dt>git reset --soft HEAD~1</dt><dd>Undo commit, keep work</dd>
+            <dt>git merge --abort</dt><dd>Abandon a merge</dd>
+            <dt>git revert &lt;hash&gt;</dt><dd>Safely undo a pushed commit</dd>
+          </dl>
+        </div>
+        <div class="ref-col">
+          <h4>OpenFOAM</h4>
+          <dl>
+            <dt>./Allmake.sh</dt><dd>Full rebuild after a pull</dd>
+            <dt>./Allmake.sh --no-clean</dt><dd>Incremental, much faster</dd>
+            <dt>git rm -r --cached platforms/</dt><dd>Untrack build output</dd>
+            <dt>git check-ignore -v &lt;path&gt;</dt><dd>Why is this file ignored?</dd>
+          </dl>
+        </div>
+      </div>
+    </div>
+
+    <div class="note ok" style="margin-top:22px">
+      <p class="note-title">If you remember only one thing</p>
+      <p>
+        <strong>Pull before you start. Push before you stop. Never copy the folder.</strong>
+        Those three habits prevent almost every problem in this guide.
+      </p>
+    </div>
+  </section>
+
+  <footer>
+    Written for petik13/nikospe-v2412 · OpenFOAM v2412 · Print or save as PDF from your
+    browser (Ctrl&nbsp;+&nbsp;P) — the layout is set up for it.
+  </footer>
+
+</div>
