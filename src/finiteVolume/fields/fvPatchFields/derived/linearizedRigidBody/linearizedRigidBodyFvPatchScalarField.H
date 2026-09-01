@@ -73,6 +73,7 @@ SourceFiles
 #include "vector.H"
 #include "autoPtr.H"
 #include "OFstream.H"
+#include "Switch.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -94,6 +95,11 @@ class linearizedRigidBodyFvPatchScalarField
     scalar I4_, I5_, I6_, I46_;
     scalar C33_, C44_, C55_, C35_;
     scalar heading_;
+
+    //- Restrain all 6 DOF: the body is held at its mean position and the
+    //  patch condition reduces to the pure diffraction problem.
+    //  Read from constant/rigidBodyMotionProperties, default false.
+    Switch fixBody_;
 
     // --- Wave Properties ---
     scalar steepness_, wavelength_, currentspeed_, hdepth_, head_ang_, rampperiod_;

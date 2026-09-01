@@ -207,14 +207,6 @@ int main(int argc, char *argv[])
         // }
     }
 
-    // Calculate d²PhiCur/dz²
-    const volTensorField PhiCurD2 = fvc::grad(fvc::grad(PhiCur));
-    //PhiCurDz2 = PhiCurD2.component(tensor::ZZ);
-
-    // For the mj terms in the linearized BC
-    gradUcur = fvc::grad(Ucur);
-    gradUcur.write();
-
     // ---------- Set PhiCur instead using NKL everywhere in the domain (as a freestream undisturbed potential) ---------------------------------
     //scalar heading	=  -30.0;
     //scalar U0	=  0.3087;
@@ -252,6 +244,26 @@ int main(int argc, char *argv[])
 	p3.write();
 	PhiCur.write();
 	Ucur.write();
+
+    // For the mj terms in the linearized BC
+    gradUcur = fvc::grad(Ucur);
+    gradUcur.write();
+
+    // Vertical straining of the steady flow, d(Ucur_z)/dz.
+    //
+    // The free-surface BC applies this as "+ PhiCurDz2*zeta", which per the
+    // kinematic condition  zeta_t + w_h.grad_h zeta = u_z + zeta*dw_z/dz
+    // needs dUcur_z/dz -- i.e. MINUS d2PhiCur/dz2, since Ucur = -grad(PhiCur).
+    // That is the sign the analytic version in PHIWaveCurSph2 supplied.
+    //
+    // Taken from the tangential components via continuity,
+    //     dUcur_z/dz = -(dUcur_x/dx + dUcur_y/dy),
+    // because on the flat 'upper' patch those are reconstructed along the
+    // well-resolved free-surface plane, whereas gradUcur.component(ZZ) there
+    // reduces to a one-sided normal difference divided by a small delta.
+    PhiCurDz2 = -(gradUcur.component(tensor::XX) + gradUcur.component(tensor::YY));
+    // const volTensorField PhiCurD2 = fvc::grad(fvc::grad(PhiCur));
+    // PhiCurDz2 = -PhiCurD2.component(tensor::ZZ);
     PhiCurDz2.write();
 
 	// ---------- End of steady potential calculation ---------------------------------
@@ -273,6 +285,18 @@ int main(int argc, char *argv[])
         scalarField& PhiI_internal = PhiI.primitiveFieldRef();
         const vectorField& cellCenters = mesh.C();
         const scalar ramp_factor = 0.5 * (1.0 - Foam::cos(Foam::constant::mathematical::pi * min(1.0, t / ramp_time)));
+
+        // Time derivative of the ramp.  PhiI is the product PhiI = P(x,z,t)*ramp(t),
+        // so its exact time derivative is  dPhiI/dt = P_t*ramp + P*ramp'(t).  The
+        // second piece is only non-zero during the ramp, but it reaches ~8% of the
+        // first one there, and dropping it makes the Bernoulli pressure inconsistent
+        // with the PhiI actually imposed.  sin(pi) = 0, so this is continuous at
+        // t = ramp_time.
+        const scalar ramp_dot =
+            (t < ramp_time)
+          ? 0.5 * Foam::constant::mathematical::pi / ramp_time
+                * Foam::sin(Foam::constant::mathematical::pi * t / ramp_time)
+          : 0.0;
         forAll(cellCenters, cellI)
         {
             const scalar xc = cellCenters[cellI].x();
@@ -339,7 +363,11 @@ int main(int argc, char *argv[])
 
 
             // Analytical time derivative of PhiI!
-            ddtPhiI[cellI] = we/w*amp * 9.81 * coshTerm * Foam::cos(phase) * ramp_factor;
+            //   d/dt [ P * ramp ] = P_t * ramp + P * ramp'
+            // with P = -amp*(9.81/w)*coshTerm*sin(phase)
+            ddtPhiI[cellI] =
+                we/w*amp * 9.81 * coshTerm * Foam::cos(phase) * ramp_factor
+              - amp * (9.81 / w) * coshTerm * Foam::sin(phase) * ramp_dot;
         }
 
         // Force it onto the boundaries just like you did for PhiI and UI
@@ -359,7 +387,9 @@ int main(int argc, char *argv[])
                 const scalar coshTerm = Foam::cosh(wavenumber*(hdepth + zc)) / Foam::cosh(wavenumber*hdepth);
                 const scalar phase = wavenumber * xc - we* t;
                 
-                ddtPhiIPatch[faceI] = we/w*amp * 9.81 * coshTerm * Foam::cos(phase) * ramp_factor;
+                ddtPhiIPatch[faceI] =
+                    we/w*amp * 9.81 * coshTerm * Foam::cos(phase) * ramp_factor
+                  - amp * (9.81 / w) * coshTerm * Foam::sin(phase) * ramp_dot;
             }
         }
 
@@ -395,6 +425,7 @@ int main(int argc, char *argv[])
             // Now the BC will see the updated pressure on the next iteration!
             p = ddtPhiI + fvc::ddt(PhiD) - (Ucur & U);
             p2 = ddtPhiI + fvc::ddt(PhiD) - (Ucur & U);
+            p4 = -0.5 * (U & U);
             
 
             // 3. Update total velocities and fluxes
@@ -418,7 +449,6 @@ int main(int argc, char *argv[])
         
         // p = ddtPhiI + fvc::ddt(PhiD)-(Ucur & U); 
         // p2 = ddtPhiI + fvc::ddt(PhiD)-(Ucur & U);
-        p3 = 0.5*(U & U);
         
         Info << "Continuity error from U = " << mag(fvc::div(U))().weightedAverage(mesh.V()).value() << endl;
 

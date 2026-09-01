@@ -720,8 +720,19 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
             n /= nm;
             
 
-            // It’s on free-surface patch by construction, now get an averaged zeta
-            scalar zetaZ = 0.0;
+            // It’s on free-surface patch by construction, now get an averaged zeta.
+            //
+            // Two different averages are needed:
+            //  - zetaZsqr = <zeta^2> for the quadratic  -1/2 rho g zeta^2 n  term.
+            //    Averaging zeta^2 (rather than squaring the averaged zeta) makes
+            //    this exact after time-averaging; squaring the mean loses a
+            //    factor cos^2(k*dx/2).
+            //  - zetaZ = <zeta>, SIGNED, for the O(U) cross term.  That term is
+            //    the correlation <zeta*u> of two first-order quantities, so it
+            //    needs the signed elevation -- an RMS would drop the sign and
+            //    introduce a spurious mean (<|zeta|> = 2A/pi, whereas <zeta> = 0).
+            scalar zetaZ    = 0.0;   // <zeta>
+            scalar zetaZsqr = 0.0;   // <zeta^2>
             label nFS = 0;
             vector Un_Uc = vector::zero;
             vector U_Ucn = vector::zero;
@@ -731,7 +742,9 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
                 if (!isFSFace[facei]) continue;
 
                 const label fsLocalFace = facei - fsPatch.start();
-                zetaZ += zetaPatch[fsLocalFace].z();
+                const scalar zf = zetaPatch[fsLocalFace].z();
+                zetaZ    += zf;
+                zetaZsqr += sqr(zf);
                 Un_Uc += (U_p[fsLocalFace] & n) * (Ucur_p[fsLocalFace]);
                 U_Ucn += U_p[fsLocalFace] * (Ucur_p[fsLocalFace] & n);
                 ++nFS;
@@ -740,7 +753,8 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
                 // Pout << "U_p = " << U_p[fsLocalFace] << ", Ucur_p = " << Ucur_p[fsLocalFace] << endl;
             }
             if (nFS == 0) continue;          // should not happen, but safe
-            zetaZ /= nFS;
+            zetaZ    /= nFS;
+            zetaZsqr /= nFS;
             Un_Uc /= nFS;
             U_Ucn /= nFS;
 
@@ -774,7 +788,9 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
             
 
             // const scalar coeff = -0.5*rhoRef*gMag_*(sqr(zetaZ));
-            const vector coeff = -0.5*rhoRef*gMag_*(sqr(zetaZ) * n + 2 * (Un_Uc + U_Ucn) * zetaZ/gMag_); // include forward speed effect
+            //   -1/2 rho g <zeta^2> n            : wave-elevation (all speeds)
+            //   -rho <zeta> [ (u.n)W + u(W.n) ]  : strip momentum flux, O(U)
+            const vector coeff = -0.5*rhoRef*gMag_*(zetaZsqr * n + 2 * (Un_Uc + U_Ucn) * zetaZ/gMag_); // include forward speed effect
             const vector fEdge = coeff * L;
 
             Fzeta += fEdge;

@@ -301,7 +301,7 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
     const Time& runTime = db().time();
     const scalar dt = runTime.deltaTValue();
 
-    const scalar aRelax_ = 1.0;
+    const scalar aRelax_ = 0.3;
     const scalar aDamp_  = 1.0;
 
     // Newmark parameters
@@ -360,9 +360,9 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
     K[4][2] = C35_;
 
     // - Soft Mooring
-    K[0][0] = 200.0;
-    K[1][1] = 200.0;
-    K[5][5] = 280.0;
+    K[0][0] = 50.0;
+    K[1][1] = 50.0;
+    K[5][5] = 200.0;
 
     Mat6 C = zero66();  // no damping yet
 
@@ -379,9 +379,9 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
 
     // Roll damping: 2% * 2 * sqrt(I44*C44_) - 2% of the critical damping for roll - As in Seo's paper
     C[3][3] = 0.02 * 2.0 * sqrt(I4_ * C44_);
-    //C[0][0] = 2*sqrt((M[0][0] + A_add[0][0]) * K[0][0]);
-    // C[1][1] = 2*sqrt((M[1][1] + A_add[1][1]) * K[1][1]);
-    // C[5][5] = 2*sqrt((M[5][5] + A_add[5][5]) * K[5][5]);
+    C[0][0] = 2*sqrt((M[0][0]) * K[0][0]);
+    C[1][1] = 2*sqrt((M[1][1]) * K[1][1]);
+    C[5][5] = 2*sqrt((M[5][5]) * K[5][5]);
 
     // scalar time = db().time().value();
     // scalar dampTime = 2*ramp_time_;
@@ -432,11 +432,11 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
     const Vec6 vStar = add6( qd_n, scal6(dt*(1.0 - gamma), qdd_n) );
 
     // Effective system: A*qdd_{n+1} = f - C*vStar - K*xStar
-    Mat6 A = add66( add66(M_eff, scal66(gamma*dt, C)),
+    Mat6 A = add66(add66(M, scal66(gamma*dt, C)),
                     scal66(beta*dt*dt, K) );
 
-    Vec6 rhs = sub6( sub6(f_eff, matVec6(C, vStar)),
-                    matVec6(K, xStar) );
+    Vec6 rhs = sub6(sub6(f, matVec6(C, vStar)),
+                    matVec6(K, xStar));
 
     // Solve for acceleration at n+1
     Vec6 qdd_np1 = solve6x6(A, rhs);
@@ -447,11 +447,15 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
     {
         qdd_np1[i] = aDamp_*(aRelax_*qdd_np1[i] + (1.0 - aRelax_)*qdd_prev[i]);
     }
-    // keep body fixed for first second.
-    // if (runTime.value() < 100.0)
-    // {
-    //     for (int i=0;i<6;++i) qdd_np1[i] = 0;
-    // }
+    // Restrained body.  Zeroing the acceleration is enough to hold all 6 DOF:
+    // the Newmark predictors vStar/xStar are then zero at every step, so the
+    // velocity and displacement stay at zero and the patch condition reduces
+    // to the pure diffraction problem.  Set "fixBody" in
+    // constant/rigidBodyMotionProperties.
+    if (fixBody_)
+    {
+        qdd_np1 = zero6();
+    }
 
     // Update v and x
     const Vec6 qd_np1 = add6(vStar, scal6(gamma*dt, qdd_np1));
@@ -547,7 +551,7 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
         const vector grad_nDotU = (gradUp[i].T() & np[i]);
 
         // mj = - S · grad(n·U)
-        mj[i] = (S & grad_nDotU);
+        mj[i] = - (S & grad_nDotU);
     }
 
     
@@ -705,6 +709,11 @@ namespace Foam {
         C55_  = rbDict.lookupOrDefault<scalar>("C55", 0.0);
         C35_  = rbDict.lookupOrDefault<scalar>("C35", 0.0);
         heading_ = rbDict.lookupOrDefault<scalar>("heading", 0.0);
+
+        // Hold the body at its mean position (fixed-body / diffraction problem)
+        fixBody_ = rbDict.lookupOrDefault<Switch>("fixBody", Switch(false));
+
+        Info<< "linearizedRigidBody: fixBody = " << fixBody_ << endl;
 
         // 2. Read Wave Dictionary
         const IOdictionary waveDict

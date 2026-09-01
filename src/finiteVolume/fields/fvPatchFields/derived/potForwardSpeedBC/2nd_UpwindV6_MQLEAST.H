@@ -33,7 +33,7 @@ centered FD bu TURGUT
 \*---------------------------------------------------------------------------*/
 	
 	//if ( db().time().timeIndex() == 1 )	Pout << "proc " << Pstream::myProcNo() << " Schemes implemented : " << schemeCode <<nl;
-void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
+void Foam::potForwardSpeedBCFvPatchScalarField::UPFDV2()
 {
     const vectorField& Cf = patch().Cf();
     const scalarField x = Cf.component(vector::X);
@@ -41,13 +41,13 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
     const label nFaces = patch().size();
     const label patchi = patch().index();
 
-    const volVectorField& zeta = db().lookupObjectRef<volVectorField>(zetaName_);
-    const scalarField zetaZ = zeta.boundaryField()[patchi].component(vector::Z); //scalarField zetaZ(nFaces, 0.0); zetaZ[i] = x[i]*0.99;
+    const volScalarField& zeta = db().lookupObjectRef<volScalarField>(zetaDName_);
+    const scalarField zetaZ = zeta.boundaryField()[patchi];
 	
-	const volVectorField& Ucur = db().lookupObjectRef<volVectorField>("Ucur");
-	const vectorField& Ucur_p = Ucur.boundaryField()[patchi];
+	const volVectorField& Us = db().lookupObjectRef<volVectorField>("Us");
+	const vectorField& Us_p = Us.boundaryField()[patchi];
 	
-    const volScalarField& Phi = db().lookupObjectRef<volScalarField>(PHIName_);
+    const volScalarField& Phi = db().lookupObjectRef<volScalarField>(PhiDName_);
     const scalarField& PhiPatch_p = Phi.boundaryField()[patchi];
     scalarField PhiPatch(nFaces, 0.0);
 
@@ -175,7 +175,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 
 			
 
-			if (s == 6 || ( s == 14 && Ucur_p[i].x() > SMALL && (interpNeeded4thX_[i][0] || interpNeeded4thX_[i][1] || interpNeeded4thX_[i][2] || interpNeeded4thX_[i][3]))) // 2nd-order upwind
+			if (s == 6 || ( s == 14 && Us_p[i].x() > SMALL && (interpNeeded4thX_[i][0] || interpNeeded4thX_[i][1] || interpNeeded4thX_[i][2] || interpNeeded4thX_[i][3]))) // 2nd-order upwind
 			{
 				
 				label up1 = L[0];
@@ -291,7 +291,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 				DzetaZdx[i] = (-sqr(h2)*f1 + sqr(h1)*f2 - (sqr(h1)-sqr(h2))*f0) / (h1*h2*(h1 + h2));
 				DPhidx[i] = (-sqr(h2)*g1 + sqr(h1)*g2 - (sqr(h1)-sqr(h2))*g0) / (h1*h2*(h1 + h2));
 			}
-			else if (s == 7  || ( s == 14 && Ucur_p[i].x() < -SMALL && (interpNeeded4thX_[i][0] || interpNeeded4thX_[i][1] || interpNeeded4thX_[i][2] || interpNeeded4thX_[i][3]))) // 2nd order downwind
+			else if (s == 7  || ( s == 14 && Us_p[i].x() < -SMALL && (interpNeeded4thX_[i][0] || interpNeeded4thX_[i][1] || interpNeeded4thX_[i][2] || interpNeeded4thX_[i][3]))) // 2nd order downwind
 			{
 				label down1 = R[0];
 				List<label> down2List;
@@ -566,7 +566,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 			scalar h1 = 0, h2 = 0, f1 = 0, f2 = 0, g1 = 0, g2 = 0;
 			scalar f3 = 0, g3 = 0, f4 = 0, g4 = 0, h3 = 0, h4 = 0;
 
-			if (s == 6 || ( s == 14 && Ucur_p[i].y() > SMALL && (interpNeeded4thY_[i][0] || interpNeeded4thY_[i][1] || interpNeeded4thY_[i][2] || interpNeeded4thY_[i][3])))
+			if (s == 6 || ( s == 14 && Us_p[i].y() > SMALL && (interpNeeded4thY_[i][0] || interpNeeded4thY_[i][1] || interpNeeded4thY_[i][2] || interpNeeded4thY_[i][3])))
 			{
 				label up1 = L[0];
 				List<label> up2List;
@@ -677,7 +677,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 				DzetaZdy[i] = (-sqr(h2)*f1 + sqr(h1)*f2 - (sqr(h1)-sqr(h2))*f0) / (h1*h2*(h1 + h2));
 				DPhidy[i] = (-sqr(h2)*g1 + sqr(h1)*g2 - (sqr(h1)-sqr(h2))*g0) / (h1*h2*(h1 + h2));
 			}
-			else if (s == 7 || ( s == 14 && Ucur_p[i].y() < -SMALL && (interpNeeded4thY_[i][0] || interpNeeded4thY_[i][1] || interpNeeded4thY_[i][2] || interpNeeded4thY_[i][3]))) // 2nd downwind
+			else if (s == 7 || ( s == 14 && Us_p[i].y() < -SMALL && (interpNeeded4thY_[i][0] || interpNeeded4thY_[i][1] || interpNeeded4thY_[i][2] || interpNeeded4thY_[i][3]))) // 2nd downwind
 			{
 				label down1 = R[0];
 				List<label> down2List;
@@ -937,7 +937,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
 				selfGid,
 				edgeNeighbours_[i],
 				edgeNormals2D_[i],
-				Ucur_p[i],               // advecting velocity at this patch face
+				Us_p[i],               // advecting velocity at this patch face
 				getWp,
 				getPhip,
 				fx, fy, gx, gy
@@ -954,15 +954,15 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::UPFDV2()
     {
         zetaDx_[j][vector::X] = DzetaZdx[j];
 		zetaDx_[j][vector::Y] = DzetaZdy[j];
-        PhiDx_[j] = -DPhidx[j];
-		PhiDy_[j] = -DPhidy[j];
+        PhiDx_[j] =  DPhidx[j];   // u = +grad(Phi)
+		PhiDy_[j] =  DPhidy[j];   // u = +grad(Phi)
     }
 
 }
 
 
 
-void Foam::waveCurrentPotential3DFvPatchScalarField::exchangeWpGhostField(const scalarField& zetaZ,const scalarField& Phi)
+void Foam::potForwardSpeedBCFvPatchScalarField::exchangeWpGhostField(const scalarField& zetaZ,const scalarField& Phi)
 {
     if (!Pstream::parRun()) return;
 
@@ -1056,7 +1056,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::exchangeWpGhostField(const 
 }
 
 
-void Foam::waveCurrentPotential3DFvPatchScalarField::computeFirstDerivativeCoeffs5pt
+void Foam::potForwardSpeedBCFvPatchScalarField::computeFirstDerivativeCoeffs5pt
 (
     const scalar xm2,
     const scalar xm1,

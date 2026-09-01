@@ -162,6 +162,19 @@ volScalarField p2
 	dimensionedScalar(dimVelocity*dimVelocity, Zero)
 );
 
+volScalarField p4
+(
+    IOobject
+    (
+        "p4",
+        runTime.timeName(),
+        mesh,
+        IOobject::READ_IF_PRESENT,
+        IOobject::AUTO_WRITE
+    ),
+    mesh,
+	dimensionedScalar(dimVelocity*dimVelocity, Zero)
+);
 volScalarField p3
 (
     IOobject
