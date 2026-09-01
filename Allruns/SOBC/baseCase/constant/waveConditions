@@ -1,0 +1,38 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\\\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\\\    /   O peration     | Version:  2412                                  |
+|   \\\\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\\\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "constant";
+    object      waveConditions;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Incident wave.  headingAngle is in RADIANS and is the direction of the
+// uniform stream in the ship-fixed frame; the wave itself runs along +x.
+steepness	0.016666666666666666;
+waveLength	3.0;
+waterDepth	2.5;
+currentSpeed	0.2;
+headingAngle	-0.0;
+rampPeriods	5.0;
+
+// Sponge layers.  These damp the DISTURBANCE potential only: the incident wave
+// is prescribed analytically and passes through untouched.
+spongeStrength      3.0;
+
+xInlet	6.0;
+LInlet	6.0;
+xOutlet	42.0;
+LOutlet	6.0;
+ySide	21.0;
+LSide	6.0;
+
+// ************************************************************************* //

@@ -2,8 +2,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
-BASE = Path("baseCase")
-RUNS = Path("runs")
+BASE = Path("baseCaseNu")
+RUNS = Path("runs/heading120_150_180")
 RUNS.mkdir(exist_ok=True)
 CASE_SCRIPT = "runsim.py"   
 
@@ -31,9 +31,10 @@ def run_one_case(lam: float, Ucur: float, heading: float) -> int:
 
 def main():
     # define your sweep grid
-    lams = [7.0, 6.0, 5.0, 4.5, 4.0, 3.5, 3.0, 2.5, 2.0, 1.5, 1.0]
-    Ucurs = [0.0]
-    headings = [60.0]
+   # lams = [7.0, 6.0, 5.0, 4.5, 4.0, 3.5, 3.2, 3.0, 2.75, 2.5, 2.25, 2.0, 1.5]
+    lams = [2.0, 1.5]
+    Ucurs = [0.3086]
+    headings = [120.0, 150.0, 180.0]
 
     for lam in lams:
         for Ucur in Ucurs:

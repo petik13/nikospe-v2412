@@ -1,0 +1,83 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\\\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\\\    /   O peration     | Version:  2412                                  |
+|   \\\\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\\\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "constant";
+    object      bodyMotionProperties;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Hold the body at its mean position: the condition then reduces to the pure
+// diffraction problem and the m-terms drop out.
+fixBody             false;
+
+heading	3.142;
+xG	27.0;
+zG                  0.021875;
+
+// Reference dimensions, used to non-dimensionalise the loads
+Lpp                 5.9375;        // length between perpendiculars [m]
+beam                1.00625;       // moulded breadth [m]
+
+mass                1531.35;
+
+I44                 180.9;
+I55                 3278.255;
+I66                 3337.86;
+I46                 88.215;
+
+C33                 51533.16;   // rho g Awp
+C44                 897.128;
+C55                 124687.1;
+C35                 16851.34;
+
+rollDampingFraction 0.05;       // fraction of critical, roll only
+
+// Soft mooring on the DOF with no hydrostatic restoring (surge, sway, yaw).
+// Pick the stiffness so the planar natural period is well above the highest
+// wave period -- Seo et al. used "more than five times" -- so the springs hold
+// the mean position without touching the wave-frequency response:
+//     T_n = 2 pi sqrt( (m + a) / K )   =>   K = (m + a) (2 pi / T_n)^2
+// Zero leaves the DOF free.
+mooringK11              500;      // surge [N/m]
+mooringK22              500;      // sway  [N/m]
+mooringK66              300;      // yaw   [N m/rad]
+
+// Damping on the moored DOF as a fraction of critical, to bleed off the slow
+// drift oscillation the springs would otherwise sustain.  Formed from the dry
+// inertia, so it is a numerical device, not a physical damping model.
+mooringDampingFraction  0.1;
+rhoInf              1000;
+
+// Artificial added mass for the explicit fluid-structure coupling, per DOF as
+// a fraction of the corresponding diagonal inertia:
+//     (surge sway heave roll pitch yaw)
+// The body condition sets dphi_D/dn = V_b.n, so the pressure -dphi/dt responds
+// to the body ACCELERATION and the coupling is an added-mass one, evaluated
+// lagged.  It goes unstable once the fluid added mass exceeds the body mass,
+// which in heave it does.  Putting A on the left and A*a_old on the right
+// suppresses that.  A single scalar applies to all six; 0 is off.
+addedMass           (0 0 0 0 0 0);
+
+// Drive A from the previous TIME STEP (true) or the previous CORRECTOR
+// (false).  The time-step form is what stabilises the coupling, at the price
+// of an O(dt) consistency error.  The corrector form is consistent -- A
+// cancels once the correctors converge -- but then provides no stabilisation.
+addedMassFromTimeStep   true;
+
+// Under-relaxation and decay on the new acceleration; 1 is off
+accelRelaxation     0.3;
+accelDamping        1.0;
+
+newmarkGamma        0.5;
+newmarkBeta         0.25;
+
+// ************************************************************************* //

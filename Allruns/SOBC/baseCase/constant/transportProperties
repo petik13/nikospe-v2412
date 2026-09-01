@@ -1,0 +1,15 @@
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "constant";
+    object      transportProperties;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Potential flow: inviscid.  Present only so the standard forces function
+// object has a viscous model to ask for; its contribution is identically zero.
+nu              [0 2 -1 0 0 0 0] 0;
+
+// ************************************************************************* //
