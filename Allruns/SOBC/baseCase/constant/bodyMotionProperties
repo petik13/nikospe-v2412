@@ -72,6 +72,8 @@ addedMass           (0 0 0 0 0 0);
 // of an O(dt) consistency error.  The corrector form is consistent -- A
 // cancels once the correctors converge -- but then provides no stabilisation.
 addedMassFromTimeStep   true;
+steadyRestoring         false;
+
 
 // Under-relaxation and decay on the new acceleration; 1 is off
 accelRelaxation     0.3;
