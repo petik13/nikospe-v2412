@@ -16,24 +16,26 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::calcNeigboursV3()
 {
 	if (neigboursCalculated_) return;
 	
-	struct RemoteInfo // contains: globalId of the local face, remote cell center, local face center coordinates
+	struct RemoteInfo
 	{
-		label  globalId;
-		vector remoteCc;
-		vector localCf;
+		label  globalId; // global ID of the local patch face (sender’s face)
+		vector remoteCc; // the neighbour cell centre on the other side of a processor patch
+		vector localCf; // the sender’s patch face centre Cf[i]
 	};
 
-	HashTable<List<RemoteInfo>, label> sendBuffer_; // key: destination proc, value: list of RemoteInfo to send
-	HashTable<List<RemoteInfo>, label> recvBuffer_;	// key: source proc, value: list of RemoteInfo received
+	// list of packets I want to send/receive to procNo
+	HashTable<List<RemoteInfo>, label> sendBuffer_; // label: processor number (np), 
+	HashTable<List<RemoteInfo>, label> recvBuffer_;	// List<RemoteInfo> → all RemoteInfo packets you want to send to that processor
 	
-	const fvMesh& mesh = this->patch().boundaryMesh().mesh(); // reference too the full mesh
+	
+	const fvMesh& mesh = this->patch().boundaryMesh().mesh();
 
 	const label startFace = patch().start();
 	const label nFaces    = patch().size();
 	const label endFace   = startFace + nFaces;
-	const labelList& faceOwners = mesh.faceOwner(); // gives you the owner cell of every face in the mesh
+	const labelList& faceOwners = mesh.faceOwner();
 
-	const label nLocal = patch().size(); // same as nFaces
+	const label nLocal = patch().size();
 	globalIdToCf_.clear();
 	
 	// Automatic global indexing without manual listCombineGather
@@ -53,8 +55,11 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::calcNeigboursV3()
 	for (label i = 0; i < nFaces; ++i)
 	{
 		label ownerCell = faceOwners[startFace + i];
-		localCellCentres[i] = mesh.C()[ownerCell]; // access cell centers with local indexing
+		localCellCentres[i] = mesh.C()[ownerCell];
 	}
+
+
+		
 	
 	globalIdToPackedIdx_.clear();
 	for (label i = 0; i < nLocal; ++i)
@@ -68,28 +73,32 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::calcNeigboursV3()
 	neighbProcNos_.setSize(nFaces);
 	
 	
-	// One hash per local face - A list (array) of hash tables, where each hash table maps a label → label
+	// One hash per local face
 	List<HashTable<label, label>> neighboursPerProc(nFaces);
 
 	// no need to setSize() again — constructor does it
 	forAll(neighboursPerProc, i)
 	{
-		neighboursPerProc[i].clear(); // clear shouldn't be needed
+		neighboursPerProc[i].clear();
 	}
 
-	forAll(neighbProcNos_, i) neighbProcNos_[i] = labelList(0);  // list of neighbour procs for each face
+
+
+	
+	forAll(neighbProcNos_, i) neighbProcNos_[i] = labelList(0);  // empty list
+	
 
 	// --- Loop over patch faces
 	for (label i = 0; i < nFaces; ++i)
 	{
-		const label currentFace = startFace + i; // convert to global indexing
-		const label ownerCell   = faceOwners[currentFace]; 
+		const label currentFace = startFace + i;
+		const label ownerCell   = faceOwners[currentFace];
 		
 		// ---- (A) Flag processor-boundary using ONLY the owner cell faces
 		const face& fCurrent = mesh.faces()[currentFace];
 		// build a lookup set of current face’s vertices
-		labelHashSet currentVerts;
-		forAll(fCurrent, vI)
+		labelHashSet currentVerts; // vertices (points) of current face
+		forAll(fCurrent, vI) // store vertices of current face on currentVerts
 		{
 			currentVerts.insert(fCurrent[vI]);  // store point label, not coordinate
 		}
@@ -106,30 +115,31 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::calcNeigboursV3()
 
 			const label patchi = mesh.boundaryMesh().whichPatch(faceID);
 
+			// Only consider faces on processor patches. -1: internal face
 			if (patchi != -1 && isA<processorPolyPatch>(mesh.boundaryMesh()[patchi]))
 			{
-				const face& fOther = mesh.faces()[faceID];
+				const face& fOther = mesh.faces()[faceID]; // get face's vertices
 
 				// count how many vertices are shared by label
 				label shared = 0;
-				forAll(fOther, vJ)
+				forAll(fOther, vJ) // 
 				{
 					if (currentVerts.found(fOther[vJ]))
-						++shared;
+						++shared; //
 				}
 
-				// decide adjacency criterion
+				// decide adjacency criterion: if the processor face shares at least one vertex with the current patch face, treat it as relevant.
 				if (shared < 1) continue;  // edge-based adjacency (safer than just 1)
 
 				// ---- at this point, faceID is a relevant proc neighbour
 				const processorPolyPatch& pp =
 					refCast<const processorPolyPatch>(mesh.boundaryMesh()[patchi]);
 
-				label np = pp.neighbProcNo();
-				procBoundaryFace_[i] = true;
+				label np = pp.neighbProcNo(); // neighbour processor number
+				procBoundaryFace_[i] = true; // this patch face touches a proc boundary
 
 				if (!neighbProcNos_[i].found(np))
-					neighbProcNos_[i].append(np);
+					neighbProcNos_[i].append(np); // store neighbour proc number. Could be multiple
 
 
 				// local face index on this processor patch
@@ -144,12 +154,15 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::calcNeigboursV3()
 				else
 				{
 					 neighboursPerProc[i][np] += 1;  // increment count
-				}
+				} // expected number of remote neighbor faces from that proc
 				//label localCell  = pp.faceCells()[localFaceI];
 				//const vector& nbrCf = pp.neighbFaceCentres()[localFaceI];
+				// Grab the neighbour-side cell centre across the processor patch
 				const vector& nbrCc = pp.neighbFaceCellCentres()[localFaceI];
 				
-				label gid = globalIdOfLocalFace_[i]; // global ID of the current face.
+				// Build and enqueue the packet
+				// it sends the other side a “match me by your cell-centre position” message
+				label gid = globalIdOfLocalFace_[i];
 				RemoteInfo ri;
 				ri.globalId = gid;
 				ri.remoteCc = nbrCc;
@@ -166,32 +179,33 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::calcNeigboursV3()
 		
 
 		// ---- (B) Build local neighbour list using neighbour cells
-		labelHashSet uniqNei; // avoid duplicates
+		labelHashSet uniqNei; // avoid duplicates (hashed for this reason)
 
-		const labelList& nCells = mesh.cellCells()[ownerCell];
+		const labelList& nCells = mesh.cellCells()[ownerCell]; // list of lists: cells next to ownerCell
 		forAll(nCells, ncI)
 		{
-			const label nbrCell = nCells[ncI];
-			const cell& nbrCellFaces = mesh.cells()[nbrCell];
+			const label nbrCell = nCells[ncI]; // actual owner cell index
+			const cell& nbrCellFaces = mesh.cells()[nbrCell]; // get faces of neighbour cell: list of face labels
 
 			forAll(nbrCellFaces, fJ)
 			{
-				const label faceID = nbrCellFaces[fJ];
+				const label faceID = nbrCellFaces[fJ]; // faceID is a global mesh face index.
 
 				// Only faces on THIS patch (excluding self)
+				// Patch faces are stored contiguously in the mesh face list.
 				if (faceID >= startFace && faceID < endFace && faceID != currentFace) //if (mesh.boundaryMesh().whichPatch(faceID) == patchID) why nnot
 				{
-					const label localNeighbour = faceID - startFace;
-					uniqNei.insert(localNeighbour);
+					const label localNeighbour = faceID - startFace; // local index on this patch
+					uniqNei.insert(localNeighbour); // insert into hash to avoid duplicates
 				}
 			}
 		}
 
 		// Write back unique neighbours (local and global)
-		const labelList uniq = uniqNei.toc();
+		const labelList uniq = uniqNei.toc(); // .toc() = “to compact list” (turn set into a list)
 		neighbours_[i] = uniq;
 
-		neighboursGlobal_[i].setSize(uniq.size());
+		neighboursGlobal_[i].setSize(uniq.size()); // set the size of list i
 		forAll(uniq, jj)
 		{
 			neighboursGlobal_[i][jj] = globalIdOfLocalFace_[uniq[jj]];
@@ -230,18 +244,18 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::calcNeigboursV3()
 	
 	
 	//paralell part
-		if (Pstream::parRun())
+	if (Pstream::parRun())
 	{
-		// --- Prepare communication
-		PstreamBuffers pBuf(Pstream::commsTypes::nonBlocking);
+
+		PstreamBuffers pBuf(Pstream::commsTypes::nonBlocking); // This is OpenFOAM’s message manager.
 		using RemoteInfoTable = HashTable<List<RemoteInfo>, label>;
 		// --- Send phase
-		forAllConstIter(RemoteInfoTable, sendBuffer_, it)
+		forAllConstIter(RemoteInfoTable, sendBuffer_, it) // Iterate over all key/value pairs in the hash table
 		{
-			const label neighbProc = it.key();
-			const List<RemoteInfo>& infos = it();
+			const label neighbProc = it.key(); // the neighbour processor number
+			const List<RemoteInfo>& infos = it(); // // the value (the list of packets)
 
-			UOPstream os(neighbProc, pBuf);
+			UOPstream os(neighbProc, pBuf); // Creates an output stream “to processor neighbProc”, using pBuf as the underlying buffer.
 
 			// Send number of entries
 			os << infos.size();
@@ -260,7 +274,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::calcNeigboursV3()
 
 
 		// --- Receive phase
-		forAllConstIter(RemoteInfoTable, sendBuffer_, it)
+		forAllConstIter(RemoteInfoTable, sendBuffer_, it) // (assume a “symmetric communication pattern”)
 		{
 			const label neighbProc = it.key();
 			UIPstream is(neighbProc, pBuf);
@@ -301,7 +315,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::calcNeigboursV3()
 		
 		\*---------------------------------------------------------------------------*/	
 		
-		
+		// Loop over received buffers and match to local faces
 		forAllConstIter(RemoteInfoTable, recvBuffer_, it)
 		{
 			label srcProc = it.key();
@@ -321,17 +335,19 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::calcNeigboursV3()
 			// Loop over my local faces
 			for (label i = 0; i < nFaces; ++i)
 			{
+				// skip non-relevant faces
 				if (!procBoundaryFace_[i] || !neighbProcNos_[i].found(srcProc)) continue;
-				const vector& myCc = localCellCentres[i];
+				const vector& myCc = localCellCentres[i]; // owner cell centre of relevant patch face
 
 				// track already matched remote indices
 				labelHashSet matched;
 
-				// Get number of expected matches with this srcProc
+				// Get number of expected matches with this srcProc (neighboursPerProc built in A, so we know how many to expect)
 				label N_neighbor = 0;
 				if (neighboursPerProc[i].found(srcProc))
 					N_neighbor = neighboursPerProc[i][srcProc];
 				
+				// Greedy nearest-neighbour matching - get the N_neighbor closest remoteCcs
 				for (label kk = 0; kk < N_neighbor; ++kk)
 				{
 					scalar bestDist = GREAT;
@@ -369,7 +385,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::calcNeigboursV3()
 						}
 					}
 				}
-			}
+			} 
 
 		
 		
@@ -377,7 +393,8 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::calcNeigboursV3()
 
 		
 		
-	}
+	} // Finally construct neighboursGlobal_: neigbour global IDs, and 
+	// globalIdToCf_ map: keys: global face IDs, values: Cf coordinates of that face
 
 	
 	
@@ -943,21 +960,21 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::buildVertexBasedConnections
     //Pout << "Processor " << Pstream::myProcNo() << " knows that global maximum Cf.x = " << globalMaxX << nl;
        
          
-    // const scalar limitingX = 0.05;     
+    const scalar limitingX = 0.05;     
 	
-	//  forAll(Cf, i)
-    // {
+	 forAll(Cf, i)
+    {
         
-	// 	//if (ownerHasFirstBodyFace_[i])
-	// 	if (ownerHasBodyFace_[i]) //V13B
-	// 	{	scalar x00 = Cf[i].x();  // <-- or .y() or .z() depending on what you want
-	// 		if (x00 > (globalMaxX-limitingX))  //burasi 0.01 idi
-	// 		{
-	// 			Pout << globalIdOfLocalFace_[i] << " stay outside" << endl;
-	// 			ownerHasBodyFace_[i]= false;
-	// 		}
-	// 	}	
-    // }
+		//if (ownerHasFirstBodyFace_[i])
+		if (ownerHasBodyFace_[i]) //V13B
+		{	scalar x00 = Cf[i].x();  // <-- or .y() or .z() depending on what you want
+			if (x00 > (globalMaxX-limitingX))  //burasi 0.01 idi
+			{
+				Pout << globalIdOfLocalFace_[i] << " stays outside" << endl;
+				ownerHasBodyFace_[i]= false;
+			}
+		}	
+    }
 	
 	
 }
@@ -965,6 +982,12 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::buildVertexBasedConnections
 
 #include "Outputter.H" 
 
+// For each local patch face i (on this processor), it builds:
+// upwindNodesX_[i] and downwindNodesX_[i]
+// upwindNodesY_[i] and downwindNodesY_[i]
+// Then, in parallel, it also builds maps so you can ask things like:
+//“For my face with global ID G, what are the upwind/downwind lists of some remote face
+// that is involved in my stencil?
 void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
 {
     if (windsCalculated_)
@@ -995,10 +1018,12 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
         List<label> upwindY, downwindY;
 		 
 		//const face& f = mesh.faces()[globalIdOfLocalFace_[i]];
-		const face& f = mesh.faces()[startFace + i];
+		const face& f = mesh.faces()[startFace + i]; // the current face (list of point labels)
 		scalar minX = GREAT, maxX = -GREAT;
 		scalar minY = GREAT, maxY = -GREAT;
 
+		// Build a bounding box of the face in X/Y from its vertices
+		// Why? They want to decide whether a neighbour is “meaningfully aligned” in X or Y.
 		forAll(f, vI)
 		{
 		const point& pt = mesh.points()[f[vI]];
@@ -1006,7 +1031,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
 		maxX = max(maxX, pt.x());
 		minY = min(minY, pt.y());
 		maxY = max(maxY, pt.y());
-						}
+		}
 
 		
         for (label j = 0; j < neighbours_[i].size(); j++)
@@ -1035,6 +1060,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
 			if (dy > VSMALL && centerInX) {upwindY.append(globalIdOfLocalFace_[neighborLocal]);foundneighbor = true;}
 			if (dy < -VSMALL && centerInX) {downwindY.append(globalIdOfLocalFace_[neighborLocal]);foundneighbor = true;}
 			
+			// If foundneighbor is false, they compute the neighbour face’s bounding box and test whether my centre lies inside it:
 			if (!foundneighbor){
 				const face& fj = mesh.faces()[startFace + neighborLocal];
 				scalar minXj = GREAT, maxXj = -GREAT;
@@ -1065,7 +1091,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
 	 
 	   }
 		
-
+	    // Now do the same for global neighbours:
         for (label j = 0; j < neighboursGlobal_[i].size(); j++)
         {
             const label globalNei = neighboursGlobal_[i][j];
@@ -1074,7 +1100,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
 			
 			bool foundneighbor = false; 
 			
-            const vector& CfNei = globalIdToCf_[globalNei];
+            const vector& CfNei = globalIdToCf_[globalNei]; // globalIdToCf_: from calcNeigbors. Have to use this as only local face positions are known
             scalar x_neighbor = CfNei.x();
             scalar y_neighbor = CfNei.y();
 
@@ -1120,7 +1146,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
         downwindNodesY_[i] = downwindY;
     }
 
-    //BURAYI EKLIYORUK VERSION 5
+    //BURAYI EKLIYORUK VERSION 5 Big paralle exchange
 	/*---------------------------------------------------------------------------*\
 	
 	
@@ -1133,7 +1159,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
 	
     if (Pstream::parRun())
     {
-        labelHashSet sendTo;
+        labelHashSet sendTo; // the set of procs that share proc-boundary adjacency with any of my patch faces
 		for (label i = 0; i < patch().size(); ++i)
 		{
 			if (!procBoundaryFace_[i]) continue;
@@ -1153,7 +1179,8 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
         sendToLists[Pstream::myProcNo()] = sendTo.toc();
         Pstream::gatherList(sendToLists);
         Pstream::scatterList(sendToLists);
-
+		// gather all sendTo lists from all procs
+		// then infer recvFrom as: those procs that included me in their sendTo list
         labelHashSet recvFrom;
         for (label src = 0; src < Pstream::nProcs(); ++src)
         {
@@ -1164,7 +1191,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
         }
 
         PstreamBuffers pBuf(Pstream::commsTypes::nonBlocking);
-
+		// Send phase: send my boundary-face directional lists to neighbor procs
         forAllConstIter(labelHashSet, sendTo, it)
         {
             const label tgt = it.key();
@@ -1199,10 +1226,6 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
 						{
 							os << patchFaceCenters[globalIdToPackedIdx_[gU]];
 						}
-						else if (globalIdToCf_.found(gU))
-						{
-								os << globalIdToCf_[gU];
-						}
 						else
 							os << vector::zero;
 					}
@@ -1212,10 +1235,6 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
 						if (globalIdToPackedIdx_.found(gD))
 						{
 							os << patchFaceCenters[globalIdToPackedIdx_[gD]];
-						}
-						else if (globalIdToCf_.found(gD))
-						{
-								os << globalIdToCf_[gD];
 						}
 						else
 							os << vector::zero;
@@ -1227,10 +1246,6 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
 						{
 							os << patchFaceCenters[globalIdToPackedIdx_[gU]];
 						}
-						else if (globalIdToCf_.found(gU))
-						{
-								os << globalIdToCf_[gU];
-						}
 						else
 							os << vector::zero;
 					}
@@ -1240,10 +1255,6 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
 						if (globalIdToPackedIdx_.found(gD))
 						{
 							os << patchFaceCenters[globalIdToPackedIdx_[gD]];
-						}
-						else if (globalIdToCf_.found(gD))
-						{
-								os << globalIdToCf_[gD];
 						}
 						else
 							os << vector::zero;
@@ -1256,7 +1267,8 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
         }
 
         pBuf.finishedSends();
-
+		// Receive phase: incorporate remote lists and build “reverse maps”
+		// So now you can look up “for remote face gid, what does that proc consider upwind/downwind?”
         forAllConstIter(labelHashSet, recvFrom, it)
         {
             const label src = it.key();
@@ -1313,6 +1325,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
 					remoteNeighbours_.insert(gid, List<label>());
 				}
 
+				// So remoteNeighbours_[gid] becomes the union of all those directional candidate IDs for that remote face.
 				remoteNeighbours_[gid].append(upListX);
 				remoteNeighbours_[gid].append(downListX);
 				remoteNeighbours_[gid].append(upListY);
@@ -1373,7 +1386,10 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
 	
 	//VERSION 14 IMPLEMENTATION (EXTENSION OF remoteNeighbours2_)
 	
-	
+	// 2nd pass
+	// first pass gave you remote face’s own directional lists
+	// second pass asks for the directional lists of your first-ring neighbours 
+	// (the neighbours of remote neighbours) — i.e. a “2-ring” stencil expansion.
 	if (Pstream::parRun())
 	{
 		// ----------------------
@@ -1432,89 +1448,89 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
 
 					forAll(firstRingLocal, jj)
 					{
-						label locId1 = firstRingLocal[jj];
-						label gid1   = globalIdOfLocalFace_[locId1];
+                    label locId1 = firstRingLocal[jj];
+                    label gid1   = globalIdOfLocalFace_[locId1];
 
-						const List<label>& upX   = upwindNodesX_[locId1];
-						const List<label>& downX = downwindNodesX_[locId1];
-						const List<label>& upY   = upwindNodesY_[locId1];
-						const List<label>& downY = downwindNodesY_[locId1];
+                    const List<label>& upX   = upwindNodesX_[locId1];
+                    const List<label>& downX = downwindNodesX_[locId1];
+                    const List<label>& upY   = upwindNodesY_[locId1];
+                    const List<label>& downY = downwindNodesY_[locId1];
 
-						// center of gid1 on this proc (we know locId1 is local)
-						const vector& Cf_gid1 = patchFaceCenters[locId1];
+                    // center of gid1 on this proc (we know locId1 is local)
+                    const vector& Cf_gid1 = patchFaceCenters[locId1];
 
-						// Send basic lists + Cf(gid1)
-						os << gid1 << upX << downX << upY << downY << Cf_gid1;
+                    // Send basic lists + Cf(gid1)
+                    os << gid1 << upX << downX << upY << downY << Cf_gid1;
 
-						// Now send Cf for each candidate in upX/downX/upY/downY,
-						// if we know it; otherwise send vector::zero as placeholder.
-						forAll(upX, k)
-							{
-							const label cand = upX[k];
-							if (globalIdToPackedIdx_.found(cand))
-							{
-								os << patchFaceCenters[globalIdToPackedIdx_[cand]];
-							}
-							else if (globalIdToCf_.found(cand))
-							{
-								os << globalIdToCf_[cand];
-							}
-							else
-							{
-								os << vector::zero;
-							}
-							}
+                    // Now send Cf for each candidate in upX/downX/upY/downY,
+                    // if we know it; otherwise send vector::zero as placeholder.
+                    forAll(upX, k)
+						{
+                        const label cand = upX[k];
+                        if (globalIdToPackedIdx_.found(cand))
+                        {
+                            os << patchFaceCenters[globalIdToPackedIdx_[cand]];
+                        }
+                        else if (globalIdToCf_.found(cand))
+                        {
+                            os << globalIdToCf_[cand];
+                        }
+                        else
+                        {
+                            os << vector::zero;
+                        }
+						}
 
-						forAll(downX, k)
-							{
-							const label cand = downX[k];
-							if (globalIdToPackedIdx_.found(cand))
-							{
-								os << patchFaceCenters[globalIdToPackedIdx_[cand]];
-							}
-							else if (globalIdToCf_.found(cand))
-							{
-								os << globalIdToCf_[cand];
-							}
-							else
-							{
-								os << vector::zero;
-							}
-							}
+                    forAll(downX, k)
+						{
+                        const label cand = downX[k];
+                        if (globalIdToPackedIdx_.found(cand))
+                        {
+                            os << patchFaceCenters[globalIdToPackedIdx_[cand]];
+                        }
+                        else if (globalIdToCf_.found(cand))
+                        {
+                            os << globalIdToCf_[cand];
+                        }
+                        else
+                        {
+                            os << vector::zero;
+                        }
+						}
 
-						forAll(upY, k)
-							{
-							const label cand = upY[k];
-							if (globalIdToPackedIdx_.found(cand))
-							{
-								os << patchFaceCenters[globalIdToPackedIdx_[cand]];
-							}
-							else if (globalIdToCf_.found(cand))
-							{
-								os << globalIdToCf_[cand];
-							}
-							else
-							{
-								os << vector::zero;
-							}
-							}
+                    forAll(upY, k)
+						{
+                        const label cand = upY[k];
+                        if (globalIdToPackedIdx_.found(cand))
+                        {
+                            os << patchFaceCenters[globalIdToPackedIdx_[cand]];
+                        }
+                        else if (globalIdToCf_.found(cand))
+                        {
+                            os << globalIdToCf_[cand];
+                        }
+                        else
+                        {
+                            os << vector::zero;
+                        }
+						}
 
-						forAll(downY, k)
-							{
-							const label cand = downY[k];
-							if (globalIdToPackedIdx_.found(cand))
-							{
-								os << patchFaceCenters[globalIdToPackedIdx_[cand]];
-							}
-							else if (globalIdToCf_.found(cand))
-							{
-								os << globalIdToCf_[cand];
-							}
-							else
-							{
-								os << vector::zero;
-							}
-							}
+                    forAll(downY, k)
+						{
+                        const label cand = downY[k];
+                        if (globalIdToPackedIdx_.found(cand))
+                        {
+                            os << patchFaceCenters[globalIdToPackedIdx_[cand]];
+                        }
+                        else if (globalIdToCf_.found(cand))
+                        {
+                            os << globalIdToCf_[cand];
+                        }
+                        else
+                        {
+                            os << vector::zero;
+                        }
+						}
 					}
 
 				}
@@ -1685,77 +1701,46 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
 	
 	
 
-	
-	labelHashSet myLocalGIDs;
+	// neededGIDs_ = union of all IDs appearing in:
+	// remoteNeighbours_ (first ring)
+	// remoteNeighbours2_ (second ring)
 	if (Pstream::parRun())
 	{
-		// 0) build sendTo (neighbor procs)
-		labelHashSet sendTo;
-		forAll(procBoundaryFace_, i)
-		{
-			if (!procBoundaryFace_[i]) continue;
+		neededGIDs_.clear();
 
-			forAll(neighbProcNos_[i], j)
+		using TableType = HashTable<labelList, label>;
+
+		// 1) First-ring neighbours (remoteNeighbours_)
+		forAllConstIter(TableType, remoteNeighbours_, it)
+		{
+			const labelList& myGIDs = it();  // Faces that remote proc expects from me
+			forAll(myGIDs, i)
 			{
-				const label p = neighbProcNos_[i][j];
-				if (p >= 0) sendTo.insert(p);
+				neededGIDs_.insert(myGIDs[i]);
 			}
 		}
 
-		// 1) build neededGIDs_ from globalIdToCf_
-		neededGIDs_.clear();
-		forAllConstIter(Foam::Map<Foam::vector>, globalIdToCf_, it)
+		// 2) Second-ring neighbours (remoteNeighbours2_)
+		forAllConstIter(TableType, remoteNeighbours2_, it2)
 		{
-			const label gid = it.key();
-			const vector& cf = it();
-
-			if (mag(cf) <= VSMALL) continue;
-			if (globalIdToPackedIdx_.found(gid)) continue;   // if this means “local”, keep it
-
-			neededGIDs_.insert(gid);
+			const labelList& myGIDs2 = it2();
+			forAll(myGIDs2, i)
+			{
+				// labelHashSet / set semantics -> duplicates automatically ignored
+				neededGIDs_.insert(myGIDs2[i]);
+			}
 		}
 
-		// 2) gather/scatter so everyone knows everyone's needed set
+		// Communicate to all processors
 		neededByProc_.setSize(Pstream::nProcs());
 		neededByProc_[Pstream::myProcNo()] = neededGIDs_;
+
 		Pstream::gatherList(neededByProc_);
 		Pstream::scatterList(neededByProc_);
-
-		// 3) Build my local gid membership (safer)
-		
-		forAll(globalIdOfLocalFace_, i) myLocalGIDs.insert(globalIdOfLocalFace_[i]);
-
-		
 	}
-	
-	// procBoundaryFace_.clear(); // changed
-	
-
-	
-
-	for (label p = 0; p < Pstream::nProcs(); ++p)
-	{
-		if (p == Pstream::myProcNo()) continue;
-
-		const labelHashSet& pNeeds = neededByProc_[p];
-
-		bool talk = false;
-		forAllConstIter(labelHashSet, pNeeds, it)
-		{
-			const label gid = it.key();
-			if (myLocalGIDs.found(gid))
-			{
-				talk = true;
-				break;
-			}
-		}
-
-		if (talk) sendTo.insert(p);
-	}
-		
 		//WRITING pART
 	
-     Pout << "sendTo :" <<  sendTo << endl;
+
 	/*---------------------------------------------------------------------------*\
 	if (Pstream::myProcNo() == 2) 
 	{
@@ -1794,9 +1779,6 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::detectFDSchemes()
     
 	interpNeededX_.setSize(nFaces, FixedList<bool,2>(false));
 	interpNeededY_.setSize(nFaces, FixedList<bool,2>(false));
-
-	interpNeeded4thX_.setSize(nFaces, FixedList<bool,4>(false));
-	interpNeeded4thY_.setSize(nFaces, FixedList<bool,4>(false));
 
 	
 	const volVectorField& Ucur = db().lookupObjectRef<volVectorField>("Ucur");
@@ -1854,30 +1836,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::detectFDSchemes()
 						schemeCodeX_[i] = 5;
 				}
 			}
-			
-			// Try 4th-order central difference
-			if
-			(
-				tryFourthOrderCentral
-				(
-					*this,
-					i,
-					schemeX,
-					Cf,
-					x,
-					y,
-					upwindNodesX_,
-					downwindNodesX_,
-					remoteIdToUpwindNodesX_,
-					remoteIdToDownwindNodesX_,
-					dir
-				)
-			)
-			{
-				schemeCodeX_[i] = schemeX;
-			}
 		}
-		
 
 		// === Y-direction scheme detection
 		{
@@ -1924,28 +1883,6 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::detectFDSchemes()
 					}
 				}
 			}
-			
-			// Try 4th-order central difference
-			if
-			(
-				tryFourthOrderCentral
-				(
-					*this,
-					i,
-					schemeY,
-					Cf,
-					x,
-					y,
-					upwindNodesY_,
-					downwindNodesY_,
-					remoteIdToUpwindNodesY_,
-					remoteIdToDownwindNodesY_,
-					dir
-				)
-			)
-			{
-				schemeCodeY_[i] = schemeY;
-			}
 		}
 
 		// Fallback (optional)
@@ -1990,7 +1927,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::initCandidates()
 		vector C1(Zero), C2(Zero);
 
 		// --- Fetch coordinates for gid1 ---
-		if (globalIdToPackedIdx_.found(gid1)) // search in local packed map first (most common case)
+		if (globalIdToPackedIdx_.found(gid1))
 			C1 = Cf[globalIdToPackedIdx_[gid1]];
 		else if (globalIdToCf_.found(gid1))
 			C1 = globalIdToCf_[gid1];
@@ -2017,15 +1954,15 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::initCandidates()
 		return mag(C2 - C1);
 	};
 
-	// ---- Utility: remove candidates based on Uy criterion ---- [&] capture all external variables by reference
-	auto removeCandidatesByUx_16D = [&](const List<label>& candidates,
+	// ---- Utility: remove candidates based on Uy criterion ----
+	auto removeCandidatesByUx_13D = [&](const List<label>& candidates,
 									scalar UxRef,
-									label selfGid) -> List<label>   // returns a list of labels
+									label selfGid) -> List<label>
 	{
 		DynamicList<label> filtered;
 
 		// Reference coordinate of self face
-		vector Corig(Zero); // coordinates of self face center
+		vector Corig(Zero);
 		if (globalIdToPackedIdx_.found(selfGid))
 			Corig = Cf[globalIdToPackedIdx_[selfGid]];
 		else if (globalIdToCf_.found(selfGid))
@@ -2043,7 +1980,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::initCandidates()
 		{
 			const label gid = candidates[j];
 
-			vector Ccand(Zero); // Coordinates of candidate face center
+			vector Ccand(Zero);
 			if (globalIdToPackedIdx_.found(gid))
 				Ccand = Cf[globalIdToPackedIdx_[gid]];
 			else if (globalIdToCf_.found(gid))
@@ -2052,16 +1989,16 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::initCandidates()
 				FatalErrorInFunction << "removeCandidatesByUx(): Ccand selfGid " << selfGid << " not found in local or remote Cf maps." << endl; // Skip if Cf not found anywhere
 				
 
-			// --- Geometric filtering criterion based on Uy direction --- (Maybe should say Ux direction?)
+			// --- Geometric filtering criterion based on Uy direction ---
 			if (UxRef > 0.0)
 			{
-				// Keep candidates below (smaller x) - keeps only downwind candidates
+				// Keep candidates below (smaller x)
 				if (Corig.x() >= (Ccand.x()-0.001))
 					filtered.append(gid);
 			}
 			else if (UxRef < 0.0)
 			{
-				// Keep candidates above (larger x) - keeps only upwind candidates
+				// Keep candidates above (larger x)
 				if (Corig.x() <= (Ccand.x()+0.001))
 					filtered.append(gid);
 			}
@@ -2081,7 +2018,6 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::initCandidates()
 
 		return List<label>(filtered);
 	};
-	// -------------------------------------------------------------------------------------------------------------------------
 
 
 	
@@ -2110,7 +2046,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::initCandidates()
     auto getCandidates = [&](label selfGid, label gid, scalar Uy) -> const labelList&
 	{
 		// static container to safely return references (cannot return local variable)
-		static labelList sendt; // contains the merged list of candidates to return
+		static labelList sendt;
 
 		// Clear previous contents to avoid accumulation
 		sendt.clear();
@@ -2149,9 +2085,10 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::initCandidates()
 		// ========================
 		// SchemeCode 6 – Upwind Y-direction
 		// ========================
-		if (Uy > VSMALL) // Uy = 
+		if (Uy > VSMALL)
 		{
 			
+
 			// ---------- Local branch ----------
 			if (globalIdToPackedIdx_.found(gid))
 			{
@@ -2305,47 +2242,28 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::initCandidates()
 	const volVectorField& Ucur = db().lookupObjectRef<volVectorField>("Ucur");
 	const vectorField& Ucur_p = Ucur.boundaryField()[patch().index()];
 
-    // Print the size of each list
-	Pout << "List sizes: " << ownerHasBodyFace_.size() << "Edges    "<< ownerHasBodyEdge_.size() << "Vertices  " << ownerHasBodyVertex_.size() << endl;
-	
-	// for (label i = 0; i < nFaces; ++i)
-	// {
-		
-	// 	if (ownerHasBodyFace_[i] || ownerHasBodyEdge_[i] || ownerHasBodyVertex_[i]) 
-	// 	{
-	// 		const label selfGid = globalIdOfLocalFace_[i];
-	// 		const List<label>& candsSelf = getCandidates(selfGid, selfGid, 0.0); // changed
-	// 		List<label> mergedCands;
-	// 		mergedCands = mergeUniquewoSelf(mergedCands, candsSelf, selfGid);
-	// 		lsMergedCandidates_[i]=mergedCands;
-	// 	}
-	// }
-				
+                    
 	for (label i = 0; i < nFaces; ++i)
 	{
 		
-		if (ownerHasBodyFace_[i] || ownerHasBodyEdge_[i] || ownerHasBodyVertex_[i]) 
+		if (ownerHasBodyFace_[i]) 
 		{		
-
-			
 			const scalar uY = Ucur_p[i].y();
 			//sconst scalar uX = Ucur_p[i].x();
 			List<label> mergedCands;
 			const label selfGid = globalIdOfLocalFace_[i];
 			
-			if (ownerHasBodyFace_[i] || ownerHasBodyEdge_[i] || ownerHasBodyVertex_[i]) // changed
+			if (ownerHasFirstBodyFace_[i])
 			{	
 				
 				
 				//if (selfGid == 205) Pout << "selfGid:" << selfGid << " has ringNodeX_[i]" << ringNodeX_[i] << endl;
-				if (ringNodeX_.found(i))  // checking if it has an upwind node that is also on the first ring.
+				if (ringNodeX_.found(i))  
 				{	
 					
 					
-					const List<label>& candsSelf = getCandidates(selfGid, selfGid, uY); // changed
-					// const List<label>& candsSelf = getCandidates(selfGid, selfGid, 0.0); // changed
-					mergedCands = mergeUniquewoSelf(mergedCands, candsSelf, selfGid);
-					label conn = ringNodeX_[i];          // single neighbor
+					const List<label>& candsSelf = getCandidates(selfGid, selfGid, uY);
+					mergedCands = mergeUniquewoSelf(mergedCands, candsSelf, selfGid);label conn = ringNodeX_[i];          // single neighbor
 					mergedCands = mergeUniquewoSelf(mergedCands, List<label>(1, conn), selfGid);
 					
 					
@@ -2360,6 +2278,8 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::initCandidates()
 						mergedCands = mergeUniquewoSelf(mergedCands, ring , selfGid);
 						lsMergedCandidates_[i]=mergedCands;
 						//if (selfGid == 205) Pout << "selfGid:" << selfGid << " has mergedCands" << mergedCands << endl;
+				
+						
 					}
 					else
 					{
@@ -2545,393 +2465,75 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::initCandidates()
 			if (selfGid == 678)  Pout << "selfGid:" << selfGid << " has mergedCands " << mergedCands << endl;
 			
 			
-			// if (mergedCands.empty())
-			// {
-			// 	const List<label>& L = upwindNodesX_[i];
-
-			// 	if (L.empty())
-			// 	{
-			// 		WarningInFunction
-			// 			<< "Face " << selfGid << " has no upwindNodesX_. Skipping candidate build." << endl;
-			// 		// continue; // nothing to merge safely
-			// 	}
-
-			// 	label up1 = L[0];
-			// 	List<label> up2List;
-
-			// 	if (globalIdToPackedIdx_.found(up1))
-			// 	{
-			// 		up2List = upwindNodesX_[globalIdToPackedIdx_[up1]];
-			// 	}
-			// 	else
-			// 	{
-			// 		const auto it = remoteIdToUpwindNodesX_.find(selfGid);
-			// 		if (it != remoteIdToUpwindNodesX_.end())
-			// 		{
-			// 			up2List = it();
-			// 		}
-			// 		else
-			// 		{
-			// 			WarningInFunction
-			// 				<< "Face " << selfGid << " missing remote second upwind node — skipping second order."
-			// 				<< endl;
-			// 			up2List.clear(); // fallback to 1st order
-			// 		}
-			// 	}
-
-			// 	if (up2List.empty())
-			// 	{
-			// 		WarningInFunction
-			// 			<< "Face " << selfGid << " has empty up2List — fallback to first order." << endl;
-			// 		lsMergedCandidates_[i] = L;
-			// 		continue;
-			// 	}
-
-			// 	label up2 = up2List[0];
-
-			// 	const List<label>& candsSelf = getCandidates(selfGid, selfGid, uY);
-			// 	mergedCands = mergeUniquewoSelf(candsSelf, L, selfGid);
-			// 	mergedCands = mergeUniquewoSelf(mergedCands, up2List, selfGid);
-
-			// 	const List<label>& candsX1 = getCandidates(selfGid, up1, uY);
-			// 	mergedCands = mergeUniquewoSelf(mergedCands, candsX1, selfGid);
-
-			// 	const List<label>& candsX2 = getCandidates(selfGid, up2, uY);
-			// 	mergedCands = mergeUniquewoSelf(mergedCands, candsX2, selfGid);
-
-
-			// 	lsMergedCandidates_[i] = mergedCands;
-			// }
-
 			if (mergedCands.empty())
 			{
-				const label selfGid = globalIdOfLocalFace_[i];
-
-				// Prefer upwind, else downwind
 				const List<label>& L = upwindNodesX_[i];
-				const List<label>& R = downwindNodesX_[i];
 
-				if (!L.empty())
+				if (L.empty())
 				{
-					mergedCands = mergeUniquewoSelf(mergedCands, L, selfGid);
-				}
-				else if (!R.empty())
-				{
-					mergedCands = mergeUniquewoSelf(mergedCands, R, selfGid);
+					WarningInFunction
+						<< "Face " << selfGid << " has no upwindNodesX_. Skipping candidate build." << endl;
+					continue; // nothing to merge safely
 				}
 
-				// Always add generic neighbours as a safety net
-				mergedCands = mergeUniquewoSelf(mergedCands, neighboursGlobal_[i], selfGid);
+				label up1 = L[0];
+				List<label> up2List;
+
+				if (globalIdToPackedIdx_.found(up1))
+				{
+					up2List = upwindNodesX_[globalIdToPackedIdx_[up1]];
+				}
+				else
+				{
+					const auto it = remoteIdToUpwindNodesX_.find(selfGid);
+					if (it != remoteIdToUpwindNodesX_.end())
+					{
+						up2List = it();
+					}
+					else
+					{
+						WarningInFunction
+							<< "Face " << selfGid << " missing remote second upwind node — skipping second order."
+							<< endl;
+						up2List.clear(); // fallback to 1st order
+					}
+				}
+
+				if (up2List.empty())
+				{
+					WarningInFunction
+						<< "Face " << selfGid << " has empty up2List — fallback to first order." << endl;
+					lsMergedCandidates_[i] = L;
+					continue;
+				}
+
+				label up2 = up2List[0];
+
+				const List<label>& candsSelf = getCandidates(selfGid, selfGid, uY);
+				mergedCands = mergeUniquewoSelf(candsSelf, L, selfGid);
+				mergedCands = mergeUniquewoSelf(mergedCands, up2List, selfGid);
+
+				const List<label>& candsX1 = getCandidates(selfGid, up1, uY);
+				mergedCands = mergeUniquewoSelf(mergedCands, candsX1, selfGid);
+
+				const List<label>& candsX2 = getCandidates(selfGid, up2, uY);
+				mergedCands = mergeUniquewoSelf(mergedCands, candsX2, selfGid);
 
 				lsMergedCandidates_[i] = mergedCands;
 			}
 
 		
-			/*
-			neigboursGlobals. 
-			lsMergedCandidates = neighbours
-			lsMergedCandidates[i] -> global id/ local id. 
-			*/
 			//mergedCands=removeCandidatesByUx(mergedCands,uX,selfGid);
 			lsMergedCandidates_[i] = mergedCands;
-
-			
 		}
 		
 	}	
   
-    // outputter();               
-    Info << "PrePar16D is used " << endl;               
+    //outputter();               
+    Info << "PreParV14D used " << endl;               
 	candidatesCalculated_ = true;
     Info << "Candidates for Mq built on " << patch().name() << endl;
-
-	
          
-}
-
-
-
-// *********************************MY ADDITIONS **************************************** //
-
-static inline label nSharedPoints(const face& a, const face& b)
-{
-    label shared = 0;
-
-    forAll(a, ia)
-    {
-        const label pa = a[ia];
-        forAll(b, ib)
-        {
-            if (pa == b[ib])
-            {
-                ++shared;
-                break;
-            }
-        }
-    }
-
-    return shared;
-}
-
-static inline bool ownerCellTouchesProcPatch(const fvMesh& mesh, const label ownerCell)
-{
-	
-    const cell& cFaces = mesh.cells()[ownerCell];
-	
-    forAll(cFaces, k)
-    {
-        const label f = cFaces[k];
-
-        if (mesh.isInternalFace(f)) continue;
-
-        const label patchID = mesh.boundaryMesh().whichPatch(f);
-        if (patchID < 0) continue;
-
-        const fvPatch& p = mesh.boundary()[patchID];
-        if (isA<processorFvPatch>(p))
-        {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-static inline bool sharedEdgeNormalXY
-(
-    const face& fSelf,
-    const face& fNbr,
-    const pointField& pts,
-    const vector& CfSelf,
-    const vector& CfNbr,
-    vector& nOut
-)
-{
-    label shared[2];
-    label nShared = 0;
-
-    // Find exactly two shared points
-    forAll(fSelf, i)
-    {
-        const label p = fSelf[i];
-        forAll(fNbr, j)
-        {
-            if (p == fNbr[j])
-            {
-                if (nShared < 2)
-                    shared[nShared] = p;
-                ++nShared;
-                break;
-            }
-        }
-    }
-
-    if (nShared != 2)
-        return false;
-
-    // Edge vector
-    const vector e = pts[shared[1]] - pts[shared[0]];
-
-    // Length-normal in xy plane
-    vector n(e.y(), -e.x(), 0);
-
-    // Make outward: point toward neighbour centre
-    const vector d = CfNbr - CfSelf;
-    if ((n & d) < 0)
-        n = -n;
-
-    // Ensure strictly xy-plane
-    n.z() = 0;
-
-    nOut = n;
-    return true;
-}
-
-static inline bool remoteEdgeNormalXY
-(
-    const face& fSelf,
-    const pointField& pts,
-    const vector& CfSelf,
-    const vector& CfRemote,
-    vector& nOut
-)
-{
-    const vector d = CfRemote - CfSelf;
-
-    if (mag(d) < VSMALL)
-        return false;
-
-    scalar bestDist = GREAT;
-    label bestEdge = -1;
-
-    // Loop edges of polygon
-    forAll(fSelf, i)
-    {
-        const label a = fSelf[i];
-        const label b = fSelf[(i+1) % fSelf.size()];
-
-        const vector pa = pts[a];
-        const vector pb = pts[b];
-
-        const vector mid = 0.5*(pa + pb);
-
-        // distance from midpoint to line CfSelf→CfRemote
-        const vector r = mid - CfSelf;
-        const scalar t = (r & d) / (d & d);
-
-        const vector proj = CfSelf + t*d;
-
-        const scalar dist = mag(mid - proj);
-
-        if (dist < bestDist)
-        {
-            bestDist = dist;
-            bestEdge = i;
-        }
-    }
-
-    if (bestEdge == -1)
-        return false;
-
-    const label a = fSelf[bestEdge];
-    const label b = fSelf[(bestEdge+1) % fSelf.size()];
-
-    const vector e = pts[b] - pts[a];
-
-    vector n(e.y(), -e.x(), 0);
-
-    // orient outward toward remote face
-    if ((n & d) < 0)
-        n = -n;
-
-    n.z() = 0;
-
-    nOut = n;
-
-    return true;
-}
-
-void Foam::waveCurrentPotential3DFvPatchScalarField::buildEdgeNeighbours()
-{
-
-	// return if already built
-	if (!edgeNeighbours_.empty())
-        return;
-
-	// Pout << "Building edge neighbours for patch " << patch().name() << "..." << endl;
-
-    const fvMesh& mesh = this->patch().boundaryMesh().mesh();
-    const label startFace = patch().start();
-    const label nFaces = patch().size();
-	
-
-    edgeNeighbours_.setSize(nFaces);
-	edgeNormals2D_.setSize(nFaces);
-
-    // gid -> local patch index map (for local edge-sharing check)
-    HashTable<label, label> gidToLocal(nFaces*2);
-    for (label i = 0; i < nFaces; ++i)
-    {
-        gidToLocal.insert(globalIdOfLocalFace_[i], i);
-    }
-
-    for (label i = 0; i < nFaces; ++i)
-    {
-        if (!(ownerHasBodyFace_[i] || ownerHasBodyEdge_[i] || ownerHasBodyVertex_[i]))
-        {
-            edgeNeighbours_[i].clear();
-            continue;
-        }
-
-		List<label> neiGids;
-		List<vector> neiNormals;
-
-        const label selfGid = globalIdOfLocalFace_[i];
-        const face& fSelf = mesh.faces()[startFace + i];
-
-        // You want "next to proc boundary" check
-        const label ownerCell = patch().faceCells()[i];
-        const bool nearProc = ownerCellTouchesProcPatch(mesh, ownerCell);
-
-        // Find closest remote candidate (by face-centre distance)
-        label bestRemoteGid = -1;
-        scalar bestRemoteDist = GREAT;
-
-        const vector& selfCf = mesh.Cf()[startFace + i];
-
-        const labelList& cands = neighboursGlobal_[i];
-
-        forAll(cands, cI)
-        {
-            const label gid = cands[cI];
-            if (gid == selfGid) continue;
-
-            if (gidToLocal.found(gid))
-			{
-				const label j = gidToLocal[gid];
-				const face& fNbr = mesh.faces()[startFace + j];
-
-				vector n;
-
-				if (sharedEdgeNormalXY
-					(
-						fSelf,
-						fNbr,
-						mesh.points(),
-						mesh.Cf()[startFace + i],
-						mesh.Cf()[startFace + j],
-						n
-					))
-				{
-					neiGids.append(gid);
-					neiNormals.append(n);
-				}
-			}
-            else
-            {
-                // Remote candidate: only consider if the face is adjacent to the processor boundary
-                if (!nearProc) continue;
-
-                // Need remote face centre for this gid
-                if (!globalIdToCf_.found(gid)) continue;
-
-                const vector& remoteCf = globalIdToCf_[gid];
-                const scalar dist = mag(remoteCf - selfCf);
-
-				// best remote: most likely the remote face which is closer to us. 
-                if (dist < bestRemoteDist)
-                {
-                    bestRemoteDist = dist;
-                    bestRemoteGid = gid;
-                }
-            }
-        }
-		// Calculate normal for best remote candidate if found
-		if (bestRemoteGid != -1)
-        {
-            const vector& remoteCf = globalIdToCf_[bestRemoteGid];
-
-            vector n;
-
-            if (remoteEdgeNormalXY
-            (
-                fSelf,
-                mesh.points(),
-                selfCf,
-                remoteCf,
-                n
-            ))
-            {
-                neiGids.append(bestRemoteGid);
-                neiNormals.append(n);
-            }
-        }
-
-        edgeNeighbours_[i] = neiGids;
-		edgeNormals2D_[i]  = neiNormals;
-		// Pout << "Face " << selfGid << " edge neighbours: " << edgeNeighbours_[i] <<
-		// " Normals: " << edgeNormals2D_[i] << endl;
-    }
 }
 
 

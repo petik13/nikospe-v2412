@@ -1876,6 +1876,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::detectFDSchemes()
 			{
 				schemeCodeX_[i] = schemeX;
 			}
+			
 		}
 		
 
@@ -1946,6 +1947,9 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::detectFDSchemes()
 			{
 				schemeCodeY_[i] = schemeY;
 			}
+			
+			
+			
 		}
 
 		// Fallback (optional)

@@ -12,7 +12,7 @@ neigbouring and scheme FD bu TURGUT
 \*---------------------------------------------------------------------------*/
 
 
-void Foam::waveCurrentPotential3DFvPatchScalarField::calcNeigboursV3()
+void Foam::potForwardSpeedBCFvPatchScalarField::calcNeigboursV3()
 {
 	if (neigboursCalculated_) return;
 	
@@ -395,7 +395,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::calcNeigboursV3()
     neigboursCalculated_ = true;
 }
 
-void Foam::waveCurrentPotential3DFvPatchScalarField::findInletFaces()
+void Foam::potForwardSpeedBCFvPatchScalarField::findInletFaces()
 {
     const fvMesh& mesh = this->patch().boundaryMesh().mesh();
 
@@ -447,7 +447,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findInletFaces()
 
 
 
-void Foam::waveCurrentPotential3DFvPatchScalarField::findSphereFaces()
+void Foam::potForwardSpeedBCFvPatchScalarField::findSphereFaces()
 {
     const fvMesh& mesh = this->patch().boundaryMesh().mesh();
 	const word& patchName = patch().name();
@@ -670,7 +670,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findSphereFaces()
    
 }
 
-void Foam::waveCurrentPotential3DFvPatchScalarField::buildVertexBasedConnections()
+void Foam::potForwardSpeedBCFvPatchScalarField::buildVertexBasedConnections()
 {
     const fvMesh& mesh = this->patch().boundaryMesh().mesh();
     const label startFace = patch().start();
@@ -965,7 +965,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::buildVertexBasedConnections
 
 #include "Outputter.H" 
 
-void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
+void Foam::potForwardSpeedBCFvPatchScalarField::findUpwindDownwindNodesV2()
 {
     if (windsCalculated_)
     {
@@ -1780,7 +1780,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::findUpwindDownwindNodesV2()
     windsCalculated_ = true;
 }
 
-void Foam::waveCurrentPotential3DFvPatchScalarField::detectFDSchemes()
+void Foam::potForwardSpeedBCFvPatchScalarField::detectFDSchemes()
 {
     if (schemesDetected_) return;
 
@@ -1799,19 +1799,19 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::detectFDSchemes()
 	interpNeeded4thY_.setSize(nFaces, FixedList<bool,4>(false));
 
 	
-	const volVectorField& Ucur = db().lookupObjectRef<volVectorField>("Ucur");
-	const vectorField& Ucur_p = Ucur.boundaryField()[patch().index()];
+	const volVectorField& Us = db().lookupObjectRef<volVectorField>("Us");
+	const vectorField& Us_p = Us.boundaryField()[patch().index()];
 	
-	//vectorField Ucur_p(nFaces);
-	//for (label i = 0; i < nFaces; ++i) Ucur_p[i] = vector(1.0, 1.0, 0);
+	//vectorField Us_p(nFaces);
+	//for (label i = 0; i < nFaces; ++i) Us_p[i] = vector(1.0, 1.0, 0);
 
     for (label i = 0; i < nFaces; ++i)
 	{
 		label schemeX = -1;
 		label schemeY = -1;
 
-		const scalar uX = Ucur_p[i].x();
-		const scalar uY = Ucur_p[i].y();
+		const scalar uX = Us_p[i].x();
+		const scalar uY = Us_p[i].y();
 
 		// === X-direction scheme detection
 		{
@@ -1876,6 +1876,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::detectFDSchemes()
 			{
 				schemeCodeX_[i] = schemeX;
 			}
+			
 		}
 		
 
@@ -1946,6 +1947,9 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::detectFDSchemes()
 			{
 				schemeCodeY_[i] = schemeY;
 			}
+			
+			
+			
 		}
 
 		// Fallback (optional)
@@ -1968,7 +1972,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::detectFDSchemes()
 }
 
 
-void Foam::waveCurrentPotential3DFvPatchScalarField::initCandidates()
+void Foam::potForwardSpeedBCFvPatchScalarField::initCandidates()
 {
     // If both already built, return
     if (candidatesCalculated_)
@@ -2302,8 +2306,8 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::initCandidates()
 		return dummy;
 	};
     
-	const volVectorField& Ucur = db().lookupObjectRef<volVectorField>("Ucur");
-	const vectorField& Ucur_p = Ucur.boundaryField()[patch().index()];
+	const volVectorField& Us = db().lookupObjectRef<volVectorField>("Us");
+	const vectorField& Us_p = Us.boundaryField()[patch().index()];
 
     // Print the size of each list
 	Pout << "List sizes: " << ownerHasBodyFace_.size() << "Edges    "<< ownerHasBodyEdge_.size() << "Vertices  " << ownerHasBodyVertex_.size() << endl;
@@ -2328,8 +2332,8 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::initCandidates()
 		{		
 
 			
-			const scalar uY = Ucur_p[i].y();
-			//sconst scalar uX = Ucur_p[i].x();
+			const scalar uY = Us_p[i].y();
+			//sconst scalar uX = Us_p[i].x();
 			List<label> mergedCands;
 			const label selfGid = globalIdOfLocalFace_[i];
 			
@@ -2811,7 +2815,7 @@ static inline bool remoteEdgeNormalXY
     return true;
 }
 
-void Foam::waveCurrentPotential3DFvPatchScalarField::buildEdgeNeighbours()
+void Foam::potForwardSpeedBCFvPatchScalarField::buildEdgeNeighbours()
 {
 
 	// return if already built

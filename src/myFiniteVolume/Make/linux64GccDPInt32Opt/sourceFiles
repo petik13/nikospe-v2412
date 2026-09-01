@@ -1,4 +1,0 @@
-SOURCE = \
-fields/fvPatchFields/derived/myMovingWallSlip/myMovingWallSlipFvPatchVectorField.C \
-
-# sources

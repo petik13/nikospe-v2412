@@ -29,6 +29,7 @@ License
 #include "fvCFD.H"
 #include "fvMesh.H"
 #include "waveCurrentPotential3DFvPatchScalarField.H"
+#include <chrono>
 #include "addToRunTimeSelectionTable.H"
 #include "fvPatchFieldMapper.H"
 #include "volFields.H"
@@ -283,10 +284,10 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 		scalarField dampingterm=
 		    // x-side damping active for x > xdamp
 		    pos(xComponents - xdamp) * v0 * ((xComponents - xdamp) / (Lxdamp)) * ((xComponents - xdamp) / (Lxdamp)) * (nfRef & (Wn))
-		    // y-side damping active when |y| > ydamp and x < xdamp
+		    // y-side damping active only when x > 5
 		   + pos(xdamp-xComponents)*pos(yComponents - ydamp) * v0 * ((yComponents - ydamp) / (Lydamp)) * ((yComponents - ydamp) / (Lydamp)) * (nfRef & (Wn))
 		   + pos(xdamp-xComponents)*pos(-yComponents - ydamp) * v0 * ((-yComponents - ydamp) / (Lydamp)) * ((-yComponents - ydamp) / (Lydamp)) * (nfRef & (Wn))
-		    // inlet reflection damping: active for x in [0,sponge], stronger near x=0
+		    // inlet reflection damping: active for x in [0,5], stronger near x=0
 		   + pos(xsponge - xComponents) * v0 * ((xsponge - xComponents) / (Lsponge)) * ((xsponge - xComponents) / (Lsponge)) * (nfRef & (Wn));
 		
 
@@ -309,13 +310,19 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 			{
 				findUpwindDownwindNodesV2();
 				detectFDSchemes();
-				
-				
+				buildInterpCaches();
+
+
 				zetaDx_.setSize(nFaces, vector::zero);
 				PhiDx_.setSize(nFaces, Zero);PhiDy_.setSize(nFaces, Zero);
-				
-				
-				UPFDV2();
+
+				{
+					const auto t0 = std::chrono::high_resolution_clock::now();
+					UPFDV2();
+					const auto t1 = std::chrono::high_resolution_clock::now();
+					const double ms = std::chrono::duration<double,std::milli>(t1-t0).count();
+
+				}
 
 				// -- Copy zetaDx etc to patch fields for inspection
 				volVectorField& zetaDxOut = db().lookupObjectRef<volVectorField>("zetaDx");
@@ -346,60 +353,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 			
 			forAll(turgut, i)
 			{
-				turgut[i] = Ucur_p[i][vector::X] * PhiDx_[i]+Ucur_p[i][vector::Y] * PhiDy_[i]; // PhiDx = -dPhidx, PhiDy = -dPhidy (in 2nd UpwindV6_MQLEAST.H)
-			}
-
-			// ----------------------------------------------------------------
-			// Incident-wave forcing of the diffracted free-surface conditions.
-			//
-			// The prescribed incident wave satisfies the free-surface
-			// conditions built on the UNIFORM stream U_inf, not on the local
-			// double-body flow w = Ucur (Zhao et al., eq.(8) vs eq.(7)).
-			// Subtracting the incident conditions from the total ones
-			// therefore leaves a forcing proportional to (w - U_inf), which
-			// vanishes in the far field and is O(U0) near the body.  In
-			// velocity form (u = -grad(Phi), dw_z/dz = PhiCurDz2):
-			//
-			//   zeta_D,t + w_h.grad_h zeta_D
-			//       = u_D,z + zeta_D dw_z/dz
-			//         - (w_h - U_inf).grad_h zeta_I + zeta_I dw_z/dz
-			//
-			//   Phi_D,t = g zeta_D + w.u_D + (w - U_inf).u_I
-			//
-			// The incident quantities are analytic and are evaluated at the
-			// OLD time level t-dt, consistently with Wn, turgut and zeta0p,
-			// which all carry the previous step's solution (the explicit
-			// right-hand side is f^n).  The incident wave travels along +x, so
-			// u_I has no y-component and zeta_I no y-dependence; on z=0 the
-			// steady flow has w_z = 0, so only the x-products survive.
-			// ----------------------------------------------------------------
-			const scalar tOld = tt - dt;
-			const scalar rampOld =
-				0.5*(1 - cos(Foam::constant::mathematical::pi*min(1.0, tOld/ramp_time)));
-			const scalar omega_e = w + wavenumber*U0*cos(head_ang);
-			const scalar Uinf_x = U0*cos(head_ang);
-
-			forAll(turgut, i)
-			{
-				const scalar phase = wavenumber*xComponents[i] - omega_e*tOld;
-				const scalar coshTerm =
-					Foam::cosh(wavenumber*(hdepth + zComponents[i]))
-				  / Foam::cosh(wavenumber*hdepth);
-
-				// Incident elevation and its horizontal gradient
-				const scalar zetaI    =  amp*Foam::cos(phase)*rampOld;
-				const scalar dzetaIdx = -amp*wavenumber*Foam::sin(phase)*rampOld;
-
-				// Incident horizontal velocity, u_I = -grad(PhiI)
-				const scalar uIx =
-					amp*wavenumber*9.81/w*coshTerm*Foam::cos(phase)*rampOld;
-
-				// w - U_inf : identically zero far from the body
-				const scalar dwx = Ucur_p[i][vector::X] - Uinf_x;
-
-				turgut[i]        += dwx*uIx;                            // DFSBC
-				UetaDx[i]        += nfRef[i]*(dwx*dzetaIdx);            // enters as -UetaDx
-				Wcurdz_zeta0p[i] += PhiCurDz2_p[i]*vector(0.0, 0.0, zetaI);
+				turgut[i] = Ucur_p[i][vector::X] * PhiDx_[i]+Ucur_p[i][vector::Y] * PhiDy_[i];// + 0.5*((Ucur_p[i] & Ucur_p[i]) - U0*U0) ;   //BUNU modify ettim
 			}
 		}
 		
@@ -429,7 +383,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 					
 					zetap = zeta0p + dt*(Wn+Wcurdz_zeta0p-UetaDx);
 					Info << "Turgut ayri applied" << endl;
-					phiCalc = ((gVal & zeta0p)+turgut + dampingterm)*dt + Phi0Patch;
+					phiCalc = ((gVal & zeta0p)+turgut + dampingterm)*dt + Phi0Patch; // shouldn't turgut term have a minus?
 					//phiCalc = ((gVal & zetap))*dt + Phi0Patch;
 					
 				}
@@ -512,7 +466,11 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 				{
 					if ( std::fabs(U0) > 0.0 )
 					{
-
+									
+						//zetaInt = zeta0p+0.5*dt*((Wn-UetaDx)+WnOld_);
+						//phiInt = (1.5*((gVal & zeta0p)+(0.5)*turgut)-0.5*DPhiold_)*dt + Phi0Patch;
+						
+						// Info << "Current speed is nonzero " << endl;
 						zetap=zeta0p+dt*((23.0/12.0)*(Wn+Wcurdz_zeta0p-UetaDx)-(16.0/12.0)*WnOld_+(5.0/12.0)*WnOld2_);
 						phiCalc = ((23.0/12.0)*((gVal & zeta0p)+turgut + dampingterm)-(16.0/12.0)*DPhiold_+(5.0/12.0)*DPhiold2_)*dt + Phi0Patch;
 						
@@ -599,6 +557,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::updateCoeffs()
 #include "InterpolationsHelpers.H"
 #include "2nd_UpwindV6_MQLEAST.H" //numerical scheme
 #include "PreParV18D.H"  // neighbours upwind down wind , scheme detection
+#include "PreParV19D.H"  // SVD interpolation weight cache (Change 1)
 
 
 
@@ -743,7 +702,7 @@ void Foam::waveCurrentPotential3DFvPatchScalarField::applyKreissOligerFilter
 		}
 	};
 
-	const scalar epsilon = 0.0001;
+	const scalar epsilon = 0.0005;
 
 	forAll(zetap, i)
 	{

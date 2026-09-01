@@ -12,6 +12,33 @@ volVectorField U
     mesh
 );
 
+Info<< "Reading velocity field UD\n" << endl;
+volVectorField UD
+(
+    IOobject
+    (
+        "UD",
+        runTime.timeName(),
+        mesh,
+        IOobject::MUST_READ,
+        IOobject::AUTO_WRITE
+    ),
+    mesh
+);
+
+Info<< "Reading velocity field UD\n" << endl;
+volVectorField UI
+(
+    IOobject
+    (
+        "UI",
+        runTime.timeName(),
+        mesh,
+        IOobject::MUST_READ,
+        IOobject::AUTO_WRITE
+    ),
+    mesh
+);
 
 volVectorField Ucur
 (
@@ -51,6 +78,36 @@ volVectorField zeta
     IOobject
     (
         "zeta",
+        runTime.timeName(),
+        mesh,
+        IOobject::READ_IF_PRESENT,
+        IOobject::AUTO_WRITE
+    ),
+    mesh,
+    dimensionedVector(dimLength, Zero)
+);
+
+Info<< "Creating field zetaI\n" << endl;
+volVectorField zetaI
+(
+    IOobject
+    (
+        "zetaI",
+        runTime.timeName(),
+        mesh,
+        IOobject::READ_IF_PRESENT,
+        IOobject::AUTO_WRITE
+    ),
+    mesh,
+    dimensionedVector(dimLength, Zero)
+);
+
+Info<< "Creating field zetaD\n" << endl;
+volVectorField zetaD
+(
+    IOobject
+    (
+        "zetaD",
         runTime.timeName(),
         mesh,
         IOobject::READ_IF_PRESENT,
@@ -105,6 +162,19 @@ volScalarField p2
 	dimensionedScalar(dimVelocity*dimVelocity, Zero)
 );
 
+volScalarField p4
+(
+    IOobject
+    (
+        "p4",
+        runTime.timeName(),
+        mesh,
+        IOobject::READ_IF_PRESENT,
+        IOobject::AUTO_WRITE
+    ),
+    mesh,
+	dimensionedScalar(dimVelocity*dimVelocity, Zero)
+);
 volScalarField p3
 (
     IOobject
@@ -136,6 +206,42 @@ volScalarField Phi
     dimensionedScalar(dimLength*dimVelocity, Zero)
     
 );
+
+Info<< "Constructing total velocity potential field PhiI\n" << endl;
+volScalarField PhiI
+(
+    IOobject
+    (
+        "PhiI",
+        runTime.timeName(),
+        mesh,
+        IOobject::READ_IF_PRESENT,
+        IOobject::AUTO_WRITE,
+        IOobject::REGISTER
+    ),
+    mesh,
+    dimensionedScalar(dimLength*dimVelocity, Zero)
+    
+);
+
+Info<< "Constructing total velocity potential field PhiD\n" << endl;
+volScalarField PhiD
+(
+    IOobject
+    (
+        "PhiD",
+        runTime.timeName(),
+        mesh,
+        IOobject::READ_IF_PRESENT,
+        IOobject::AUTO_WRITE,
+        IOobject::REGISTER
+    ),
+    mesh,
+    dimensionedScalar(dimLength*dimVelocity, Zero)
+    
+);
+
+
 
 Info<< "Constructing steady velocity potential field PhiCur\n" << endl;
 volScalarField PhiCur
@@ -203,6 +309,26 @@ volScalarField PhiCurDz2
     
 );
 
+Info<< "Calculating steady current gradient gradUcur\n" << endl;
+volTensorField gradUcur
+(
+    IOobject
+    (
+        "gradUcur",
+        runTime.timeName(),
+        mesh,
+        IOobject::NO_READ,
+        IOobject::AUTO_WRITE
+    ),
+    fvc::grad(Ucur)
+);
+
+volScalarField ddtPhiI
+(
+    IOobject("ddtPhiI", runTime.timeName(), mesh, IOobject::NO_READ, IOobject::NO_WRITE),
+    mesh,
+    dimensionedScalar("zero", dimArea/dimTime/dimTime, 0.0) // Dimensions of ddt(Phi)
+);
 
 
 

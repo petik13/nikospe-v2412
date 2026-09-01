@@ -150,16 +150,6 @@ void Foam::functionObjects::meanWaveLoads::initialise()
         return;
     }
 
-    // if // This check was removed cause it failed. Probably because Phi is not present at the start?
-    // (
-    //     !foundObject<volScalarField>(PhiName_)
-    // )
-    // {
-    //     FatalErrorInFunction
-    //         << "Could not find Phi: " << PhiName_
-    //         << " in database" << exit(FatalError);
-    // }
-
     if (rhoName_ != "rhoInf" && !foundObject<volScalarField>(rhoName_))
     {
         FatalErrorInFunction
@@ -175,11 +165,6 @@ void Foam::functionObjects::meanWaveLoads::reset()
     sumPatchForcesP_ = Zero;
     sumPatchMomentsP_ = Zero;
 
-    sumSurfaceForces_ = Zero;
-    sumLineForces_ = Zero;
-    sumSurfaceMoments_ = Zero;
-    sumLineMoments_ = Zero;
-
     sumInternalForces_ = Zero;
     sumInternalMoments_ = Zero;
 
@@ -192,11 +177,10 @@ void Foam::functionObjects::meanWaveLoads::reset()
         force.boundaryFieldRef(updateAccessTime)[patchi] = Zero;
         moment.boundaryFieldRef(updateAccessTime)[patchi] = Zero;
     }
-    
 }
 
 
-Foam::tmp<Foam::volScalarField> Foam::functionObjects::meanWaveLoads::rho() const // tmp rho volScalarField
+Foam::tmp<Foam::volScalarField> Foam::functionObjects::meanWaveLoads::rho() const
 {
     if (rhoName_ == "rhoInf")
     {
@@ -214,7 +198,7 @@ Foam::tmp<Foam::volScalarField> Foam::functionObjects::meanWaveLoads::rho() cons
 
 
 Foam::tmp<Foam::scalarField>
-Foam::functionObjects::meanWaveLoads::rho(const label patchi) const // rho for each patch
+Foam::functionObjects::meanWaveLoads::rho(const label patchi) const
 {
     if (rhoName_ == "rhoInf")
     {
@@ -230,7 +214,7 @@ Foam::functionObjects::meanWaveLoads::rho(const label patchi) const // rho for e
 }
 
 
-Foam::scalar Foam::functionObjects::meanWaveLoads::rho(const volScalarField& p) const // return rhoRef. Used in calcForcesMoments
+Foam::scalar Foam::functionObjects::meanWaveLoads::rho(const volScalarField& p) const
 {
     if (p.dimensions() == dimPressure)
     {
@@ -248,7 +232,7 @@ Foam::scalar Foam::functionObjects::meanWaveLoads::rho(const volScalarField& p) 
 }
 
 
-void Foam::functionObjects::meanWaveLoads::addToPatchFields // sum all patch contributions. Also asign force to each patch
+void Foam::functionObjects::meanWaveLoads::addToPatchFields
 (
     const label patchi,
     const vectorField& Md,
@@ -292,17 +276,14 @@ void Foam::functionObjects::meanWaveLoads::writeIntegratedDataFileHeader
     const auto& coordSys = coordSysPtr_();
     const auto vecDesc = [](const word& root)->string
     {
-        return root + "_x\t" + root + "_y\t" + root + "_z";
+        return root + "_x " + root + "_y " + root + "_z";
     };
     writeHeader(os, header);
     writeHeaderValue(os, "CofR", coordSys.origin());
     writeHeader(os, "");
     writeCommented(os, "Time");
-    
-    // Create new headers for the columns
     writeTabbed(os, vecDesc("total"));
-    writeTabbed(os, vecDesc("surfaceCV"));
-    writeTabbed(os, vecDesc("lineFS"));
+    writeTabbed(os, vecDesc("pressure"));
 
     os  << endl;
 }
@@ -314,17 +295,15 @@ void Foam::functionObjects::meanWaveLoads::writeIntegratedDataFiles()
 
     writeIntegratedDataFile
     (
-        coordSys.localVector(sumPatchForcesP_),   // total
-        coordSys.localVector(sumSurfaceForces_),  // surface
-        coordSys.localVector(sumLineForces_),     // line
+        coordSys.localVector(sumPatchForcesP_),
+        coordSys.localVector(sumInternalForces_),
         forceFilePtr_()
     );
 
     writeIntegratedDataFile
     (
         coordSys.localVector(sumPatchMomentsP_),
-        coordSys.localVector(sumSurfaceMoments_),
-        coordSys.localVector(sumLineMoments_),
+        coordSys.localVector(sumInternalMoments_),
         momentFilePtr_()
     );
 }
@@ -332,17 +311,15 @@ void Foam::functionObjects::meanWaveLoads::writeIntegratedDataFiles()
 
 void Foam::functionObjects::meanWaveLoads::writeIntegratedDataFile
 (
-    const vector& total,
-    const vector& surface,
-    const vector& line,
+    const vector& pres,
+    const vector& internal,
     OFstream& os
 ) const
 {
     writeCurrentTime(os);
 
-    writeValue(os, total);
-    writeValue(os, surface);
-    writeValue(os, line);
+    writeValue(os, pres + internal);
+    writeValue(os, pres);
 
     os  << endl;
 }
@@ -492,17 +469,14 @@ bool Foam::functionObjects::meanWaveLoads::read(const dictionary& dict)
 
     dict.readEntry("gMag", gMag_);
 
-
     writeFields_ = dict.getOrDefault("writeFields", false);
     if (writeFields_)
     {
         Info<< "    Fields will be written" << endl;
     }
 
-
     return true;
 }
-
 
 
 void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
@@ -514,40 +488,17 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
 
     const auto& Phi = lookupObject<volScalarField>(PhiName_);
 
+    const auto& Sfb = mesh_.Sf().boundaryField();
+    const auto& Cb  = mesh_.C().boundaryField();
+
     const scalar rhoRef = rho(Phi);
 
     const auto& U = lookupObject<volVectorField>("U");  // or UName_ from dict
     const auto& Ucur = lookupObject<volVectorField>("Ucur");  // for forward speed effect in line integral term
+    
     tmp<surfaceVectorField> tUf = fvc::interpolate(U);
     const surfaceVectorField& Uf = tUf();
     const auto& Ufb = Uf.boundaryField();
-
-    // const auto& gradPhib = U.boundaryField();   // fvPatchVectorField list
-
-
-    // ---------------------------------------------------------------------
-    // 1. Contributions from selected patches (e.g. hull, if you still want)
-    // ---------------------------------------------------------------------
-    // for (const label patchi : patchIDs_)
-    // {
-    //     const vectorField Md(Cb[patchi] - origin);
-
-    //     const auto& gradPhip = gradPhib[patchi];
-    //     const auto& Sfp      = Sfb[patchi];
-
-    //     const scalarField dphidnSb(gradPhip & Sfp);
-
-    //     const vectorField fP
-    //     (
-    //         rhoRef
-    //        *(
-    //             0.5*Sfp*(gradPhip & gradPhip)
-    //           - gradPhip*dphidnSb
-    //         )
-    //     );
-
-    //     addToPatchFields(patchi, Md, fP);
-    // }
 
     // ---------------------------------------------------------------------
     // 2. Contributions from internal control surface (faceZone)
@@ -560,9 +511,6 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
         const fvMesh& fvm = mesh_;
         const vectorField& Sf = fvm.Sf();
         const vectorField& Cf = fvm.Cf();
-
-        // const labelUList& owner = mesh_.owner();
-        // const labelUList& nei   = mesh_.neighbour();
 
         const point& cvP = cvPoint_;
 
@@ -587,15 +535,12 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
                     }
                 }
             }
-            // Approximate gradPhi on the face
+            
+            // Approximate velocity vector on the face
             vector gradPhi_f(Zero);
 
             if (facei < mesh_.nInternalFaces())
             {
-                // const label ownCell = owner[facei];
-                // const label neiCell = nei[facei];
-
-                // gradPhi_f = 0.5*(gradPhi[ownCell] + gradPhi[neiCell]);
                 gradPhi_f = Uf[facei];
             }
             else
@@ -605,9 +550,6 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
                 const label localFacei = pbm[patchi].whichFace(facei);
 
                 gradPhi_f = Ufb[patchi][localFacei];
-                // Pout << "Face " << facei << " is a boundary face on patch " << patchi
-                //     << " with local index " << localFacei
-                //     << " and gradPhi_f = " << gradPhi_f << endl;
             }
 
             // Face centre and area vector
@@ -623,25 +565,22 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
                 Sf_f = -Sf_f;
             }
 
-            const vector Md = Cf_f - origin;
-
+            // Reverted back to using Uf & Sf_f
             const scalar dphidnSb = (gradPhi_f & Sf_f);
+
+            const vector Md = Cf_f - origin;
 
             const vector fP
             (
                 rhoRef
                *(
                     0.5*Sf_f*(gradPhi_f & gradPhi_f)
-                  - gradPhi_f*dphidnSb
+                  - gradPhi_f*dphidnSb 
                 )
-            //      rhoRef
-            //    *(
-            //         -gradPhi_f*dphidnSb
-            //     )
             );
 
-            sumSurfaceForces_  += fP;
-            sumSurfaceMoments_ += Md ^ fP;
+            sumPatchForcesP_  += fP;
+            sumPatchMomentsP_ += Md ^ fP;
         }
     }
 
@@ -685,139 +624,196 @@ void Foam::functionObjects::meanWaveLoads::calcForcesMoments()
         forAll(fsMeshEdges, ei)
         {
             const label edgei = fsMeshEdges[ei];
-
-
             const labelList& eFaces = mesh_.edgeFaces()[edgei];
 
-            // Does this edge touch ANY CV face?
-            bool touchesCV = false;
+            // 1. Find the CV face connected to this edge
+            label cvFace = -1;
             forAll(eFaces, k)
             {
                 if (isCVFace[eFaces[k]])
                 {
-                    touchesCV = true;
+                    cvFace = eFaces[k];
                     break;
                 }
             }
-            if (!touchesCV) continue;
+            if (cvFace < 0) continue; // Edge doesn't touch the control volume
 
-            // Need outward/inward horizontal normal of CV side at that edge:
-            // simplest: grab ANY cv face among eFaces and use its Sf, then project horizontal
-            label cvFace = -1;
-            forAll(eFaces, k) { if (isCVFace[eFaces[k]]) { cvFace = eFaces[k]; break; } }
-            if (cvFace < 0) continue;
-
-            vector n = mesh_.Sf()[cvFace];
-
-            // Flip inward wrt cvPoint_
-            const vector d = mesh_.Cf()[cvFace] - cvPoint_;
-            if ((n & d) < 0) n = -n;
-
-            // Make horizontal and unit
-            n.z() = 0;
-            const scalar nm = mag(n);
-            if (nm < SMALL) continue;
-            n /= nm;
-            
-
-            // It’s on free-surface patch by construction, now get an averaged zeta.
-            //
-            // Two different averages are needed:
-            //  - zetaZsqr = <zeta^2> for the quadratic  -1/2 rho g zeta^2 n  term.
-            //    Averaging zeta^2 (rather than squaring the averaged zeta) makes
-            //    this exact after time-averaging; squaring the mean loses a
-            //    factor cos^2(k*dx/2).
-            //  - zetaZ = <zeta>, SIGNED, for the O(U) cross term.  That term is
-            //    the correlation <zeta*u> of two first-order quantities, so it
-            //    needs the signed elevation -- an RMS would drop the sign and
-            //    introduce a spurious mean (<|zeta|> = 2A/pi, whereas <zeta> = 0).
-            scalar zetaZ    = 0.0;   // <zeta>
-            scalar zetaZsqr = 0.0;   // <zeta^2>
-            label nFS = 0;
-            vector Un_Uc = vector::zero;
-            vector U_Ucn = vector::zero;
-            forAll(eFaces, k)
+            // 2. MPI Ownership Check (Moved to the very top to prevent double counting)
+            if (Pstream::parRun() && cvFace >= mesh_.nInternalFaces())
             {
-                const label facei = eFaces[k];
-                if (!isFSFace[facei]) continue;
+                const polyBoundaryMesh& pbm = mesh_.boundaryMesh();
+                const label patchi = pbm.whichPatch(cvFace);
 
-                const label fsLocalFace = facei - fsPatch.start();
-                const scalar zf = zetaPatch[fsLocalFace].z();
-                zetaZ    += zf;
-                zetaZsqr += sqr(zf);
-                Un_Uc += (U_p[fsLocalFace] & n) * (Ucur_p[fsLocalFace]);
-                U_Ucn += U_p[fsLocalFace] * (Ucur_p[fsLocalFace] & n);
-                ++nFS;
-
-                // Print U_p
-                // Pout << "U_p = " << U_p[fsLocalFace] << ", Ucur_p = " << Ucur_p[fsLocalFace] << endl;
-            }
-            if (nFS == 0) continue;          // should not happen, but safe
-            zetaZ    /= nFS;
-            zetaZsqr /= nFS;
-            Un_Uc /= nFS;
-            U_Ucn /= nFS;
-
-            // Edge geometry
-            const edge& e = edges[edgei];
-            const point mid = 0.5*(pts[e[0]] + pts[e[1]]);
-            const scalar L = mag(pts[e[1]] - pts[e[0]]);
-            
-            // Avoid double counting on processor patches (unlikely but just in case)
-            if (Pstream::parRun())
-            {
-                // If cvFace is on a processor patch, only integrate on the owner side
-                if (cvFace >= mesh_.nInternalFaces())
+                if (isA<processorPolyPatch>(pbm[patchi]))
                 {
-                    const polyBoundaryMesh& pbm = mesh_.boundaryMesh();
-                    const label patchi = pbm.whichPatch(cvFace);
-
-                    if (isA<processorPolyPatch>(pbm[patchi]))
+                    const processorPolyPatch& ppp = refCast<const processorPolyPatch>(pbm[patchi]);
+                    if (!ppp.owner())
                     {
-                        const processorPolyPatch& ppp =
-                            refCast<const processorPolyPatch>(pbm[patchi]);
-
-                        if (!ppp.owner())
-                        {
-                            continue; // skip neighbour side to prevent double counting
-                        }
+                        continue; // Let the 'owner' processor handle the force for this shared edge.
                     }
                 }
             }
 
-            
+            // 3. Establish Edge Geometry
+            const edge& e = edges[edgei];
+            const point mid = 0.5*(pts[e[0]] + pts[e[1]]);
+            const scalar L = mag(pts[e[1]] - pts[e[0]]);
 
-            // const scalar coeff = -0.5*rhoRef*gMag_*(sqr(zetaZ));
-            //   -1/2 rho g <zeta^2> n            : wave-elevation (all speeds)
-            //   -rho <zeta> [ (u.n)W + u(W.n) ]  : strip momentum flux, O(U)
-            const vector coeff = -0.5*rhoRef*gMag_*(zetaZsqr * n + 2 * (Un_Uc + U_Ucn) * zetaZ/gMag_); // include forward speed effect
+            // 4. Calculate Inward Horizontal Normal
+            vector n = mesh_.Sf()[cvFace];
+            const vector d = mesh_.Cf()[cvFace] - cvPoint_;
+            if ((n & d) < 0) n = -n; // Flip inward wrt cvPoint_
+            
+            n.z() = 0; // Make horizontal
+            const scalar nm = mag(n);
+            if (nm < SMALL) continue;
+            n /= nm;
+
+            // 5. Gather Stencil for WLS (crawl via edge points)
+            DynamicList<label> stencilFaces(8);
+            for (const label pointi : {e[0], e[1]})
+            {
+                const labelList& pFaces = mesh_.pointFaces()[pointi];
+                forAll(pFaces, pfi)
+                {
+                    const label f = pFaces[pfi];
+                    if (isFSFace[f] && !stencilFaces.found(f))
+                    {
+                        stencilFaces.append(f);
+                    }
+                }
+            }
+
+            scalar zetaZ = 0.0;
+            vector Un_Uc = vector::zero;
+            vector U_Ucn = vector::zero;
+
+            // 6. Local Weighted Least Squares (WLS) extrapolation to edge
+            if (stencilFaces.size() >= 3)
+            {
+                scalar sumW = 0, sumWdx = 0, sumWdy = 0;
+                scalar sumWdx2 = 0, sumWdy2 = 0, sumWdxdy = 0;
+                scalar sumWz = 0, sumWzdx = 0, sumWzdy = 0;
+                
+                // Track vector components for U terms
+                vector sumW_UnUc = vector::zero, sumW_UnUc_dx = vector::zero, sumW_UnUc_dy = vector::zero;
+                vector sumW_UUcn = vector::zero, sumW_UUcn_dx = vector::zero, sumW_UUcn_dy = vector::zero;
+
+                forAll(stencilFaces, sfi)
+                {
+                    const label f = stencilFaces[sfi];
+                    const label localF = f - fsPatch.start();
+                    const vector df = mesh_.Cf()[f] - mid;
+                    
+                    const scalar w = 1.0 / (mag(df) + SMALL); // IDW weighting matrix
+                    
+                    const scalar z = zetaPatch[localF].z();
+                    const vector un_uc = (U_p[localF] & n) * Ucur_p[localF];
+                    const vector u_ucn = U_p[localF] * (Ucur_p[localF] & n);
+
+                    sumW     += w;
+                    sumWdx   += w * df.x();
+                    sumWdy   += w * df.y();
+                    sumWdx2  += w * df.x() * df.x();
+                    sumWdy2  += w * df.y() * df.y();
+                    sumWdxdy += w * df.x() * df.y();
+                    
+                    sumWz    += w * z;
+                    sumWzdx  += w * z * df.x();
+                    sumWzdy  += w * z * df.y();
+
+                    sumW_UnUc    += w * un_uc;
+                    sumW_UnUc_dx += w * un_uc * df.x();
+                    sumW_UnUc_dy += w * un_uc * df.y();
+
+                    sumW_UUcn    += w * u_ucn;
+                    sumW_UUcn_dx += w * u_ucn * df.x();
+                    sumW_UUcn_dy += w * u_ucn * df.y();
+                }
+
+                tensor M(
+                    sumW,   sumWdx,   sumWdy,
+                    sumWdx, sumWdx2,  sumWdxdy,
+                    sumWdy, sumWdxdy, sumWdy2
+                );
+
+                if (mag(det(M)) > SMALL)
+                {
+                    tensor invM = inv(M);
+                    
+                    // Solve for zeta (scalar)
+                    vector b_z(sumWz, sumWzdx, sumWzdy);
+                    vector sol_z = invM & b_z;
+                    zetaZ = sol_z.x(); // a0 coefficient is the extrapolated value at mid
+
+                    // Solve for velocity terms (component by component)
+                    for (direction cmpt=0; cmpt<vector::nComponents; ++cmpt)
+                    {
+                        vector b_UnUc(sumW_UnUc[cmpt], sumW_UnUc_dx[cmpt], sumW_UnUc_dy[cmpt]);
+                        vector sol_UnUc = invM & b_UnUc;
+                        Un_Uc[cmpt] = sol_UnUc.x();
+
+                        vector b_UUcn(sumW_UUcn[cmpt], sumW_UUcn_dx[cmpt], sumW_UUcn_dy[cmpt]);
+                        vector sol_UUcn = invM & b_UUcn;
+                        U_Ucn[cmpt] = sol_UUcn.x();
+                    }
+                }
+                else
+                {
+                    // Matrix is singular (collinear points), fallback to simple IDW
+                    zetaZ = sumWz / (sumW + SMALL);
+                    Un_Uc = sumW_UnUc / (sumW + SMALL);
+                    U_Ucn = sumW_UUcn / (sumW + SMALL);
+                }
+            }
+            else if (stencilFaces.size() > 0)
+            {
+                // Edge case: < 3 points available, fallback to pure IDW
+                scalar sumW = 0, sumWz = 0;
+                vector sumW_UnUc = vector::zero, sumW_UUcn = vector::zero;
+                
+                forAll(stencilFaces, sfi)
+                {
+                    const label f = stencilFaces[sfi];
+                    const label localF = f - fsPatch.start();
+                    const vector df = mesh_.Cf()[f] - mid;
+                    const scalar w = 1.0 / (mag(df) + SMALL);
+                    
+                    sumW += w;
+                    sumWz += w * zetaPatch[localF].z();
+                    sumW_UnUc += w * ((U_p[localF] & n) * Ucur_p[localF]);
+                    sumW_UUcn += w * (U_p[localF] * (Ucur_p[localF] & n));
+                }
+                
+                zetaZ = sumWz / (sumW + SMALL);
+                Un_Uc = sumW_UnUc / (sumW + SMALL);
+                U_Ucn = sumW_UUcn / (sumW + SMALL);
+            }
+            else
+            {
+                continue; // Highly unlikely missing FS face topology
+            }
+
+            // 7. Calculate Edge Force and Moment
+            const vector coeff = -0.5 * rhoRef * gMag_ * (sqr(zetaZ) * n + 2 * (Un_Uc + U_Ucn) * zetaZ / gMag_);
             const vector fEdge = coeff * L;
 
             Fzeta += fEdge;
             Mzeta += (mid - origin) ^ fEdge;
         }
 
-        // then add + reduce as before
-        sumLineForces_  += Fzeta;
-        sumLineMoments_ += Mzeta;
-
+        // Add and parallel-reduce as before
+        sumPatchForcesP_  += Fzeta;
+        sumPatchMomentsP_ += Mzeta;
     }
 
     // ---------------------------------------------------------------------
-    // 4. Parallel reduction and Total Summation
+    // 3. Parallel reduction
     // ---------------------------------------------------------------------
-    // Reduce the individual components across all processors
-    reduce(sumSurfaceForces_,  sumOp<vector>());
-    reduce(sumSurfaceMoments_, sumOp<vector>());
-    reduce(sumLineForces_,     sumOp<vector>());
-    reduce(sumLineMoments_,    sumOp<vector>());
-
+    reduce(sumPatchForcesP_,   sumOp<vector>());
+    reduce(sumPatchMomentsP_,  sumOp<vector>());
     reduce(sumInternalForces_, sumOp<vector>());
     reduce(sumInternalMoments_,sumOp<vector>());
-
-    // Reconstruct the totals for standard OpenFOAM logging
-    sumPatchForcesP_  = sumSurfaceForces_ + sumLineForces_;
-    sumPatchMomentsP_ = sumSurfaceMoments_ + sumLineMoments_;
 }
 
 
@@ -882,6 +878,5 @@ bool Foam::functionObjects::meanWaveLoads::write()
 
     return true;
 }
-
 
 // ************************************************************************* //

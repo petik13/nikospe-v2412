@@ -25,18 +25,18 @@ License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
 Class
-    Foam::functionObjects::meanWaveLoads
+    Foam::functionObjects::meanWaveLoadsClaude
 
 Group
     grpForcesFunctionObjects
 
 Description
-    Computes meanWaveLoads and moments over a given list of patches by integrating
-    pressure and viscous meanWaveLoads and moments, and optionally resistance meanWaveLoads
+    Computes meanWaveLoadsClaude and moments over a given list of patches by integrating
+    pressure and viscous meanWaveLoadsClaude and moments, and optionally resistance meanWaveLoadsClaude
     and moments from porous zones.
 
     Forces and moments are output in their total and constituent components:
-    - total meanWaveLoads and moments
+    - total meanWaveLoadsClaude and moments
     - pressure contributions
     - viscous contributions
     - porous resistance contributions (optional)
@@ -71,8 +71,8 @@ Usage
     <namePrefix>
     {
         // Mandatory entries
-        type                meanWaveLoads;
-        libs                (meanWaveLoads);
+        type                meanWaveLoadsClaude;
+        libs                (meanWaveLoadsClaude);
         patches             (<wordRes>);
 
         // Optional entries
@@ -88,7 +88,7 @@ Usage
 
 
             // Cartesian coordinate system specification when
-            // evaluating meanWaveLoads and moments, either of the below
+            // evaluating meanWaveLoadsClaude and moments, either of the below
 
             // Define the centre of rotation
             // with implicit directions e1=(1 0 0) and e3=(0 0 1)
@@ -128,8 +128,8 @@ Usage
     where the entries mean:
     \table
       Property   | Description               | Type | Reqd    | Deflt
-      type       | Type name: meanWaveLoads         | word | yes     | -
-      libs       | Library name: meanWaveLoads      | word | yes     | -
+      type       | Type name: meanWaveLoadsClaude         | word | yes     | -
+      libs       | Library name: meanWaveLoadsClaude      | word | yes     | -
       patches    | Names of operand patches  | wordRes | yes  | -
       directForceDensity | Flag to directly supply force density <!--
                  -->                         | bool | no      | false
@@ -163,16 +163,18 @@ Note
   - If a \c coordinateSystem entry exists, it is taken in favour of \c CofR.
 
 SourceFiles
-    meanWaveLoads.C
+    meanWaveLoadsClaude.C
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef Foam_functionObjects_meanWaveLoads_H
-#define Foam_functionObjects_meanWaveLoads_H
+#ifndef Foam_functionObjects_meanWaveLoadsClaude_H
+#define Foam_functionObjects_meanWaveLoadsClaude_H
 
 #include "fvMeshFunctionObject.H"
 #include "writeFile.H"
 #include "coordinateSystem.H"
+#include "Switch.H"
+#include "OFstream.H"
 #include "volFieldsFwd.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
@@ -184,10 +186,10 @@ namespace functionObjects
 {
 
 /*---------------------------------------------------------------------------*\
-                           Class meanWaveLoads Declaration
+                           Class meanWaveLoadsClaude Declaration
 \*---------------------------------------------------------------------------*/
 
-class meanWaveLoads
+class meanWaveLoadsClaude
 :
     public fvMeshFunctionObject,
     public writeFile
@@ -226,7 +228,7 @@ protected:
 
         // Read from dictionary
 
-            //- Coordinate system used when evaluating meanWaveLoads and moments
+            //- Coordinate system used when evaluating meanWaveLoadsClaude and moments
             autoPtr<coordinateSystem> coordSysPtr_;
 
             //- Selected operand patches
@@ -256,6 +258,93 @@ protected:
             label freeSurfacePatchID_;
             scalar gMag_;
             point cvPoint_;
+
+            //- Evaluate the incident wave analytically at CV face centres and
+            //  at waterline segment midpoints, instead of inheriting it from
+            //  the interpolated/face-centre discrete fields.  The incident
+            //  field is closed form, and it is the part of the integrand that
+            //  must cancel between the surface and waterline terms, so
+            //  weighting it inconsistently between the two directly spoils
+            //  that cancellation.
+            Switch analyticIncident_;
+
+            //- Chen (2022) Eq.(46): the O(Fr^2) waterline group  Fr^2 * F^W_M
+            //  of the midfield formulation.  It involves the steady elevation
+            //  eta_0 of the double-body flow, which is nil only when the
+            //  control surface is at infinity (Chen, section V).  On a CV at a
+            //  finite distance from the hull it is not, and the whole group is
+            //  O(eps^2 U^2) -- even in U, so it shifts head and following seas
+            //  the same way.  Identically zero at U = 0.
+            Switch steadyElevationTerms_;
+
+            //- Near-field (direct pressure integration) drift force, Chen
+            //  (2022) Eq.(29).  For a FIXED, wall-sided body with psi_bar
+            //  dropped it reduces to
+            //
+            //      F_N = rho * int_hull  1/2 <|u|^2> n dS
+            //          - 1/2 rho g * int_WL <zeta^2> n dl        (n out of body)
+            //
+            //  Note it carries NO explicit forward-speed terms for a fixed
+            //  body: all U-dependence enters through the solution.  The
+            //  midfield form does carry an explicit O(U) strip term, so
+            //  comparing the two isolates whether that term is right.
+            Switch nearField_;
+            word bodyPatchName_;
+            label bodyPatchID_;
+            vector sumNearFieldForces_;
+            vector sumNearFieldMoments_;
+            vector sumNearHullForces_;      // kinetic-energy hull part alone
+            vector sumNearWLForces_;        // waterline part alone
+
+            //- Midfield line term split into its U-independent and O(U) parts:
+            //    zeta : -1/2 rho g <zeta^2> n        (present at every speed)
+            //    strip: -rho <zeta>[(u.n)W + u(W.n)] (Chen Eq.43 "L2", O(U))
+            //  The strip term is the ONLY explicit forward-speed term the
+            //  midfield has and the near-field does not, so its size bounds how
+            //  much of a near-vs-mid gap it could possibly explain.
+            vector sumLineZetaForces_;
+            vector sumLineStripForces_;
+            mutable autoPtr<OFstream> midFilePtr_;
+            void writeMidBreakdown();
+            mutable autoPtr<OFstream> nearFilePtr_;
+
+            void calcNearField(const volVectorField& U, const scalar tNow);
+            void writeNearField();
+
+            //- Diffracted (scattered) fields, used when analyticIncident_
+            word UDName_;
+            word zetaDName_;
+
+            //- Prescribed incident field, used only for the consistency check
+            word UIName_;
+
+            //- Incident wave parameters, read from constant/waveCurConditions
+            scalar waveAmp_;
+            scalar waveK_;
+            scalar waveW_;
+            scalar waveOmegaE_;
+            scalar waveDepth_;
+            scalar waveRampTime_;
+            scalar waveU0_;      // |U_inf|, for the O(Fr^2) group
+            bool   waveParamsOK_;
+            bool   incidentChecked_;
+
+            //- Chen Eq.(46) contribution, accumulated separately so its size
+            //  can be seen in the log, then folded into the line term.
+            vector sumSteadyElevForces_;
+            vector sumSteadyElevMoments_;
+
+            //- Analytic incident wave kinematics (U = -grad(Phi) convention)
+            vector incidentU(const point& p, const scalar t) const;
+            scalar incidentZeta(const point& p, const scalar t) const;
+
+            //- Read constant/waveCurConditions
+            void readWaveConditions();
+
+            //- Compare the analytic incident field against the solver's own
+            //  UI field once, so a drift in parameters or formulae is loud
+            //  rather than silent.
+            void checkIncident();
 
     // Protected Member Functions
 
@@ -347,13 +436,13 @@ protected:
 public:
 
     //- Runtime type information
-    TypeName("meanWaveLoads");
+    TypeName("meanWaveLoadsClaude");
 
 
     // Constructors
 
         //- Construct from Time and dictionary
-        meanWaveLoads
+        meanWaveLoadsClaude
         (
             const word& name,
             const Time& runTime,
@@ -362,7 +451,7 @@ public:
         );
 
         //- Construct from objectRegistry and dictionary
-        meanWaveLoads
+        meanWaveLoadsClaude
         (
             const word& name,
             const objectRegistry& obr,
@@ -371,14 +460,14 @@ public:
         );
 
         //- No copy construct
-        meanWaveLoads(const meanWaveLoads&) = delete;
+        meanWaveLoadsClaude(const meanWaveLoadsClaude&) = delete;
 
         //- No copy assignment
-        void operator=(const meanWaveLoads&) = delete;
+        void operator=(const meanWaveLoadsClaude&) = delete;
 
 
     //- Destructor
-    virtual ~meanWaveLoads() = default;
+    virtual ~meanWaveLoadsClaude() = default;
 
 
     // Member Functions
@@ -386,7 +475,7 @@ public:
         //- Read the dictionary
         virtual bool read(const dictionary& dict);
 
-        //- Calculate meanWaveLoads and moments
+        //- Calculate meanWaveLoadsClaude and moments
         virtual void calcForcesMoments();
 
         //- Return the total force

@@ -51,7 +51,9 @@ linearizedRigidBodyFvPatchScalarField
     a_new_(spatialVector::zero),
     Xb_new_(spatialVector::zero),
     Ub_new_(spatialVector::zero)
-{}
+{
+    readDicts();
+}
 
 
 Foam::linearizedRigidBodyFvPatchScalarField::
@@ -69,6 +71,7 @@ linearizedRigidBodyFvPatchScalarField
     Xb_new_(spatialVector::zero),
     Ub_new_(spatialVector::zero)
 {
+    readDicts();
     gradient() = Zero;  // safe initialization
 }
 
@@ -88,7 +91,9 @@ linearizedRigidBodyFvPatchScalarField
     a_new_(ptf.a_new_),
     Xb_new_(ptf.Xb_new_),
     Ub_new_(ptf.Ub_new_)
-{}
+{
+    readDicts();
+}
 
 
 Foam::linearizedRigidBodyFvPatchScalarField::
@@ -103,7 +108,9 @@ linearizedRigidBodyFvPatchScalarField
     a_new_(wbppsf.a_new_),
     Xb_new_(wbppsf.Xb_new_),
     Ub_new_(wbppsf.Ub_new_)
-{}
+{
+    readDicts();
+}
 
 
 Foam::linearizedRigidBodyFvPatchScalarField::
@@ -119,7 +126,9 @@ linearizedRigidBodyFvPatchScalarField
     a_new_(wbppsf.a_new_),
     Xb_new_(wbppsf.Xb_new_),
     Ub_new_(wbppsf.Ub_new_)
-{}
+{
+    readDicts();
+}
 
 
 // * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
@@ -299,34 +308,9 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
     const scalar gamma = 0.5;
     const scalar beta  = 0.25;
 
-    // Read properties
-    const IOdictionary rbDict
-    (
-        IOobject
-        (
-            "rigidBodyMotionProperties",
-            db().time().constant(),
-            db(),
-            IOobject::MUST_READ,
-            IOobject::NO_WRITE
-        )
-    );
-
-    mass_ = rbDict.lookupOrDefault<scalar>("Mass", 1.0);
-    xG_   = rbDict.lookupOrDefault<scalar>("xG", 0.0);
-    zG_   = rbDict.lookupOrDefault<scalar>("zG", 0.0);
-
-    I4_   = rbDict.lookupOrDefault<scalar>("I4", 1.0);
-    I5_   = rbDict.lookupOrDefault<scalar>("I5", 1.0);
-    I6_   = rbDict.lookupOrDefault<scalar>("I6", 1.0);
-    I46_  = rbDict.lookupOrDefault<scalar>("I46", 0.0);
-
-    C33_  = rbDict.lookupOrDefault<scalar>("C33", 0.0);
-    C44_  = rbDict.lookupOrDefault<scalar>("C44", 0.0);
-    C55_  = rbDict.lookupOrDefault<scalar>("C55", 0.0);
-    C35_  = rbDict.lookupOrDefault<scalar>("C35", 0.0);
-
-    heading_ = rbDict.lookupOrDefault<scalar>("heading", 0.0);
+    const scalar T_(2.0 * Foam::constant::mathematical::pi / w_);
+    const scalar ramp_time_(rampperiod_ * T_);
+    const scalar ramp_factor = 0.5 * (1.0 - Foam::cos(Foam::constant::mathematical::pi * min(1.0, db().time().value() / ramp_time_)));
 
     // Init on first step
     if (runTime.timeIndex() == 1)
@@ -376,15 +360,45 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
     K[4][2] = C35_;
 
     // - Soft Mooring
-    // K[0][0] = 100.0;
-    // K[1][1] = 100.0;
-    // K[5][5] = 280.0;
+    K[0][0] = 50.0;
+    K[1][1] = 50.0;
+    K[5][5] = 200.0;
 
     Mat6 C = zero66();  // no damping yet
 
-    // Roll damping: 5% * 2 * sqrt(I44*C44_) - 5% of the critical damping for roll - As in Seo's paper
-    C[3][3] = 0.05 * 2.0 * sqrt(I4_ * C44_);
+    Mat6 A_add = zero66();
+    A_add[0][0] = 0.1*mass_; // Surge estimate
+    A_add[1][1] = mass_; // Sway
+    A_add[2][2] = mass_; // Heave
+    A_add[3][3] = I4_;   // Roll
+    A_add[4][4] = I5_;   // Pitch
+    A_add[5][5] = I6_;   // Yaw
 
+    // Add an extra "added mass" term to the effective inertia to deal with the added mass instability
+    Mat6 M_eff = add66(M, A_add);
+
+    // Roll damping: 2% * 2 * sqrt(I44*C44_) - 2% of the critical damping for roll - As in Seo's paper
+    C[3][3] = 0.02 * 2.0 * sqrt(I4_ * C44_);
+    C[0][0] = 2*sqrt((M[0][0]) * K[0][0]);
+    C[1][1] = 2*sqrt((M[1][1]) * K[1][1]);
+    C[5][5] = 2*sqrt((M[5][5]) * K[5][5]);
+
+    // scalar time = db().time().value();
+    // scalar dampTime = 2*ramp_time_;
+    // if (time < dampTime)
+    // {
+    //     C[0][0] = 0.5*2*sqrt(K[0][0]*M[0][0]) * ((dampTime - time)/dampTime); // ramp up damping on surge/sway to avoid initial transients
+    //     C[1][1] = 0.5*2*sqrt(K[1][1]*M[1][1]) * ((dampTime - time)/dampTime);
+    //     C[2][2] = 0.5*2*sqrt(K[2][2]*M[2][2]) * ((dampTime - time)/dampTime);
+    //     C[3][3] = 0.5*2*sqrt(K[3][3]*M[3][3]) * ((dampTime - time)/dampTime);
+    //     C[4][4] = 0.5*2*sqrt(K[4][4]*M[4][4]) * ((dampTime - time)/dampTime);
+    //     C[5][5] = 0.5*2*sqrt(K[5][5]*M[5][5]) * ((dampTime - time)/dampTime);
+    // }
+    // C[0][0] = 5.0;
+
+
+    
+    
 
     // --- External load at n+1: wrench W=(M,F) -> f=[F,M]
     const spatialVector W = computeForce();
@@ -403,23 +417,26 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
     f[3] = f3_old*cH + f[4]*sH;
     f[4] = -f3_old*sH + f[4]*cH;
 
+    
+
     // --- Convert old states to arrays
     const Vec6 q_n   = q_from_spatial(Xb_old_);
     const Vec6 qd_n  = q_from_spatial(Ub_old_);
     Vec6 qdd_n       = q_from_spatial(a_old_);   // treat as same ordering
 
+    Vec6 f_eff = add6(f, matVec6(A_add, qdd_n));
     // Predictor terms
     const Vec6 xStar = add6( add6(q_n, scal6(dt, qd_n)),
-                             scal6(dt*dt*(0.5 - beta), qdd_n) );
+                            scal6(dt*dt*(0.5 - beta), qdd_n) );
 
     const Vec6 vStar = add6( qd_n, scal6(dt*(1.0 - gamma), qdd_n) );
 
     // Effective system: A*qdd_{n+1} = f - C*vStar - K*xStar
-    Mat6 A = add66( add66(M, scal66(gamma*dt, C)),
+    Mat6 A = add66(add66(M, scal66(gamma*dt, C)),
                     scal66(beta*dt*dt, K) );
 
-    Vec6 rhs = sub6( sub6(f, matVec6(C, vStar)),
-                     matVec6(K, xStar) );
+    Vec6 rhs = sub6(sub6(f, matVec6(C, vStar)),
+                    matVec6(K, xStar));
 
     // Solve for acceleration at n+1
     Vec6 qdd_np1 = solve6x6(A, rhs);
@@ -430,10 +447,14 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
     {
         qdd_np1[i] = aDamp_*(aRelax_*qdd_np1[i] + (1.0 - aRelax_)*qdd_prev[i]);
     }
-    // keep body fixed for first second.
-    if (runTime.value() < 1.0)
+    // Restrained body.  Zeroing the acceleration is enough to hold all 6 DOF:
+    // the Newmark predictors vStar/xStar are then zero at every step, so the
+    // velocity and displacement stay at zero and the patch condition reduces
+    // to the pure diffraction problem.  Set "fixBody" in
+    // constant/rigidBodyMotionProperties.
+    if (fixBody_)
     {
-        for (int i=0;i<6;++i) qdd_np1[i] = 0;
+        qdd_np1 = zero6();
     }
 
     // Update v and x
@@ -470,11 +491,28 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
     const vector Ulin(qd_np1[0] * cH + qd_np1[1] * sH, -qd_np1[0] * sH + qd_np1[1] * cH, qd_np1[2]);
     const vector omega(qd_np1[3] * cH + qd_np1[4] * sH, -qd_np1[3] * sH + qd_np1[4] * cH, qd_np1[5]);
 
+
     vectorField UbFace(Cf.size());
+    vectorField UIFace(Cf.size());
     forAll(Cf, i)
     {
         UbFace[i] = Ulin + (omega ^ (Cf[i] - xRef));
+        UIFace[i] = vector
+        (
+            amp_ * wavenumber_ * 9.81 / w_
+        * Foam::cosh(wavenumber_*(hdepth_ + Cf[i].z())) / Foam::cosh(wavenumber_*hdepth_)
+        * Foam::cos(wavenumber_ * Cf[i].x() - (w_ + wavenumber_ * currentspeed_ * Foam::cos(head_ang_)) * db().time().value())
+        * ramp_factor,   
+
+            0.0,
+
+            amp_ * wavenumber_ * 9.81 / w_
+        * Foam::sinh(wavenumber_*(hdepth_ + Cf[i].z())) / Foam::cosh(wavenumber_*hdepth_)
+        * Foam::sin(wavenumber_ * Cf[i].x() - (w_ + wavenumber_ * currentspeed_ * Foam::cos(head_ang_)) * db().time().value())
+        * ramp_factor
+        );
     }
+    
 
     // mj term:
     // -- Load Ucur 
@@ -487,11 +525,10 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
     const vectorField np(patch().nf());
 
     // Volume gradient of Ucur, then take boundary values on this patch
-    tmp<volTensorField> tGradU = fvc::grad(Ucur);
-    const volTensorField& gradU = tGradU();
-
-    const fvPatchTensorField& gradUpP = gradU.boundaryField()[patchi];
-    tensorField gradUp(gradUpP);  // make owned copy
+    const volTensorField& gradU = db().lookupObject<volTensorField>("gradUcur");
+    
+    // Get the reference to the exact faces on this specific boundary patch
+    const fvPatchTensorField& gradUp = gradU.boundaryField()[patchi];
 
     // Displacement amplitudes (mean-surface): translation X and small rotation theta
     const vector X = Xb_new_.l();
@@ -514,12 +551,12 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
         const vector grad_nDotU = (gradUp[i].T() & np[i]);
 
         // mj = - S · grad(n·U)
-        mj[i] = (S & grad_nDotU);
+        mj[i] = - (S & grad_nDotU);
     }
 
     
-	// Info << "mj sample: " << mj[0] << endl;
-    scalarField rhsBC = -(n & UbFace) - mj;
+    // Info << "mj sample: " << mj[0] << endl;
+    scalarField rhsBC = -(n & UbFace) + (n & UIFace) - mj;
     // scalarField rhsBC = -(n & UbFace);
     this->gradient() = rhsBC;
     // Info<< "Updated linearized rigid body BC on patch " << patch().name()
@@ -529,8 +566,22 @@ void Foam::linearizedRigidBodyFvPatchScalarField::updateCoeffs()
 
     // Pout << "print a few mj terms for debugging: " << mj[0] << " " << mj[mj.size()/2] << " " << mj[mj.size()-1] << endl;
 
-    lastUpdateTimeIndex_ = runTime.timeIndex();
+    const volVectorField& U = db().lookupObject<volVectorField>("U");
+    const vectorField& Ubd = U.boundaryField()[patchi];
 
+    // if (patch().size() > 0)
+    // {
+    //     Pout << "Time: " << db().time().value() 
+    //             << " | Sample U*n: " << (Ubd[0] & n[0]) 
+    //             << " | Sample UI*n: " << (UIFace[0] & n[0]) 
+    //             << " | rhsBC: " << rhsBC[0] 
+    //             << " | UbFace*n: " << (UbFace[0] & n[0])
+    //             << endl;
+    // }
+
+
+    lastUpdateTimeIndex_ = runTime.timeIndex();
+    
     fixedGradientFvPatchField<scalar>::updateCoeffs();
 }
 
@@ -637,6 +688,54 @@ namespace Foam {
 
         // spatialVector stores (angular, linear) = (moment, force)
         return spatialVector(M, F);
+    }
+
+    void Foam::linearizedRigidBodyFvPatchScalarField::readDicts()
+    {
+        // 1. Read Rigid Body Dictionary
+        const IOdictionary rbDict
+        (
+            IOobject("rigidBodyMotionProperties", db().time().constant(), db(), IOobject::MUST_READ, IOobject::NO_WRITE)
+        );
+        mass_ = rbDict.lookupOrDefault<scalar>("Mass", 1.0);
+        xG_   = rbDict.lookupOrDefault<scalar>("xG", 0.0);
+        zG_   = rbDict.lookupOrDefault<scalar>("zG", 0.0);
+        I4_   = rbDict.lookupOrDefault<scalar>("I4", 1.0);
+        I5_   = rbDict.lookupOrDefault<scalar>("I5", 1.0);
+        I6_   = rbDict.lookupOrDefault<scalar>("I6", 1.0);
+        I46_  = rbDict.lookupOrDefault<scalar>("I46", 0.0);
+        C33_  = rbDict.lookupOrDefault<scalar>("C33", 0.0);
+        C44_  = rbDict.lookupOrDefault<scalar>("C44", 0.0);
+        C55_  = rbDict.lookupOrDefault<scalar>("C55", 0.0);
+        C35_  = rbDict.lookupOrDefault<scalar>("C35", 0.0);
+        heading_ = rbDict.lookupOrDefault<scalar>("heading", 0.0);
+
+        // Hold the body at its mean position (fixed-body / diffraction problem)
+        fixBody_ = rbDict.lookupOrDefault<Switch>("fixBody", Switch(false));
+
+        Info<< "linearizedRigidBody: fixBody = " << fixBody_ << endl;
+
+        // 2. Read Wave Dictionary
+        const IOdictionary waveDict
+        (
+            IOobject("waveCurConditions", db().time().constant(), db(), IOobject::MUST_READ, IOobject::NO_WRITE)
+        );
+        steepness_    = waveDict.lookupOrDefault<scalar>("steepness", 0.01);
+        wavelength_   = waveDict.lookupOrDefault<scalar>("wavelength", 2.0);
+        currentspeed_ = waveDict.lookupOrDefault<scalar>("currentspeed", 0.0);
+        hdepth_       = waveDict.lookupOrDefault<scalar>("waterdepth", 1.0);
+        head_ang_     = waveDict.lookupOrDefault<scalar>("head_ang", 0.0);
+        rampperiod_   = waveDict.lookupOrDefault<scalar>("rampperiod", 0.0);
+
+        // 3. Pre-calculate all constant wave kinematics so updateCoeffs doesn't have to!
+        amp_        = 0.5 * steepness_ * wavelength_;
+        wavenumber_ = 2.0 * Foam::constant::mathematical::pi / wavelength_;
+        w_          = Foam::sqrt(9.81 * wavenumber_ * Foam::tanh(wavenumber_ * hdepth_));
+        
+        cosH_       = Foam::cos(head_ang_);
+        sinH_       = Foam::sin(head_ang_);
+        omega_e_    = w_ + wavenumber_ * currentspeed_ * cosH_; 
+        U_amp_      = amp_ * wavenumber_ * 9.81 / w_;
     }
 }
 

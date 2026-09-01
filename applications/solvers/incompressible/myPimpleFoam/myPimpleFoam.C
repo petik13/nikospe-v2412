@@ -110,32 +110,49 @@ int main(int argc, char *argv[])
 
     // Added Code by me: Initial conditions.
     // Access cell center coordinates
-    const volVectorField& C = mesh.C();
 
-    forAll(C, celli)
-	{
-		const scalar xcor = C[celli].x();
-		const scalar ycor = C[celli].y();
+    // Read properties
+    const IOdictionary iniDict
+    (
+        IOobject
+        (
+            "initialConditionsDict",
+            runTime.constant(),
+            mesh,
+            IOobject::MUST_READ,
+            IOobject::NO_WRITE
+        )
+    );
 
-		scalar x_rel = xcor - 2.2;
-		scalar y_rel = ycor;
-
-		scalar Ux =  0.647;
-		scalar Uy = 0.114;
-		scalar Uz = 0;
-        	scalar r = -0.05;
-
-		U[celli]    = vector(Ux + r * y_rel, Uy - r * x_rel, Uz);
-	
-	}
-
-    runTime.write();
-    U.write();
-    p.write();
-	    
-
+    // scalar U0 = iniDict.lookupOrDefault<scalar>("U0", 0.0);
+    // scalar xc = iniDict.lookupOrDefault<scalar>("xc", 2.834);
+    // scalar driftAngle = iniDict.lookupOrDefault<scalar>("driftAngle", 0.0);
+    // scalar yawRate = iniDict.lookupOrDefault<scalar>("yawRate", 0.0);
 
     
+    // const volVectorField& C = mesh.C();
+    // forAll(C, celli)
+	// {
+	// 	const scalar xcor = C[celli].x();
+	// 	const scalar ycor = C[celli].y();
+
+	// 	scalar x_rel = xcor - xc;
+	// 	scalar y_rel = ycor;
+
+	// 	scalar Ux =  U0 * Foam::cos(driftAngle * M_PI / 180.0);
+	// 	scalar Uy =  U0 * Foam::sin(driftAngle * M_PI / 180.0);
+	// 	scalar Uz = 0;
+    //     scalar r = yawRate;
+
+	// 	U[celli]    = vector(Ux + r * y_rel, Uy - r * x_rel, Uz);
+	
+	// }
+    // p.correctBoundaryConditions();
+    // U.correctBoundaryConditions();
+
+    // runTime.write();
+    // U.write();
+    // p.write();
 
     turbulence->validate();
 

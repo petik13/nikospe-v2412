@@ -1,4 +1,0 @@
-SOURCE = \
-motionSolvers/displacement/solidBody/solidBodyMotionFunctions/myOscillatingRotatingMotion/myOscillatingRotatingMotion.C \
-
-# sources

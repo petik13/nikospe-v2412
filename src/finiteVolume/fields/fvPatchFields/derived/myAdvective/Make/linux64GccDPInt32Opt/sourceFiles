@@ -1,4 +1,0 @@
-SOURCE = \
-myAdvectiveFvPatchFields.C \
-
-# sources

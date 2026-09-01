@@ -163,14 +163,19 @@ int main(int argc, char *argv[])
 	scalar wavelength = waveCurConditions.lookupOrDefault<scalar>("wavelength", 2.0);
 	scalar U0 = waveCurConditions.lookupOrDefault<scalar>("currentspeed", 0.0);
 	scalar hdepth = waveCurConditions.lookupOrDefault<scalar>("waterdepth", 1.0);
-	// const scalar R0 = readScalar(waveCurConditions.lookup("R0")); // radius of sphere
-	// const scalar xc = readScalar(waveCurConditions.lookup("xc")); // x coordinate of sphere center
+    scalar xdamp = waveCurConditions.lookupOrDefault<scalar>("xdamp", 40.0);
+    scalar currentspeed = waveCurConditions.lookupOrDefault<scalar>("currentspeed", 0.0);
+    scalar head_ang = waveCurConditions.lookupOrDefault<scalar>("head_ang", 0.0);
+    scalar rampperiod = waveCurConditions.lookupOrDefault<scalar>("rampperiod", 5.0);
 
 	// derived parameters
 	const scalar wavenumber(2.0 * Foam::constant::mathematical::pi / wavelength); 
 	const scalar amp(0.5 * steepness * wavelength);
-	const scalar w(U0 * wavenumber + Foam::sqrt(9.81 * wavenumber * Foam::tanh(wavenumber*hdepth)));
-	const scalar celerity(w/wavenumber); 
+	const scalar w(Foam::sqrt(9.81 * wavenumber * Foam::tanh(wavenumber*hdepth)));
+	const scalar celerity(w/wavenumber);
+    const scalar T(2.0 * Foam::constant::mathematical::pi / w);
+    const scalar ramp_time(rampperiod * T);
+     
 	
 
 	Info << "Wavelength: " << wavelength << " steepness: " << steepness << endl;
@@ -179,6 +184,7 @@ int main(int argc, char *argv[])
 	Info << "k (Wavenumber): " << wavenumber << endl;
 	Info << "w (Angular Frequency): " << w << endl;
 	Info << "C (Celerity) " << celerity << endl;
+    Info << "Period T: " << T << endl;
 	
 	
 	// ---------- Calculation of steady potential PhiCur ---------------------------------
@@ -201,40 +207,36 @@ int main(int argc, char *argv[])
         // }
     }
 
-    // Calculate d²PhiCur/dz²
-    const volTensorField PhiCurD2 = fvc::grad(fvc::grad(PhiCur));
-    // PhiCurDz2 = PhiCurD2.component(tensor::ZZ);
-
     // ---------- Set PhiCur instead using NKL everywhere in the domain (as a freestream undisturbed potential) ---------------------------------
-    // scalar heading	=  -30.0;
-    // scalar U0	=  0.387;
-    // scalar head_ang = heading*constant::mathematical::pi/180.0;
+    //scalar heading	=  -30.0;
+    //scalar U0	=  0.3087;
+    //scalar head_ang = heading*constant::mathematical::pi/180.0;
 
-    // scalar Ux = U0*Foam::cos(head_ang);
-    // scalar Uy = U0*Foam::sin(head_ang);
+    //scalar Ux = U0*Foam::cos(head_ang);
+    //scalar Uy = U0*Foam::sin(head_ang);
 
-    // const volVectorField& C = mesh.C();
-    // forAll(C, celli)
-    // {
-    //     const scalar xcor = C[celli].x();
-    //     const scalar ycor = C[celli].y();
+    //const volVectorField& C = mesh.C();
+    //forAll(C, celli)
+   // {
+     //   const scalar xcor = C[celli].x();
+       // const scalar ycor = C[celli].y();
 
-    //     PhiCur[celli] = -Ux*xcor - Uy*ycor;
-    //     Ucur[celli] = vector(Ux, Uy, 0.0);
-    // }
+       // PhiCur[celli] = -Ux*xcor - Uy*ycor;
+        //Ucur[celli] = vector(Ux, Uy, 0.0);
+   // }
 
-    // forAll(PhiCur.boundaryFieldRef(), patchI)
-    // {
-    //     auto& pPhi = PhiCur.boundaryFieldRef()[patchI];
+   // forAll(PhiCur.boundaryFieldRef(), patchI)
+   // {
+     //   auto& pPhi = PhiCur.boundaryFieldRef()[patchI];
 
-    //     forAll(pPhi, faceI)
-    //     {
-    //         // use face-centres for boundary faces
-    //         const vector& cf = mesh.Cf().boundaryField()[patchI][faceI];
-    //         PhiCur.boundaryFieldRef()[patchI][faceI] = -Ux*cf.x() - Uy*cf.y();
-    //         Ucur.boundaryFieldRef()[patchI][faceI] = vector(Ux, Uy, 0.0);
-    //     }
-    // }
+       // forAll(pPhi, faceI)
+        //{
+            // use face-centres for boundary faces
+          //  const vector& cf = mesh.Cf().boundaryField()[patchI][faceI];
+            //PhiCur.boundaryFieldRef()[patchI][faceI] = -Ux*cf.x() - Uy*cf.y();
+            //Ucur.boundaryFieldRef()[patchI][faceI] = vector(Ux, Uy, 0.0);
+        //}
+    //}
     
 	// Calculate Ucur
 	Ucur=-fvc::grad(PhiCur);//U = fvc::reconstruct(phi);
@@ -242,109 +244,233 @@ int main(int argc, char *argv[])
 	p3.write();
 	PhiCur.write();
 	Ucur.write();
+
+    // For the mj terms in the linearized BC
+    gradUcur = fvc::grad(Ucur);
+    gradUcur.write();
+
+    // Vertical straining of the steady flow, d(Ucur_z)/dz.
+    //
+    // The free-surface BC applies this as "+ PhiCurDz2*zeta", which per the
+    // kinematic condition  zeta_t + w_h.grad_h zeta = u_z + zeta*dw_z/dz
+    // needs dUcur_z/dz -- i.e. MINUS d2PhiCur/dz2, since Ucur = -grad(PhiCur).
+    // That is the sign the analytic version in PHIWaveCurSph2 supplied.
+    //
+    // Taken from the tangential components via continuity,
+    //     dUcur_z/dz = -(dUcur_x/dx + dUcur_y/dy),
+    // because on the flat 'upper' patch those are reconstructed along the
+    // well-resolved free-surface plane, whereas gradUcur.component(ZZ) there
+    // reduces to a one-sided normal difference divided by a small delta.
+    PhiCurDz2 = -(gradUcur.component(tensor::XX) + gradUcur.component(tensor::YY));
+    // const volTensorField PhiCurD2 = fvc::grad(fvc::grad(PhiCur));
+    // PhiCurDz2 = -PhiCurD2.component(tensor::ZZ);
     PhiCurDz2.write();
 
 	// ---------- End of steady potential calculation ---------------------------------
-
-
-    
-    
-    // Initial conditions for Phi
-    const vectorField& cellCenters = mesh.C();
-    forAll(cellCenters, cellI)
-    {
-        const scalar xc = cellCenters[cellI].x();
-        const scalar zc = cellCenters[cellI].z();
-
-        Phi[cellI] = - amp * (9.81 / w)
-            *(Foam::cosh(wavenumber *(hdepth+zc))/Foam::cosh(wavenumber*hdepth))
-            * Foam::sin(wavenumber * xc);
-    }
-    // Phi.correctBoundaryConditions(); // it's crashing with this.
-    Phi.write();
     
 
     // -- Main time loop
-	while (runTime.loop()) // main loop
+    while (runTime.loop()) 
     {
-		// ++runTime; // why is this needed? -> because runtime.run() is used not .loop(). So only checks if it should finish.
-		// no auto update of time
-		
-		Info << "Time = " << runTime.timeName()
-         << "  deltaT = " << runTime.deltaTValue() << endl;	
+        Info << "Time = " << runTime.timeName() << "  deltaT = " << runTime.deltaTValue() << endl; 
         
-		#include "CourantNo.H"
+        #include "CourantNo.H"
 
-		// Non-orthogonal velocity potential corrector loop
-		while (turgutFlow.correctNonOrthogonal()) // Numer given in fvSolution for turgutFlow
-		{
-			
-			fvScalarMatrix PhiEqn
-			(
-				fvm::laplacian(dimensionedScalar("1", dimless, 1), Phi)  // div(Gamma*grad(Phi)) where Gamma("Name", dimension, value) = 1
-			  ==
-				Zero //dimensionedScalar("1", dimensionSet(0,-2,1,0,0,0,0), 1)*fvOptions(Phi) //fvc::div(phi)//
-			);
+        // =========================================================================
+        // PHASE 1: ADVANCE INCIDENT POTENTIAL (BEFORE SOLVING AND WRITING!)
+        // =========================================================================
+        scalar t = runTime.value();
+        
+        // Safely get a mutable reference to the internal field array
+        scalarField& PhiI_internal = PhiI.primitiveFieldRef();
+        const vectorField& cellCenters = mesh.C();
+        const scalar ramp_factor = 0.5 * (1.0 - Foam::cos(Foam::constant::mathematical::pi * min(1.0, t / ramp_time)));
 
-			
-			PhiEqn.setReference(PhiRefCell, PhiRefValue); // Set reference to fix the potential level at give sel in fvSolution
-			PhiEqn.solve();
-			
-			if (turgutFlow.finalNonOrthogonalIter())
-			{
-				phi -= PhiEqn.flux();
-		    }
-		}
-		
-		Info << "Iterative loop ended \n" << endl;
+        // Time derivative of the ramp.  PhiI is the product PhiI = P(x,z,t)*ramp(t),
+        // so its exact time derivative is  dPhiI/dt = P_t*ramp + P*ramp'(t).  The
+        // second piece is only non-zero during the ramp, but it reaches ~8% of the
+        // first one there, and dropping it makes the Bernoulli pressure inconsistent
+        // with the PhiI actually imposed.  sin(pi) = 0, so this is continuous at
+        // t = ramp_time.
+        const scalar ramp_dot =
+            (t < ramp_time)
+          ? 0.5 * Foam::constant::mathematical::pi / ramp_time
+                * Foam::sin(Foam::constant::mathematical::pi * t / ramp_time)
+          : 0.0;
+        forAll(cellCenters, cellI)
+        {
+            const scalar xc = cellCenters[cellI].x();
+            const scalar zc = cellCenters[cellI].z();
+            
+            const scalar coshTerm = Foam::cosh(wavenumber*(hdepth + zc)) / Foam::cosh(wavenumber*hdepth);
+            const scalar sinhTerm = Foam::sinh(wavenumber*(hdepth + zc)) / Foam::cosh(wavenumber*hdepth);
+            const scalar phase = wavenumber * xc - (w + wavenumber * currentspeed * Foam::cos(head_ang)) * t;
 
-		Info<< "Continuity error from phi = "
-			<< mag(fvc::div(phi))().weightedAverage(mesh.V()).value()
-			<< endl;
-		
-		p = fvc::ddt(Phi)-(Ucur & U); // integrated U**2 term should be 0
-		U=-fvc::grad(Phi);
-		p2 = fvc::ddt(Phi)-(Ucur & U);
-		p3 = 0.5*(U & U);
-		phi = fvc::flux(U);
+            PhiI_internal[cellI] = -amp * (9.81 / w)
+                * coshTerm
+                * Foam::sin(wavenumber * xc  - (w + wavenumber * currentspeed * Foam::cos(head_ang)) * t)
+                * ramp_factor;
+            
+
+            UI[cellI] = vector(
+                amp * (9.81 * wavenumber / w) * coshTerm * Foam::cos(phase) * ramp_factor,
+                0.0,
+                amp * (9.81 * wavenumber / w) * sinhTerm * Foam::sin(phase) * ramp_factor
+            );
+            
+        }
+
+        // Set values on boundaries!
+        forAll(mesh.boundary(), patchI)
+        {
+            vectorField& UIPatch = UI.boundaryFieldRef()[patchI];
+            scalarField& PhiIPatch = PhiI.boundaryFieldRef()[patchI];
+            vectorField& zetaIPatch = zetaI.boundaryFieldRef()[patchI];
+            
+            const vectorField& CfPatch = mesh.boundary()[patchI].Cf();
+
+            forAll(CfPatch, faceI)
+            {
+                const scalar xc = CfPatch[faceI].x();
+                const scalar zc = CfPatch[faceI].z();
+                const scalar coshTerm = Foam::cosh(wavenumber*(hdepth + zc)) / Foam::cosh(wavenumber*hdepth);
+                const scalar sinhTerm = Foam::sinh(wavenumber*(hdepth + zc)) / Foam::cosh(wavenumber*hdepth);
+                const scalar phase = wavenumber * xc - (w + wavenumber * currentspeed * Foam::cos(head_ang)) * t;
+
+                PhiIPatch[faceI] = -amp * (9.81 / w) * coshTerm * Foam::sin(phase) * ramp_factor;
+                
+                UIPatch[faceI] = vector(
+                    amp * (9.81 * wavenumber / w) * coshTerm * Foam::cos(phase) * ramp_factor,
+                    0.0,
+                    amp * (9.81 * wavenumber / w) * sinhTerm * Foam::sin(phase) * ramp_factor
+                );
+
+                // Only apply zeta to the upper patch (assuming patch 0 or check name)
+                if (mesh.boundary()[patchI].name() == "upper") {
+                    zetaIPatch[faceI] = vector(0.0, 0.0, amp * Foam::cos(phase) * ramp_factor);
+                }
+            }
+        }
+
+        forAll(cellCenters, cellI)
+        {
+            const scalar xc = cellCenters[cellI].x();
+            const scalar zc = cellCenters[cellI].z();
+            
+            const scalar we = w + wavenumber * currentspeed * Foam::cos(head_ang);
+            const scalar coshTerm = Foam::cosh(wavenumber*(hdepth + zc)) / Foam::cosh(wavenumber*hdepth);
+            const scalar phase = wavenumber * xc - we * t;
+
+
+            // Analytical time derivative of PhiI!
+            //   d/dt [ P * ramp ] = P_t * ramp + P * ramp'
+            // with P = -amp*(9.81/w)*coshTerm*sin(phase)
+            ddtPhiI[cellI] =
+                we/w*amp * 9.81 * coshTerm * Foam::cos(phase) * ramp_factor
+              - amp * (9.81 / w) * coshTerm * Foam::sin(phase) * ramp_dot;
+        }
+
+        // Force it onto the boundaries just like you did for PhiI and UI
+        const fvBoundaryMesh& boundary = mesh.boundary();
+        forAll(boundary, patchI)
+        {
+            scalarField& ddtPhiIPatch = ddtPhiI.boundaryFieldRef()[patchI];
+            
+            // Get the face centers from the fvPatch, not the polyPatch!
+            const vectorField& CfPatch = boundary[patchI].Cf();
+            
+            forAll(CfPatch, faceI)
+            {
+                const scalar xc = CfPatch[faceI].x();
+                const scalar zc = CfPatch[faceI].z();
+                const scalar we = w + wavenumber * currentspeed * Foam::cos(head_ang);
+                const scalar coshTerm = Foam::cosh(wavenumber*(hdepth + zc)) / Foam::cosh(wavenumber*hdepth);
+                const scalar phase = wavenumber * xc - we* t;
+                
+                ddtPhiIPatch[faceI] =
+                    we/w*amp * 9.81 * coshTerm * Foam::cos(phase) * ramp_factor
+                  - amp * (9.81 / w) * coshTerm * Foam::sin(phase) * ramp_dot;
+            }
+        }
+
+        // CRITICAL: Synchronize parallel ghost cells and update other boundaries
+        PhiI.correctBoundaryConditions();
+        zetaI.correctBoundaryConditions();
+        UI.correctBoundaryConditions();       
+        ddtPhiI.correctBoundaryConditions(); 
+        
+        // =========================================================================
+        // PHASE 2: SOLVER EQUATIONS (Your Scattered Potential)
+        // =========================================================================
+        while (turgutFlow.correctNonOrthogonal()) 
+        {
+            fvScalarMatrix PhiEqn
+            (
+                fvm::laplacian(dimensionedScalar("1", dimless, 1), PhiD) 
+            ==
+                Zero 
+            );
+
+            PhiEqn.setReference(PhiRefCell, PhiRefValue); 
+            PhiEqn.solve();
+
+            // 1. Calculate UD first
+            UD = -fvc::grad(PhiD);
+            
+            // 2. Sum Phi and U BEFORE taking gradients/fluxes!
+            Phi = PhiI + PhiD;
+            U = UI + UD;
+            zeta = zetaI + zetaD;
+
+            // Now the BC will see the updated pressure on the next iteration!
+            p = ddtPhiI + fvc::ddt(PhiD) - (Ucur & U);
+            p2 = ddtPhiI + fvc::ddt(PhiD) - (Ucur & U);
+            p4 = -0.5 * (U & U);
+            
+
+            // 3. Update total velocities and fluxes
+            if (turgutFlow.finalNonOrthogonalIter())
+            {
+                // 3. NOW calculate the total flux perfectly!
+                phi = -fvc::snGrad(Phi) * mesh.magSf();
+            }
+            
+        }
+
+        // U.correctBoundaryConditions();
+        Phi.correctBoundaryConditions();
+        zeta.correctBoundaryConditions();
+        // Sum to total
         
 
-		
-		Info<< "Continuity error from U = "
-			<< mag(fvc::div(U))().weightedAverage(mesh.V()).value()
-			<< endl;
-		
-		
-		Info<< "Continuity error  = "
-        << mag(fvc::div(phi))().weightedAverage(mesh.V()).value()
-        << endl;
-		
-		
-		
-		// Optionally write the volumetric flux, phi
-		if (args.found("writephi"))
-		{
-			phi.write();
-		}
+        
+        Info << "Iterative loop ended \n" << endl;
+        Info << "Continuity error from phi = " << mag(fvc::div(phi))().weightedAverage(mesh.V()).value() << endl;
+        
+        // p = ddtPhiI + fvc::ddt(PhiD)-(Ucur & U); 
+        // p2 = ddtPhiI + fvc::ddt(PhiD)-(Ucur & U);
+        
+        Info << "Continuity error from U = " << mag(fvc::div(U))().weightedAverage(mesh.V()).value() << endl;
 
-		// Optionally write velocity potential, Phi
-		if (args.found("writePhi"))
-		{
-			Phi.write();
-		}
 
-        // -- Explicit write of some fields
+        // =========================================================================
+        // PHASE 3: WRITE TO DISK
+        // =========================================================================
+        if (args.found("writephi")) { phi.write(); }
+        if (args.found("writePhi")) { Phi.write(); }
+
         if (runTime.writeTime())
         {
+            U.write();
             zetaDx.write();
             PhiDx.write();
             PhiDy.write();
         }
-		
-		runTime.write(); // write time directory when needed
-		
-		runTime.printExecutionTime(Info);
-		
+        
+        // PhiI and zetaI are AUTO_WRITE, so they will be correctly written to disk here!
+        runTime.write(); 
+        
+        runTime.printExecutionTime(Info);
     }
 
 	runTime.functionObjects().end();
