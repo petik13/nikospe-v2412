@@ -1,1 +1,0 @@
-../waveCurrentPotential3DFvPatchScalarFieldOLD.C

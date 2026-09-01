@@ -1,1 +1,0 @@
-../linearizedRigidBodyFvPatchScalarField.C
