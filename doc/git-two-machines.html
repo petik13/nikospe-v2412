@@ -922,6 +922,72 @@ Password: &lt;paste the token, not your GitHub password&gt;</span></pre>
 <span class="p">$</span> cd nikospe-v2412
 <span class="p">$</span> ./Allmake.sh                   <span class="c"># compile: binaries are not in git</span></pre>
     </div>
+
+    <h3>Starting fresh on a machine that already has a copy</h3>
+    <p>
+      When a machine's copy has drifted far enough that untangling it isn't worth the effort, the
+      cleanest move is to delete it and clone again. GitHub holds the truth; the local copy is
+      disposable. But <strong>check for work that exists only on that machine first</strong> —
+      once the folder is gone, anything never pushed is gone with it.
+    </p>
+
+    <h4>Step 1 — Check before you delete</h4>
+    <p>Run all four. If every one comes back empty, nothing is at risk.</p>
+
+    <div class="term">
+      <pre><span class="p">$</span> cd &lt;the old copy&gt;
+<span class="p">$</span> git status --short             <span class="c"># uncommitted edits + untracked files</span>
+<span class="p">$</span> git stash list                 <span class="c"># forgotten stashes</span>
+<span class="p">$</span> git fetch origin
+<span class="p">$</span> git log --branches --not --remotes --oneline
+<span class="c">#   ^ THE IMPORTANT ONE: commits on any local branch</span>
+<span class="c">#     that exist nowhere on GitHub</span></pre>
+    </div>
+
+    <div class="note warn">
+      <p class="note-title">If that last command prints anything</p>
+      <p>
+        Those commits exist only on that machine. Push them before deleting anything:
+        <code>git push origin &lt;branch&gt;</code> — or, if you don't want them on
+        <code>main</code>, park them on a branch of their own:
+        <code>git push origin HEAD:rescue-workstation</code>. You can sort out what to keep later,
+        from any machine.
+      </p>
+    </div>
+
+    <h4>Step 2 — Save anything that isn't code</h4>
+    <p>
+      Case directories, meshes and results are usually <em>not</em> in git — they're often ignored
+      or were never added. Copy anything you still need somewhere outside the folder before it goes.
+    </p>
+
+    <div class="term">
+      <pre><span class="p">$</span> cp -r run/myImportantCase ~/keep/    <span class="c"># results are not in git</span></pre>
+    </div>
+
+    <h4>Step 3 — Delete and re-clone</h4>
+
+    <div class="term">
+      <pre><span class="p">$</span> cd ~/OpenFOAM
+<span class="p">$</span> mv nikospe-v2412 nikospe-v2412.old   <span class="c"># rename, don't rm — reversible</span>
+
+<span class="p">$</span> git clone git@github.com:petik13/nikospe-v2412.git
+<span class="p">$</span> cd nikospe-v2412
+<span class="p">$</span> git log --oneline -3                 <span class="c"># confirm it matches GitHub</span>
+<span class="p">$</span> ./Allmake.sh                         <span class="c"># compile from scratch</span>
+
+<span class="c"># Only once the new copy builds and runs:</span>
+<span class="p">$</span> rm -rf ~/OpenFOAM/nikospe-v2412.old</pre>
+    </div>
+
+    <div class="note ok">
+      <p class="note-title">Rename first, delete last</p>
+      <p>
+        <code>mv</code> costs nothing and buys you a full undo. Keep the old folder until the fresh
+        clone has compiled and produced results you trust — then remove it. Deleting first and
+        discovering the problem afterwards is the one order with no way back.
+      </p>
+    </div>
   </section>
 
   <!-- ============ 5 ============ -->

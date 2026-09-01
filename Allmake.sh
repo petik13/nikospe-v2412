@@ -23,7 +23,6 @@ esac
 targets=(
     # --- Libraries (built first; the solvers below link against these) ---
     src/myFiniteVolume                                                    # libmyMovingWallSlip
-    src/myFvMotionSolver                                                  # libmyFvMotionSolvers
     src/finiteVolume/fields/fvPatchFields/derived/myAdvective             # libmyAdvective
     src/finiteVolume/fields/fvPatchFields/derived/rigidTurgutBody         # librigidTurgutBody
     src/finiteVolume/fields/fvPatchFields/derived/linearizedRigidBody     # liblinearizedRigidBody
@@ -45,6 +44,12 @@ targets=(
 
 #------------------------------------------------------------------------------
 # Deliberately NOT built:
+#
+#   src/myFvMotionSolver
+#       No longer used. Does not compile against v2412 anyway:
+#       timeVaryingMotionInterpolationPointPatchField.C calls
+#       pointToPointPlanarInterpolation::findTime(), which OpenFOAM removed.
+#       The source is kept in the repository, just not built.
 #
 #   src/finiteVolume/fields/fvPatchFields/derived/OLDlinBodyMotion
 #       Archived copy. Its Make/files builds the SAME target as linBodyMotion
