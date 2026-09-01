@@ -1,3 +1,0 @@
-motionSolvers/displacement/solidBody/solidBodyMotionFunctions/myOscillatingRotatingMotion/myOscillatingRotatingMotion.C
-
-LIB = $(FOAM_USER_LIBBIN)/libmyDynamicMesh

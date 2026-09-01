@@ -24,7 +24,6 @@ targets=(
     # --- Libraries (built first; the solvers below link against these) ---
     src/myFiniteVolume                                                    # libmyMovingWallSlip
     src/myFvMotionSolver                                                  # libmyFvMotionSolvers
-    src/dynamicMesh                                                       # libmyDynamicMesh
     src/finiteVolume/fields/fvPatchFields/derived/myAdvective             # libmyAdvective
     src/finiteVolume/fields/fvPatchFields/derived/rigidTurgutBody         # librigidTurgutBody
     src/finiteVolume/fields/fvPatchFields/derived/linearizedRigidBody     # liblinearizedRigidBody
