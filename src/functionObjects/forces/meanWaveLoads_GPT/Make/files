@@ -1,3 +1,0 @@
-meanWaveLoads.C
-
-LIB = $(FOAM_USER_LIBBIN)/libMeanWaveLoads

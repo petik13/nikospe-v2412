@@ -1,3 +1,0 @@
-meanWaveLoadsClaude.C
-
-LIB = $(FOAM_USER_LIBBIN)/libMeanWaveLoadsClaude
