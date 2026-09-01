@@ -534,6 +534,7 @@
       <li><a href="#model">How git actually works<span class="sub">four places a file can live</span></a></li>
       <li><a href="#loop">The daily loop<span class="sub">pull → work → commit → push</span></a></li>
       <li><a href="#twomachines">Working on two machines<span class="sub">the rules that prevent pain</span></a></li>
+      <li><a href="#branches">Working with branches<span class="sub">trying things without risk</span></a></li>
       <li><a href="#credentials">Setting up credentials<span class="sub">on the remote workstation</span></a></li>
       <li><a href="#openfoam">What never to commit<span class="sub">OpenFOAM build artifacts</span></a></li>
       <li><a href="#trouble">When things go wrong<span class="sub">real errors, real fixes</span></a></li>
@@ -828,15 +829,165 @@ Your branch is up to date with 'origin/main'.</span>          <span class="c"># 
 
     <div class="term">
       <pre><span class="p">$</span> git pull                       <span class="c"># merges GitHub's work into yours</span>
-<span class="c"># resolve any conflicts (see section 06), then:</span>
+<span class="c"># resolve any conflicts (see section 07), then:</span>
 <span class="p">$</span> git push</pre>
     </div>
   </section>
 
   <!-- ============ 4 ============ -->
-  <section id="credentials">
+  <section id="branches">
     <div class="sec-head">
       <span class="sec-num">04</span>
+      <h2 class="sec-title">Working with branches</h2>
+    </div>
+
+    <p>
+      A branch is a separate line of commits. You leave <code>main</code> in a state that works,
+      go off and try something, and only bring it back when it's worth keeping. If the experiment
+      fails you delete the branch and <code>main</code> never knew about it.
+    </p>
+
+    <p>
+      For research code this maps neatly onto trying a numerical scheme or a physical model:
+      <em>one branch per idea</em>, named after the idea. This repository already did that —
+      <code>higher_order_scheme</code>, <code>reduce_dissipation</code>, <code>fixMWL</code>,
+      <code>diffOnly</code> — which is the right instinct.
+    </p>
+
+    <h3>The lifecycle</h3>
+
+    <div class="term">
+      <pre><span class="c"># 1. Start from an up-to-date main</span>
+<span class="p">$</span> git switch main
+<span class="p">$</span> git pull
+
+<span class="c"># 2. Branch off. -c creates it and switches to it.</span>
+<span class="p">$</span> git switch -c fourth-order-damping
+
+<span class="c"># 3. Work normally — commit as often as you like</span>
+<span class="p">$</span> git add -A
+<span class="p">$</span> git commit -m "Try 4th-order dissipation on free surface"
+
+<span class="c"># 4. Bring it back into main once it works</span>
+<span class="p">$</span> git switch main
+<span class="p">$</span> git pull                            <span class="c"># main may have moved on</span>
+<span class="p">$</span> git merge fourth-order-damping
+<span class="p">$</span> git push
+
+<span class="c"># 5. Delete the branch — its commits now live in main</span>
+<span class="p">$</span> git branch -d fourth-order-damping</pre>
+    </div>
+
+    <h3>Everyday branch commands</h3>
+
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th style="width:44%">Command</th><th>What it does</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>git branch</code></td><td>List local branches; <code>*</code> marks the current one</td></tr>
+          <tr><td><code>git branch -vv</code></td><td>Same, plus each branch's GitHub counterpart and how far ahead/behind</td></tr>
+          <tr><td><code>git switch &lt;name&gt;</code></td><td>Move to an existing branch</td></tr>
+          <tr><td><code>git switch -c &lt;name&gt;</code></td><td>Create a new branch and move to it</td></tr>
+          <tr><td><code>git switch -</code></td><td>Jump back to the branch you were just on</td></tr>
+          <tr><td><code>git merge &lt;name&gt;</code></td><td>Pull that branch's work <em>into</em> the branch you're on</td></tr>
+          <tr><td><code>git branch -d &lt;name&gt;</code></td><td>Delete — refuses if the work isn't merged anywhere</td></tr>
+          <tr><td><code>git branch --merged</code></td><td>List branches already folded into the current one: safe to delete</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note">
+      <p class="note-title">Merge direction is easy to get backwards</p>
+      <p>
+        <code>git merge X</code> brings X <em>into where you are now</em>. To get a branch into
+        <code>main</code> you must be <strong>on main</strong> first. Check with
+        <code>git status</code> before merging — the first line tells you which branch you're on.
+      </p>
+    </div>
+
+    <h3>Branches across two machines</h3>
+    <p>
+      A new branch exists only on the machine that made it until you push it. The first push needs
+      <code>-u</code>, which links your local branch to its GitHub counterpart so that plain
+      <code>git push</code> and <code>git pull</code> work from then on:
+    </p>
+
+    <div class="term">
+      <pre><span class="c"># On the machine that created the branch</span>
+<span class="p">$</span> git push -u origin fourth-order-damping
+
+<span class="c"># On the other machine — pick it up</span>
+<span class="p">$</span> git fetch origin
+<span class="p">$</span> git switch fourth-order-damping     <span class="c"># git finds it on origin automatically</span></pre>
+    </div>
+
+    <h3>Keep branches short</h3>
+    <p>
+      This is the one lesson worth taking seriously. The longer a branch runs beside
+      <code>main</code>, the more the two drift apart and the harder the eventual merge becomes.
+    </p>
+
+    <div class="note danger">
+      <p class="note-title">What a long-lived branch cost here</p>
+      <p>
+        <code>diffOnly</code> ran alongside <code>main</code> for a long stretch, with both sides
+        editing the same solvers. Merging it produced <strong>44 conflicts</strong>, two of which
+        were genuinely dangerous — one wouldn't compile, and one would have silently dropped the
+        wave-elevation line force from the reported totals. Merging back weekly, rather than at the
+        end, would have turned that into a handful of small conflicts.
+      </p>
+    </div>
+
+    <p>
+      A practical rhythm: merge <code>main</code> <em>into</em> your branch every so often, so the
+      branch keeps up and the surprises stay small:
+    </p>
+
+    <div class="term">
+      <pre><span class="p">$</span> git switch fourth-order-damping
+<span class="p">$</span> git merge main                      <span class="c"># catch up with main; fix small conflicts now</span></pre>
+    </div>
+
+    <h3>Deleting branches safely</h3>
+    <p>
+      Once merged, a branch name has done its job — the commits live on in <code>main</code>.
+      Deleting is tidying, not throwing work away.
+    </p>
+
+    <div class="term">
+      <pre><span class="p">$</span> git branch -d old-experiment        <span class="c"># local; REFUSES if unmerged</span>
+<span class="p">$</span> git push origin --delete old-experiment   <span class="c"># and on GitHub</span>
+
+<span class="c"># On other machines, clear out names that no longer exist</span>
+<span class="p">$</span> git fetch --prune origin</pre>
+    </div>
+
+    <div class="note warn">
+      <p class="note-title">-d protects you, -D does not</p>
+      <p>
+        Lowercase <code>-d</code> refuses to delete a branch holding work that isn't merged
+        anywhere — treat that refusal as a warning worth reading, not an obstacle. Capital
+        <code>-D</code> forces it through and is how unmerged work gets lost. Reach for
+        <code>-D</code> only when you genuinely want to throw an experiment away.
+      </p>
+    </div>
+
+    <h3>Do you always need a branch?</h3>
+    <p>
+      No. Working directly on <code>main</code> is perfectly reasonable for a single researcher
+      making steady progress, and it's what this repository does now. Branch when the work is
+      <em>speculative</em> — something you might abandon, or that would leave <code>main</code>
+      broken halfway through. For a bug fix or a small improvement, just commit to
+      <code>main</code> and push.
+    </p>
+  </section>
+
+  <!-- ============ 5 ============ -->
+  <section id="credentials">
+    <div class="sec-head">
+      <span class="sec-num">05</span>
       <h2 class="sec-title">Setting up credentials</h2>
     </div>
 
@@ -990,10 +1141,10 @@ Password: &lt;paste the token, not your GitHub password&gt;</span></pre>
     </div>
   </section>
 
-  <!-- ============ 5 ============ -->
+  <!-- ============ 6 ============ -->
   <section id="openfoam">
     <div class="sec-head">
-      <span class="sec-num">05</span>
+      <span class="sec-num">06</span>
       <h2 class="sec-title">What never to commit</h2>
     </div>
 
@@ -1080,10 +1231,10 @@ log
     </div>
   </section>
 
-  <!-- ============ 6 ============ -->
+  <!-- ============ 7 ============ -->
   <section id="trouble">
     <div class="sec-head">
-      <span class="sec-num">06</span>
+      <span class="sec-num">07</span>
       <h2 class="sec-title">When things go wrong</h2>
     </div>
 
@@ -1144,7 +1295,7 @@ log
           </tr>
           <tr>
             <td><code>could not read Username for 'https://github.com'</code></td>
-            <td>No credentials configured. See section 04.</td>
+            <td>No credentials configured. See section 05.</td>
           </tr>
           <tr>
             <td><code>Your branch is ahead of 'origin/main' by N commits</code></td>
@@ -1220,10 +1371,10 @@ log
     </div>
   </section>
 
-  <!-- ============ 7 ============ -->
+  <!-- ============ 8 ============ -->
   <section id="reference">
     <div class="sec-head">
-      <span class="sec-num">07</span>
+      <span class="sec-num">08</span>
       <h2 class="sec-title">Quick reference</h2>
     </div>
 
