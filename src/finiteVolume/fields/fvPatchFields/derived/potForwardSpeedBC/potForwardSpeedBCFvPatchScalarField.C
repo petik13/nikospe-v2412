@@ -276,6 +276,7 @@ void Foam::potForwardSpeedBCFvPatchScalarField::freeSurfaceRates
     // Steady basis flow and the vertical straining dWz/dz it imposes on the
     // free surface.  Wz vanishes on z = 0 for a double-body flow, so only the
     // horizontal components of W enter the convective terms.
+    
     const volVectorField& Us = db().lookupObject<volVectorField>("Us");
     const vectorField& W = Us.boundaryField()[patchi];
 
@@ -564,9 +565,6 @@ void Foam::potForwardSpeedBCFvPatchScalarField::updateCoeffs()
     }
     else
     {
-        // Symplectic Euler: the dynamic condition uses the elevation just
-        // updated, which keeps the discrete free-surface oscillator neutral
-        // rather than growing.
         zetaDp = zetaDOld + dt*dZetaDdt;
         phiCalc = PhiDOld + dt*dPhiDdt;
     }
