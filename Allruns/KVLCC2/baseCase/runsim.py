@@ -264,10 +264,6 @@ update_file('i_y', i_[1], path='system/topoSetDict.6')
 update_file('j_x', j_[0], path='system/topoSetDict.6')
 update_file('j_y', j_[1], path='system/topoSetDict.6')
 """
-# -- Modify runCase.sh
-rcpath = 'runCase.sh'
-hf.console("Modifying runCase.sh")
-update_file('Nproc', f'={Nproc}', path=rcpath, endl='')
 
 # -- Modify decomposeParDict
 dpdpath = os.path.join('system', 'decomposeParDict')

@@ -19,24 +19,24 @@ FoamFile
 // diffraction problem and the m-terms drop out.
 fixBody             false;
 
-heading	3.142;
-xG	27.0;
+heading	2.094;
+xG	49.0;
 zG                  -0.0224;
 
 // Reference dimensions, used to non-dimensionalise the loads
-Lpp                 3.2;        // length between perpendiculars [m]
-beam                0.58;       // moulded breadth [m]
+Lpp	3.2;
+beam	0.58;
 
 mass                312.622;
 
 I44                 10.56;
 I55                 182.85;
-I66                 182.85;
+I66                 200.08;
 I46                 0.0;
 
 C33                 16401.0;   // rho g Awp
 C44                 177.88;
-C55                 11806.0;
+C55                 12222.818;
 C35                 1806.4;
 
 rollDampingFraction 0.02;       // fraction of critical, roll only
@@ -47,9 +47,9 @@ rollDampingFraction 0.02;       // fraction of critical, roll only
 // the mean position without touching the wave-frequency response:
 //     T_n = 2 pi sqrt( (m + a) / K )   =>   K = (m + a) (2 pi / T_n)^2
 // Zero leaves the DOF free.
-mooringK11              300;      // surge [N/m]
-mooringK22              300;      // sway  [N/m]
-mooringK66              150;      // yaw   [N m/rad]
+mooringK11              60;      // surge [N/m]
+mooringK22              130;      // sway  [N/m]
+mooringK66              100;      // yaw   [N m/rad]
 
 // Damping on the moored DOF as a fraction of critical, to bleed off the slow
 // drift oscillation the springs would otherwise sustain.  Formed from the dry
@@ -73,7 +73,6 @@ addedMass           (0 0 0 0 0 0);
 // cancels once the correctors converge -- but then provides no stabilisation.
 addedMassFromTimeStep   true;
 steadyRestoring         false;
-
 
 // Under-relaxation and decay on the new acceleration; 1 is off
 accelRelaxation     0.3;
