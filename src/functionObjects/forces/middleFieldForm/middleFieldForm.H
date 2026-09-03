@@ -103,6 +103,20 @@ protected:
         word UsName_;
         word zetaName_;
 
+        //- Disturbance velocity and its potential.  The momentum flux is
+        //  dominated by (u.n)u, and on an internal face the normal derivative
+        //  of the DISTURBANCE potential is far better resolved by the compact
+        //  two-point snGrad -- which carries the non-orthogonal correction --
+        //  than by interpolating a cell-centred gradient to the face, which
+        //  stacks two uncorrected discretisations.  The incident part is
+        //  analytic and is left alone.
+        word UDName_;
+        word PhiDName_;
+
+        //- Take the disturbance normal component from snGrad(PhiD) rather
+        //  than from the interpolated cell gradient
+        Switch snGradNormal_;
+
         //- Control surface and the point used to orient its normals outward
         word faceZoneName_;
         label faceZoneID_;
@@ -120,23 +134,21 @@ protected:
         point CofR_;
 
         //- Contributions, kept apart so the balance can be inspected: the
-        //  total is a difference of larger, individually CV-dependent terms
+        //  total is a difference of larger, individually CV-dependent terms.
+        //
+        //  WARNING: only the YAW component of the moment is complete.  The
+        //  angular-momentum balance carries a waterline term
+        //
+        //      k x ( 1/2 <zeta^2> q_0 )
+        //
+        //  from the position vector varying up the strip, r = r_h + z k.  It
+        //  is purely horizontal, so it drops out of yaw but is a real part of
+        //  roll and pitch -- as is the buoyancy moment, which likewise only
+        //  disappeared from yaw because it has no vertical component.  Neither
+        //  is computed here.  Read moment().z() only.
         vector surfaceForce_,   surfaceMoment_;
         vector elevationForce_, elevationMoment_;
         vector stripForce_,     stripMoment_;
-
-        //- Discrete waterline closure, reported once.  The strip term's two
-        //  halves cancel for a plane wave only if the contour satisfies
-        //      int n dl = 0        (closure -- all the FORCE needs)
-        //      int r_x n_x dl = int r_y n_y dl = A_cv   (first moments)
-        //      int r_x n_y dl = int r_y n_x dl = 0
-        //  so a contour that closes can still give a wrong MOMENT.  A
-        //  non-zero (rxnx - ryny) leaves a spurious yaw moment that scales
-        //  with omega, W and the CV plan area, and so does not decay in long
-        //  waves the way a physical drift moment must.
-        mutable bool closureReported_;
-        vector clNet_;
-        scalar clRxnx_, clRyny_, clRxny_, clRynx_, clLen_;
 
         //- Output files
         autoPtr<OFstream> forceFilePtr_;
@@ -149,7 +161,12 @@ protected:
         void reset();
 
         //- Momentum flux through the control surface
-        void surfaceIntegral(const surfaceVectorField& Uf);
+        void surfaceIntegral
+        (
+            const surfaceVectorField& Uf,
+            const surfaceVectorField& UDf,
+            const surfaceScalarField& snGradPhiD
+        );
 
         //- Wave-elevation and strip terms along the waterline
         void waterlineIntegral();

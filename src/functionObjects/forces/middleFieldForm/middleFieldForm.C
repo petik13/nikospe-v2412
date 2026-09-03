@@ -20,6 +20,8 @@ License
 #include "middleFieldForm.H"
 #include "addToRunTimeSelectionTable.H"
 #include "fvcAverage.H"
+#include "fvcSnGrad.H"
+#include "surfaceInterpolate.H"
 #include "linear.H"
 #include "volFields.H"
 #include "surfaceFields.H"
@@ -102,6 +104,9 @@ Foam::functionObjects::middleFieldForm::middleFieldForm
     fvMeshFunctionObject(name, runTime, dict),
     writeFile(mesh_, name, typeName, dict),
     UName_("U"),
+    UDName_("UD"),
+    PhiDName_("PhiD"),
+    snGradNormal_(true),
     UsName_("Us"),
     zetaName_("zeta"),
     faceZoneName_(word::null),
@@ -111,10 +116,7 @@ Foam::functionObjects::middleFieldForm::middleFieldForm
     freeSurfacePatchID_(-1),
     rhoRef_(1000),
     gMag_(9.81),
-    CofR_(Zero),
-    closureReported_(false),
-    clNet_(Zero),
-    clRxnx_(0), clRyny_(0), clRxny_(0), clRynx_(0), clLen_(0)
+    CofR_(Zero)
 {
     read(dict);
 }
@@ -132,7 +134,9 @@ void Foam::functionObjects::middleFieldForm::reset()
 
 void Foam::functionObjects::middleFieldForm::surfaceIntegral
 (
-    const surfaceVectorField& Uf
+    const surfaceVectorField& Uf,
+    const surfaceVectorField& UDf,
+    const surfaceScalarField& snGradPhiD
 )
 {
     const faceZone& fz = mesh_.faceZones()[faceZoneID_];
@@ -145,15 +149,19 @@ void Foam::functionObjects::middleFieldForm::surfaceIntegral
     const vectorField& faceAreas = mesh_.faceAreas();
     const vectorField& faceCentres = mesh_.faceCentres();
 
-    for (const label facei : fz)
+    const auto faceValue = [&](const auto& fld, const label facei)
     {
-        vector u(Zero);
-
         if (facei < mesh_.nInternalFaces())
         {
-            u = Uf[facei];
+            return fld[facei];
         }
-        else
+        const label patchi = pbm.whichPatch(facei);
+        return fld.boundaryField()[patchi][pbm[patchi].whichFace(facei)];
+    };
+
+    for (const label facei : fz)
+    {
+        if (facei >= mesh_.nInternalFaces())
         {
             const label patchi = pbm.whichPatch(facei);
 
@@ -165,13 +173,30 @@ void Foam::functionObjects::middleFieldForm::surfaceIntegral
                     refCast<const processorPolyPatch>(pbm[patchi]);
                 if (!ppp.owner()) continue;
             }
-
-            u = Uf.boundaryField()[patchi][pbm[patchi].whichFace(facei)];
         }
 
-        // Orient outward, away from the body
+        vector u(faceValue(Uf, facei));
+
+        // Orient outward, away from the body.  snGrad is taken along the mesh
+        // normal, so flipping the area vector must flip it too.
         vector Sf(faceAreas[facei]);
-        if ((Sf & (faceCentres[facei] - cvPoint_)) < 0) Sf = -Sf;
+        scalar sgn = 1;
+        if ((Sf & (faceCentres[facei] - cvPoint_)) < 0)
+        {
+            Sf = -Sf;
+            sgn = -1;
+        }
+
+        if (snGradNormal_)
+        {
+            // Swap the interpolated disturbance normal component for the
+            // compact one.  The incident part of u is untouched.
+            const vector nHat(Sf/mag(Sf));
+            const scalar unCompact = sgn*faceValue(snGradPhiD, facei);
+            const scalar unInterp = (faceValue(UDf, facei) & nHat);
+
+            u += (unCompact - unInterp)*nHat;
+        }
 
         const vector f(rhoRef_*(0.5*magSqr(u)*Sf - (u & Sf)*u));
 
@@ -257,17 +282,6 @@ void Foam::functionObjects::middleFieldForm::waterlineIntegral()
                     -rhoRef_*z*((u & n)*W + (W & n)*u)*(0.5*L)
                 );
 
-                if (!closureReported_)
-                {
-                    const vector r(mid - CofR_);
-                    const scalar w = 0.5*L;         // this cell's half
-                    clNet_  += w*n;
-                    clRxnx_ += w*r.x()*n.x();
-                    clRyny_ += w*r.y()*n.y();
-                    clRxny_ += w*r.x()*n.y();
-                    clRynx_ += w*r.y()*n.x();
-                    clLen_  += w;
-                }
 
                 elevationForce_ += fElev;
                 stripForce_ += fStrip;
@@ -328,6 +342,9 @@ bool Foam::functionObjects::middleFieldForm::read(const dictionary& dict)
     }
 
     dict.readIfPresent("U", UName_);
+    dict.readIfPresent("UD", UDName_);
+    dict.readIfPresent("PhiD", PhiDName_);
+    snGradNormal_ = dict.getOrDefault<Switch>("snGradNormal", Switch(true));
     dict.readIfPresent("Us", UsName_);
     dict.readIfPresent("zeta", zetaName_);
 
@@ -368,9 +385,17 @@ bool Foam::functionObjects::middleFieldForm::execute()
     reset();
 
     const auto& U = mesh_.lookupObject<volVectorField>(UName_);
-    const tmp<surfaceVectorField> tUf(linearInterpolate(U));
+    const auto& UD = mesh_.lookupObject<volVectorField>(UDName_);
+    const auto& PhiD = mesh_.lookupObject<volScalarField>(PhiDName_);
 
-    surfaceIntegral(tUf());
+    // fvc::interpolate honours interpolationSchemes, so the face value of the
+    // velocity can be given a skewness correction from fvSchemes; the old
+    // linearInterpolate() hard-coded uncorrected geometric weights.
+    const tmp<surfaceVectorField> tUf(fvc::interpolate(U));
+    const tmp<surfaceVectorField> tUDf(fvc::interpolate(UD));
+    const tmp<surfaceScalarField> tSnGradPhiD(fvc::snGrad(PhiD));
+
+    surfaceIntegral(tUf(), tUDf(), tSnGradPhiD());
     waterlineIntegral();
 
     reduce(surfaceForce_, sumOp<vector>());
@@ -380,35 +405,6 @@ bool Foam::functionObjects::middleFieldForm::execute()
     reduce(stripForce_, sumOp<vector>());
     reduce(stripMoment_, sumOp<vector>());
 
-    if (!closureReported_)
-    {
-        reduce(clNet_, sumOp<vector>());
-        reduce(clRxnx_, sumOp<scalar>());
-        reduce(clRyny_, sumOp<scalar>());
-        reduce(clRxny_, sumOp<scalar>());
-        reduce(clRynx_, sumOp<scalar>());
-        reduce(clLen_, sumOp<scalar>());
-
-        const scalar A = 0.5*(clRxnx_ + clRyny_);   // best estimate of A_cv
-
-        Info<< nl << "middleFieldForm " << name() << " waterline closure:" << nl
-            << "    contour length     " << clLen_ << " m" << nl
-            << "    int n dl           " << clNet_
-            << "   (exact 0; the FORCE needs only this)" << nl
-            << "    int r_x n_x dl     " << clRxnx_ << nl
-            << "    int r_y n_y dl     " << clRyny_ << nl
-            << "    difference         " << clRxnx_ - clRyny_ << "   = "
-            << (mag(A) > SMALL ? 100*(clRxnx_ - clRyny_)/A : 0)
-            << " % of A_cv " << A << " m^2" << nl
-            << "    int r_x n_y dl     " << clRxny_ << "   (exact 0)" << nl
-            << "    int r_y n_x dl     " << clRynx_ << "   (exact 0)" << nl
-            << "    the strip term's two halves cancel only if that difference"
-               " is zero;" << nl
-            << "    what survives is a yaw moment that does not decay in long"
-               " waves." << endl;
-
-        closureReported_ = true;
-    }
 
     Log << type() << ' ' << name() << " write:" << nl
         << "    total     " << force() << nl
