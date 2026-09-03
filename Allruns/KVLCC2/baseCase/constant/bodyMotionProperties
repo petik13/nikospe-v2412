@@ -65,7 +65,7 @@ rhoInf              1000;
 // lagged.  It goes unstable once the fluid added mass exceeds the body mass,
 // which in heave it does.  Putting A on the left and A*a_old on the right
 // suppresses that.  A single scalar applies to all six; 0 is off.
-addedMass           (0 0 0 0 0 0);
+addedMass           (0.1 1 1 1 1 1);
 
 // Drive A from the previous TIME STEP (true) or the previous CORRECTOR
 // (false).  The time-step form is what stabilises the coupling, at the price
@@ -75,7 +75,7 @@ addedMassFromTimeStep   true;
 steadyRestoring         false;
 
 // Under-relaxation and decay on the new acceleration; 1 is off
-accelRelaxation     0.3;
+accelRelaxation     1.0;
 accelDamping        1.0;
 
 newmarkGamma        0.5;

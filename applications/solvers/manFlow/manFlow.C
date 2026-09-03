@@ -101,7 +101,8 @@ int main(int argc, char *argv[])
     // derivatives are taken along the well-resolved plane, whereas the ZZ
     // component of gradUs there is a one-sided normal difference over a small
     // distance.
-    dUsdz = -(gradUs.component(tensor::XX) + gradUs.component(tensor::YY));
+    // dUsdz = -(gradUs.component(tensor::XX) + gradUs.component(tensor::YY));
+    dUsdz = gradUs.component(tensor::ZZ);
 
     Us.write();
     gradUs.write();
