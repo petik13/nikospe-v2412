@@ -288,6 +288,13 @@ public:
                v0{0}, xdamp{0}, Lxdamp{0}, ydamp{0}, Lydamp{0},
                xsponge{0}, Lsponge{0}, rampperiod{0};
 
+        //- Kreiss-Oliger fourth-difference filter coefficient.  Damps the
+        //  grid-scale mode the 4th-order central stencil admits; applied only
+        //  where that stencil is in use (scheme code 14).  Was hard-coded at
+        //  5e-4.  It acts once per TIME STEP, so its effect per wave period
+        //  scales with the number of steps per period, not with the timestep.
+        scalar koFilter{5.0e-4};
+
         // derived
         scalar amp{0}, k{0}, omega{0}, omegaE{0}, rampTime{0};
         vector Uinf{Zero};

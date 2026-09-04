@@ -20,6 +20,27 @@ const scalar currentSpeed = waveConditions.get<scalar>("currentSpeed");
 const scalar headingAngle = waveConditions.get<scalar>("headingAngle");
 const scalar rampPeriods  = waveConditions.get<scalar>("rampPeriods");
 
+// Basis-flow linearisation.
+//   DBL  double body: solve the steady BVP, W is the ship-shaped stream.
+//        W.n = 0 on the hull and Wz = 0 on z = 0, and the difference
+//        (W - Uinf) drives the m-terms, the steady restoring carried by pS,
+//        and the incident-wave forcings on the free surface.
+//   NKL  Neumann-Kelvin: no steady solve at all, W = Uinf everywhere.  Then
+//        grad(W) = 0 and pS = 0, so m1..m3, the steady restoring and every
+//        (W - Uinf) forcing vanish identically; only the -n x W half of
+//        m4..m6 survives, which is the classical uniform-stream result.
+const word basisLinearisation
+(
+    waveConditions.getOrDefault<word>("linearisation", "DBL")
+);
+
+if (basisLinearisation != "DBL" && basisLinearisation != "NKL")
+{
+    FatalIOErrorInFunction(waveConditions)
+        << "linearisation must be DBL or NKL, got " << basisLinearisation
+        << exit(FatalIOError);
+}
+
 // Derived wave properties.  omega is the absolute frequency from the
 // dispersion relation; omegaE is what the body sees once the uniform stream
 // Doppler-shifts it.
@@ -43,6 +64,8 @@ Info<< "Incident wave" << nl
     << "    wavenumber  " << waveNumber << " 1/m" << nl
     << "    omega       " << omega << " rad/s   (period " << wavePeriod << " s)" << nl
     << "    omega_e     " << omegaE << " rad/s" << nl
+    << "    basis flow  " << basisLinearisation
+    << (basisLinearisation == "NKL" ? "  (uniform stream, no steady solve)" : "  (double body)") << nl
     << "    Uinf        " << Uinf << " m/s   (tau = "
     << omegaE*currentSpeed/gMag << ")" << nl
     << "    depth       " << waterDepth << " m" << nl

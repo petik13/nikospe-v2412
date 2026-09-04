@@ -34,6 +34,13 @@ rampPeriods	5.0;
 // is the classical uniform-stream result (pitch and yaw only).
 linearisation	DBL;
 
+// Kreiss-Oliger fourth-difference filter on zeta_D.  Damps the grid-scale
+// mode admitted by the 4th-order central free-surface stencil, and is applied
+// only on faces using that stencil.  It acts once per TIME STEP, so its effect
+// per wave period scales with the number of steps per period rather than with
+// the timestep.  0 disables it.
+filterCoeff	5e-3;
+
 // Sponge layers.  These damp the DISTURBANCE potential only: the incident wave
 // is prescribed analytically and passes through untouched.
 spongeStrength      3.0;

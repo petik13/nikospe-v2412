@@ -1838,20 +1838,42 @@ void Foam::potForwardSpeedBCFvPatchScalarField::detectFDSchemes()
 			}
 			else
 			{
-				const List<label>& L = upwindNodesX_[i];
-				if (L.size())
-				{
-					auto dxdyL = dxdy(Cf, globalIdToPackedIdx_, globalIdToCf_, L[0], x[i], y[i]);
-					if (aligned(dxdyL.first, dxdyL.second, "x"))
-						schemeCodeX_[i] = 4;
-				}
+				// First-order one-sided fallback.  Take the side the flow comes
+				// FROM.  Previously code 5 was assigned after code 4 with no
+				// reference to the sign of uX, so the downwind side always won
+				// wherever both existed -- an anti-upwind difference, which is
+				// unconditionally unstable.  upwindNodes is the -x side
+				// (dx = x_self - x_nei > 0 means the neighbour lies behind).
+				const List<label>& Lo = upwindNodesX_[i];    // -x side
+				const List<label>& Hi = downwindNodesX_[i];  // +x side
 
-				const List<label>& R = downwindNodesX_[i];
-				if (R.size())
+				const bool flowToPlus = (uX > SMALL);
+
+				// first choice: the upwind side for this flow direction
+				const List<label>& A = flowToPlus ? Lo : Hi;
+				const List<label>& B = flowToPlus ? Hi : Lo;
+				const label codeA = flowToPlus ? 4 : 5;
+				const label codeB = flowToPlus ? 5 : 4;
+
+				bool set = false;
+				if (A.size())
 				{
-					auto dxdyR = dxdy(Cf, globalIdToPackedIdx_, globalIdToCf_, R[0], x[i], y[i]);
-					if (aligned(dxdyR.first, dxdyR.second, "x"))
-						schemeCodeX_[i] = 5;
+					auto d = dxdy(Cf, globalIdToPackedIdx_, globalIdToCf_, A[0], x[i], y[i]);
+					if (aligned(d.first, d.second, "x"))
+					{
+						schemeCodeX_[i] = codeA;
+						set = true;
+						WarningInFunction << "Face " << globalIdOfLocalFace_[i] << ": First Order (x, upwind side)" << endl;
+					}
+				}
+				if (!set && B.size())
+				{
+					auto d = dxdy(Cf, globalIdToPackedIdx_, globalIdToCf_, B[0], x[i], y[i]);
+					if (aligned(d.first, d.second, "x"))
+					{
+						schemeCodeX_[i] = codeB;
+						WarningInFunction << "Face " << globalIdOfLocalFace_[i] << ": First Order (x, DOWNWIND side - no upwind stencil)" << endl;
+					}
 				}
 			}
 			
@@ -1905,23 +1927,41 @@ void Foam::potForwardSpeedBCFvPatchScalarField::detectFDSchemes()
 			}
 			else
 			{
-				const List<label>& L = upwindNodesY_[i];
-				if (L.size())
+				// First-order one-sided fallback.  Take the side the flow comes
+				// FROM.  Previously code 5 was assigned after code 4 with no
+				// reference to the sign of uY, so the downwind side always won
+				// wherever both existed -- an anti-upwind difference, which is
+				// unconditionally unstable.  upwindNodes is the -y side
+				// (dy = y_self - y_nei > 0 means the neighbour lies below).
+				const List<label>& Lo = upwindNodesY_[i];    // -y side
+				const List<label>& Hi = downwindNodesY_[i];  // +y side
+
+				const bool flowToPlus = (uY > SMALL);
+
+				// first choice: the upwind side for this flow direction
+				const List<label>& A = flowToPlus ? Lo : Hi;
+				const List<label>& B = flowToPlus ? Hi : Lo;
+				const label codeA = flowToPlus ? 4 : 5;
+				const label codeB = flowToPlus ? 5 : 4;
+
+				bool set = false;
+				if (A.size())
 				{
-					auto dxdyL = dxdy(Cf, globalIdToPackedIdx_, globalIdToCf_, L[0], x[i], y[i]);
-					if (aligned(dxdyL.first, dxdyL.second, "y")){
-						schemeCodeY_[i] = 4;
-						WarningInFunction << "Face " << globalIdOfLocalFace_[i] << ": First Order Detected !!!!" << endl;
+					auto d = dxdy(Cf, globalIdToPackedIdx_, globalIdToCf_, A[0], x[i], y[i]);
+					if (aligned(d.first, d.second, "y"))
+					{
+						schemeCodeY_[i] = codeA;
+						set = true;
+						WarningInFunction << "Face " << globalIdOfLocalFace_[i] << ": First Order (y, upwind side)" << endl;
 					}
 				}
-
-				const List<label>& R = downwindNodesY_[i];
-				if (R.size())
+				if (!set && B.size())
 				{
-					auto dxdyR = dxdy(Cf, globalIdToPackedIdx_, globalIdToCf_, R[0], x[i], y[i]);
-					if (aligned(dxdyR.first, dxdyR.second, "y")){
-						schemeCodeY_[i] = 5;
-						WarningInFunction << "Face " << globalIdOfLocalFace_[i] << ": First Order Detected !!!" << endl;
+					auto d = dxdy(Cf, globalIdToPackedIdx_, globalIdToCf_, B[0], x[i], y[i]);
+					if (aligned(d.first, d.second, "y"))
+					{
+						schemeCodeY_[i] = codeB;
+						WarningInFunction << "Face " << globalIdOfLocalFace_[i] << ": First Order (y, DOWNWIND side - no upwind stencil)" << endl;
 					}
 				}
 			}

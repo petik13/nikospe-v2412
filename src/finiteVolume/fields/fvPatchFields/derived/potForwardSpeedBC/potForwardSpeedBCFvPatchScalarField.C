@@ -171,6 +171,8 @@ void Foam::potForwardSpeedBCFvPatchScalarField::readParamsFrom
     params_.hdepth     = dict.get<scalar>("waterDepth");
     params_.rampperiod = dict.get<scalar>("rampPeriods");
 
+    params_.koFilter = dict.getOrDefault<scalar>("filterCoeff", 5.0e-4);
+
     params_.v0      = dict.getOrDefault<scalar>("spongeStrength", 0.0);
     params_.xsponge = dict.getOrDefault<scalar>("xInlet",  0.0);
     params_.Lsponge = dict.getOrDefault<scalar>("LInlet",  1.0);
@@ -231,22 +233,34 @@ Foam::potForwardSpeedBCFvPatchScalarField::spongeCoeff() const
     }
 
     // Quadratic ramps: inlet reflections upstream, radiated waves downstream
-    // and to the sides.  The side zone is switched off inside the outlet zone
-    // so the two do not compound in the corners.
+    // and to the sides.  The zones are combined with max() rather than being
+    // chained with else-if.  The chain kept them from compounding in the
+    // corners, but it also switched the SIDE ramp off wherever the x ramps
+    // were active, leaving the four corners damped only by their x distance:
+    // one cell inside the inlet at the lateral boundary the coefficient came
+    // out 81x too small, i.e. an open boundary over about 8% of the free
+    // surface -- and at the largest lever arms from the body, where a
+    // reflection feeds the yaw moment while largely cancelling in the force.
+    // max() closes the gap and still does not compound.
     forAll(nu, i)
     {
+        scalar nuX = 0;
         if (x[i] < params_.xsponge)
         {
-            nu[i] += params_.v0*sqr((params_.xsponge - x[i])/params_.Lsponge);
+            nuX = sqr((params_.xsponge - x[i])/params_.Lsponge);
         }
         else if (x[i] > params_.xdamp)
         {
-            nu[i] += params_.v0*sqr((x[i] - params_.xdamp)/params_.Lxdamp);
+            nuX = sqr((x[i] - params_.xdamp)/params_.Lxdamp);
         }
-        else if (mag(y[i]) > params_.ydamp)
+
+        scalar nuY = 0;
+        if (mag(y[i]) > params_.ydamp)
         {
-            nu[i] += params_.v0*sqr((mag(y[i]) - params_.ydamp)/params_.Lydamp);
+            nuY = sqr((mag(y[i]) - params_.ydamp)/params_.Lydamp);
         }
+
+        nu[i] += params_.v0*max(nuX, nuY);
     }
 
     return tnu;
@@ -404,7 +418,8 @@ void Foam::potForwardSpeedBCFvPatchScalarField::applyKreissOligerFilter
     // Fourth-difference hyperviscosity, damping only the grid-scale mode that
     // the 4th-order central stencil admits.  Applied where that stencil is in
     // use (scheme code 14); elsewhere the scheme is already dissipative.
-    const scalar epsilon = 0.0005;
+    // Set with filterCoeff in constant/waveConditions; 0 disables it.
+    const scalar epsilon = params_.koFilter;
 
     auto valueAt = [&](const label gid) -> scalar
     {
