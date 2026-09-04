@@ -2831,6 +2831,25 @@ void Foam::potForwardSpeedBCFvPatchScalarField::buildEdgeNeighbours()
 
     edgeNeighbours_.setSize(nFaces);
 	edgeNormals2D_.setSize(nFaces);
+	bodyEdgeHullFace_.setSize(nFaces, -1);
+	bodyEdgeProj_.setSize(nFaces, 0);
+
+	// point -> hull faces, so the shared waterline edge can be found in one
+	// pass rather than by scanning the whole body patch per face
+	const label bodyPatchID = mesh.boundaryMesh().findPatchID(bodyPatchName_);
+	HashTable<labelList, label> ptToBodyFaces;
+	if (bodyPatchID >= 0)
+	{
+		const polyPatch& bp = mesh.boundaryMesh()[bodyPatchID];
+		forAll(bp, bf)
+		{
+			const face& f = mesh.faces()[bp.start() + bf];
+			forAll(f, vI)
+			{
+				ptToBodyFaces(f[vI]).append(bf);
+			}
+		}
+	}
 
     // gid -> local patch index map (for local edge-sharing check)
     HashTable<label, label> gidToLocal(nFaces*2);
@@ -2933,6 +2952,60 @@ void Foam::potForwardSpeedBCFvPatchScalarField::buildEdgeNeighbours()
 
         edgeNeighbours_[i] = neiGids;
 		edgeNormals2D_[i]  = neiNormals;
+
+		// --- hull face sharing the waterline edge with this face ----------
+		if (bodyPatchID >= 0)
+		{
+			const polyPatch& bp = mesh.boundaryMesh()[bodyPatchID];
+
+			labelHashSet cand;
+			forAll(fSelf, vI)
+			{
+				if (ptToBodyFaces.found(fSelf[vI]))
+				{
+					for (const label bf : ptToBodyFaces[fSelf[vI]]) cand.insert(bf);
+				}
+			}
+
+			for (const label bf : cand)
+			{
+				const face& fB = mesh.faces()[bp.start() + bf];
+
+				label shared[2] = {-1, -1};
+				label nShared = 0;
+				forAll(fSelf, a)
+				{
+					forAll(fB, b)
+					{
+						if (fSelf[a] == fB[b])
+						{
+							if (nShared < 2) shared[nShared] = fSelf[a];
+							++nShared;
+							break;
+						}
+					}
+				}
+
+				if (nShared == 2)
+				{
+					const vector mid
+					(
+						0.5*(mesh.points()[shared[0]] + mesh.points()[shared[1]])
+					);
+
+					vector nB(bp.faceNormals()[bf]);
+					nB.z() = 0;
+					const scalar m = mag(nB);
+					if (m > SMALL)
+					{
+						nB /= m;
+						bodyEdgeHullFace_[i] = bf;
+						bodyEdgeProj_[i] = ((mid - selfCf) & nB);
+					}
+					break;
+				}
+			}
+		}
 		// Pout << "Face " << selfGid << " edge neighbours: " << edgeNeighbours_[i] <<
 		// " Normals: " << edgeNormals2D_[i] << endl;
     }

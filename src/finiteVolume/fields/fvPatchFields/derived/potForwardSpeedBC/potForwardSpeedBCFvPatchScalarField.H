@@ -407,6 +407,19 @@ public:
         boolList ownerHasBodyVertex_;
         List<labelList> edgeNeighbours_;
         List<List<vector>> edgeNormals2D_;
+
+        //- For each free-surface face that shares an edge with the hull: the
+        //  hull patch face on the other side of that edge, and the projection
+        //  of (edge midpoint - face centre) onto the hull normal.  The
+        //  Green-Gauss reconstruction has to put a value of PhiD on that
+        //  missing edge; using the face's own value assumes a zero gradient
+        //  toward the hull, whereas linBodyMotion PRESCRIBES dPhiD/dn there.
+        //  With these two the edge value can be extrapolated properly,
+        //      PhiD_edge = PhiD_self + g * proj
+        //  which is the difference between an O(g/2) error and none.
+        //  -1 / 0 where no hull edge is shared.
+        labelList bodyEdgeHullFace_;
+        scalarField bodyEdgeProj_;
 };
 
 

@@ -906,6 +906,25 @@ void Foam::potForwardSpeedBCFvPatchScalarField::UPFDV2()
 		
     }
 
+	// The prescribed dPhiD/dn on the hull, for the Green-Gauss edge value
+	scalarField bodyGradPhi;
+	{
+		const fvMesh& m_ = patch().boundaryMesh().mesh();
+		const label bpid = m_.boundaryMesh().findPatchID(bodyPatchName_);
+		const volScalarField& PhiDf =
+			db().lookupObject<volScalarField>(PhiDName_);
+
+		if (bpid >= 0)
+		{
+			const fvPatchScalarField& pf = PhiDf.boundaryField()[bpid];
+			if (isA<fixedGradientFvPatchScalarField>(pf))
+			{
+				bodyGradPhi =
+					refCast<const fixedGradientFvPatchScalarField>(pf).gradient();
+			}
+		}
+	}
+
 	for (label i = 0; i < nFaces; ++i)
     {
 		
@@ -920,7 +939,18 @@ void Foam::potForwardSpeedBCFvPatchScalarField::UPFDV2()
 			}
 			
 			// const scalar dist =  shalpeVal/patch().deltaCoeffs()[i];
-			scalar fx = 0, fy = 0, gx = 0, gy = 0;	
+			scalar fx = 0, fy = 0, gx = 0, gy = 0;
+
+			// PhiD on the hull edge, extrapolated with the gradient the body
+			// condition already imposes there, instead of assuming zero
+			// gradient toward the hull.
+			scalar pMissVal = getPhip(selfGid);
+			if (bodyEdgeHullFace_[i] >= 0 && bodyGradPhi.size())
+			{
+				pMissVal +=
+					bodyGradPhi[bodyEdgeHullFace_[i]]*bodyEdgeProj_[i];
+			}
+
 			// DerivativeMqRBFxy(dist,Cf,globalIdToPackedIdx_,globalIdToCf_,getWp,getPhip,selfGid,lsMergedCandidates_[i],fx,fy,gx,gy);
 			// DerivativeLSTaylor(Cf,globalIdToPackedIdx_,globalIdToCf_,getWp,getPhip,selfGid,lsMergedCandidates_[i],fx,fy,gx,gy);
 			// DerivativeLSRobustTaylor(
@@ -932,14 +962,15 @@ void Foam::potForwardSpeedBCFvPatchScalarField::UPFDV2()
 
 			GreenGaussUpwindXY
 			(
-				patch(),                 // fvPatch
-				i,                       // face index on patch
-				selfGid,
-				edgeNeighbours_[i],
-				edgeNormals2D_[i],
-				Us_p[i],               // advecting velocity at this patch face
-				getWp,
-				getPhip,
+					patch(),                 // fvPatch
+					i,                       // face index on patch
+					selfGid,
+					edgeNeighbours_[i],
+					edgeNormals2D_[i],
+					Us_p[i],               // advecting velocity at this patch face
+					getWp,
+					getPhip,
+					pMissVal,
 				fx, fy, gx, gy
 			);
 

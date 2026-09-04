@@ -23,6 +23,7 @@ License
 #include "volFields.H"
 #include "surfaceFields.H"
 #include "fvMesh.H"
+#include "fixedGradientFvPatchFields.H"
 #include "gravityMeshObject.H"
 #include "EulerDdtScheme.H"
 #include "CrankNicolsonDdtScheme.H"
@@ -319,7 +320,7 @@ void Foam::potForwardSpeedBCFvPatchScalarField::freeSurfaceRates
 
         // Dynamic condition
         dPhiDdt[i] =
-           -g*zetaD[i]
+          -  g*zetaD[i]
           - (W[i].x()*PhiDx_[i] + W[i].y()*PhiDy_[i])
           - (dWx*uIx + dWy*uIy);
     }

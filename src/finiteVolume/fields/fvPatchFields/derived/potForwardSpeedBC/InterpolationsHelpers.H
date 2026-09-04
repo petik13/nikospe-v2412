@@ -736,8 +736,10 @@ inline void diffuseBodyGradientsCandidates
 
 // --------- Green Gauss gradient reconstruction implementation --------------------
 
+// Returns true when the all-outflow fallback was taken, so the caller can
+// count how often it fires.
 template<class GetW, class GetP>
-static inline void GreenGaussUpwindXY
+static inline bool GreenGaussUpwindXY
 (
     const fvPatch& patch,
     const label faceI,
@@ -747,6 +749,7 @@ static inline void GreenGaussUpwindXY
     const vector& Uadv,
     const GetW& getWp,
     const GetP& getPhip,
+    const scalar pMissVal,      // PhiD on the missing hull edge
     scalar& fx, scalar& fy,
     scalar& gx, scalar& gy
 )
@@ -755,7 +758,7 @@ static inline void GreenGaussUpwindXY
     if (A < VSMALL)
     {
         fx = fy = gx = gy = 0;
-        return;
+        return false;
     }
 
     const scalar wSelf = getWp(selfGid);
@@ -765,7 +768,7 @@ static inline void GreenGaussUpwindXY
     vector gradP(0,0,0);
     vector sumNk(Zero);
 
-    bool usedSelfAtLeastOnce = false;
+    bool usedNeighbour = false;
 
     // ---------- pass 1: upwind ----------
     forAll(neiGids, k)
@@ -779,7 +782,7 @@ static inline void GreenGaussUpwindXY
 
         if (flux < 0)
         {
-            usedSelfAtLeastOnce = true;
+            usedNeighbour = true;
             gradW += getWp(gidN)   * nk;
             gradP += getPhip(gidN) * nk;
         }
@@ -791,12 +794,20 @@ static inline void GreenGaussUpwindXY
     }
 
     // Account for the missing hull edge contribution (if any) by adding a correction based on the negative of the sum of neighbor normals.
+    // zeta_D has no condition at the hull, so its own value is kept there;
+    // PhiD does -- linBodyMotion prescribes dPhiD/dn -- so the caller passes
+    // the properly extrapolated edge value rather than pSelf.
     const vector nMiss = -sumNk;
     gradW += wSelf * nMiss;
-    gradP += pSelf * nMiss;
+    gradP += pMissVal * nMiss;
 
-    // ---------- fallback: if ALL edges were inflow, switch to downwind everywhere ----------
-    if (!usedSelfAtLeastOnce)
+    // ---------- fallback: if ALL edges were OUTFLOW, switch to downwind ----------
+    // With every edge outflow the loop above takes the self value everywhere,
+    // and since sum(nk) + nMiss = 0 that gives wSelf*(sum(nk) + nMiss) = 0
+    // identically -- a zero gradient.  Rebuild it from the neighbours instead.
+    const bool fallback = !usedNeighbour;
+
+    if (fallback)
     {
         gradW = vector::zero;
         gradP = vector::zero;
@@ -810,6 +821,13 @@ static inline void GreenGaussUpwindXY
             gradW += getWp(gidN)   * nk;
             gradP += getPhip(gidN) * nk;
         }
+
+        // The hull edge is still absent from this contour.  Green-Gauss rests
+        // on a CLOSED contour, so it has to be closed here exactly as it is on
+        // the main path; leaving it open is an O(1) error, not a truncation
+        // error.
+        gradW += wSelf * nMiss;
+        gradP += pMissVal * nMiss;
     }
 
     gradW /= A;
@@ -819,6 +837,8 @@ static inline void GreenGaussUpwindXY
     fy = gradW.y();
     gx = gradP.x();
     gy = gradP.y();
+
+    return fallback;
 }
 
 
