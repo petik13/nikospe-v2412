@@ -78,19 +78,41 @@ int main(int argc, char *argv[])
 
     // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-    Info<< nl << "Solving the steady basis flow PhiS" << endl;
-
-    while (basisFlow.correctNonOrthogonal())
+    if (basisLinearisation == "NKL")
     {
-        fvScalarMatrix PhiSEqn
-        (
-            fvm::laplacian(dimensionedScalar("1", dimless, 1), PhiS) == Zero
-        );
+        // Neumann-Kelvin: the basis flow IS the undisturbed stream, so there
+        // is no steady boundary-value problem to solve.  Everything derived
+        // from it below (gradUs, pS, dUsdz) then comes out zero on its own,
+        // which is what makes the m1..m3 terms, the steady restoring and the
+        // free-surface (W - Uinf) forcings disappear consistently.
+        //
+        // Note the steady body condition W.n = 0 is NOT satisfied by a uniform
+        // stream; the steady disturbance is simply omitted, as is standard in
+        // the unsteady Neumann-Kelvin linearisation.
+        Info<< nl << "Basis flow: Neumann-Kelvin, uniform stream (no steady"
+               " solve)" << endl;
 
-        PhiSEqn.solve();
+        const dimensionedVector UinfD("Uinf", dimVelocity, Uinf);
+
+        PhiS == (UinfD & mesh.C());
+        Us == UinfD;
     }
+    else
+    {
+        Info<< nl << "Solving the steady basis flow PhiS" << endl;
 
-    Us = fvc::grad(PhiS);
+        while (basisFlow.correctNonOrthogonal())
+        {
+            fvScalarMatrix PhiSEqn
+            (
+                fvm::laplacian(dimensionedScalar("1", dimless, 1), PhiS) == Zero
+            );
+
+            PhiSEqn.solve();
+        }
+
+        Us = fvc::grad(PhiS);
+    }
     gradUs = fvc::grad(Us);
 
     // Steady dynamic pressure, referred to the uniform stream so that it

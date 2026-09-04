@@ -24,6 +24,16 @@ currentSpeed	0.2;
 headingAngle	-0.0;
 rampPeriods	5.0;
 
+// Basis-flow linearisation:
+//   DBL  double body -- solve the steady BVP; W is the ship-shaped stream.
+//   NKL  Neumann-Kelvin -- no steady solve, W = Uinf everywhere.
+//
+// NKL makes grad(W) and pS vanish identically, and with them the m1..m3
+// terms, the steady restoring, and the (W - Uinf) forcings of the incident
+// wave on the free surface.  Only the -n x W half of m4..m6 survives, which
+// is the classical uniform-stream result (pitch and yaw only).
+linearisation	DBL;
+
 // Sponge layers.  These damp the DISTURBANCE potential only: the incident wave
 // is prescribed analytically and passes through untouched.
 spongeStrength      3.0;
