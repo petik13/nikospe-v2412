@@ -157,10 +157,24 @@ int main(int argc, char *argv[])
               ? 0.5*(1.0 - Foam::cos(constant::mathematical::pi*t/rampTime))
               : 1.0;
 
+            // The ramp multiplies the AMPLITUDE, so d(phi_I)/dt picks up a
+            // term in rdot as well as the one in the phase.  Without it
+            // dPhiIdt is not the time derivative of PhiI, and since dPhiIdt
+            // goes straight into p the Froude-Krylov load is wrong while the
+            // ramp is running -- by rdot/we, i.e. 1/(4*rampPeriods) of the
+            // converged amplitude at the worst point.  Exactly zero after
+            // rampTime.
+            const scalar rampFactorDot =
+                (rampTime > SMALL && t < rampTime)
+              ? 0.5*constant::mathematical::pi/rampTime
+                   *Foam::sin(constant::mathematical::pi*t/rampTime)
+              : 0.0;
+
             const scalar coshDen = Foam::cosh(waveNumber*waterDepth);
             const scalar Pa = waveAmp*gMag/omega*rampFactor;          // phi_I
             const scalar Ua = waveAmp*waveNumber*gMag/omega*rampFactor; // u_I
             const scalar dPa = -waveAmp*gMag*omegaE/omega*rampFactor;  // dphi_I/dt
+            const scalar dPaR = waveAmp*gMag/omega*rampFactorDot;      // rdot part
 
             // phi_I = A g/w0 cosh k(h+z)/cosh kh sin(kx - we t)
             auto setIncident = [&]
@@ -179,8 +193,9 @@ int main(int argc, char *argv[])
                 const scalar sh = Foam::sinh(waveNumber*(waterDepth + C.z()))/coshDen;
 
                 phiI = Pa*ch*sth;
+                // grad commutes with the ramp, so u_I needs no rdot term
                 uI = vector(Ua*ch*cth, 0, Ua*sh*sth);
-                dphiIdt = dPa*ch*cth;
+                dphiIdt = dPa*ch*cth + dPaR*ch*sth;
                 elevation = waveAmp*cth*rampFactor;
             };
 
