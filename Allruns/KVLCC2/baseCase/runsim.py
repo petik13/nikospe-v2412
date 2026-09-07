@@ -285,7 +285,7 @@ rgpath = os.path.join('constant', 'bodyMotionProperties')
 update_file('xG', f'{xbody:.4}', path = rgpath)
 update_file('Lpp', f'{2*L_2:.6}', path = rgpath)
 update_file('beam', f'{B:.6}', path = rgpath)
-update_file('heading', f'{np.pi - head_ang:.4}', path = rgpath)
+update_file('heading', f'{np.pi - head_ang:.12}', path = rgpath)
 
 # -- Modify linMotions.py
 rgpath = 'linMotions.py'
