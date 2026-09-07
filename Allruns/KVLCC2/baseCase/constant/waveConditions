@@ -39,7 +39,7 @@ linearisation	DBL;
 // only on faces using that stencil.  It acts once per TIME STEP, so its effect
 // per wave period scales with the number of steps per period rather than with
 // the timestep.  0 disables it.
-filterCoeff	5e-3;
+filterCoeff	5e-4;
 
 // Sponge layers.  These damp the DISTURBANCE potential only: the incident wave
 // is prescribed analytically and passes through untouched.
