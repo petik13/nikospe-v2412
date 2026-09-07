@@ -19,16 +19,16 @@ ddtSchemes
     // The free-surface BC picks its explicit integrator from the ddtScheme of
     // zetaD: backward -> Adams-Bashforth, Euler -> symplectic Euler.
     ddt(zetaD)      backward;
-   default         backward;
+    default         backward;
 	// default   Euler;
 	//default   CrankNicolson;
 }
 
 gradSchemes
 {
-    //default         fourth;
+    default         fourth;
     //default           Gauss linear;  
-    default leastSquares;
+    // default leastSquares;
 }
 
 divSchemes
@@ -61,10 +61,7 @@ snGradSchemes
 {
    default corrected;
 }
-quadraticFitCoeffs
-{
-    limit 1.0;
-}
+
 
 
 // ************************************************************************* //
