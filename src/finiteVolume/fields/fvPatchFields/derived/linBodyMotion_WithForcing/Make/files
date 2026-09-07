@@ -1,0 +1,3 @@
+linBodyMotionFvPatchScalarField.C
+
+LIB = $(FOAM_USER_LIBBIN)/liblinBodyMotion
