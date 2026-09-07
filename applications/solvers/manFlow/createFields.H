@@ -23,8 +23,7 @@ const scalar rampPeriods  = waveConditions.get<scalar>("rampPeriods");
 // Basis-flow linearisation.
 //   DBL  double body: solve the steady BVP, W is the ship-shaped stream.
 //        W.n = 0 on the hull and Wz = 0 on z = 0, and the difference
-//        (W - Uinf) drives the m-terms, the steady restoring carried by pS,
-//        and the incident-wave forcings on the free surface.
+
 //   NKL  Neumann-Kelvin: no steady solve at all, W = Uinf everywhere.  Then
 //        grad(W) = 0 and pS = 0, so m1..m3, the steady restoring and every
 //        (W - Uinf) forcing vanish identically; only the -n x W half of
@@ -42,13 +41,13 @@ if (basisLinearisation != "DBL" && basisLinearisation != "NKL")
 }
 
 // Derived wave properties.  omega is the absolute frequency from the
-// dispersion relation; omegaE is what the body sees once the uniform stream
-// Doppler-shifts it.
+// dispersion relation; omegaE is the encounter frequency
 const scalar waveAmp = 0.5*steepness*waveLength;
 const scalar waveNumber = constant::mathematical::twoPi/waveLength;
 const scalar omega =
     Foam::sqrt(gMag*waveNumber*Foam::tanh(waveNumber*waterDepth));
 
+// Freestream velocity vector
 const vector Uinf
 (
     currentSpeed*vector(Foam::cos(headingAngle), Foam::sin(headingAngle), 0)
@@ -203,7 +202,7 @@ volTensorField gradUs
 );
 
 // dWz/dz on the free surface.  Wz is odd in z for a double-body flow, so this
-// does not vanish there, unlike the tangential derivatives.  Taken from
+// does not vanish there, unlike the tangential derivatives. Taken from
 // continuity rather than from a one-sided normal difference, because the
 // tangential derivatives are the well-resolved ones on a flat patch.
 volScalarField dUsdz

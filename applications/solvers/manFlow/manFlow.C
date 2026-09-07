@@ -70,8 +70,8 @@ int main(int argc, char *argv[])
     #include "createMesh.H"
     #include "readGravitationalAcceleration.H"
 
-    pisoControl potentialFlow(mesh, "potentialFlow");
-    pisoControl basisFlow(mesh, "basisFlow");
+    pisoControl potentialFlow(mesh, "potentialFlow"); // unsteady flow
+    pisoControl basisFlow(mesh, "basisFlow");         // steady flow
 
     #include "createFields.H"
 
@@ -80,15 +80,6 @@ int main(int argc, char *argv[])
 
     if (basisLinearisation == "NKL")
     {
-        // Neumann-Kelvin: the basis flow IS the undisturbed stream, so there
-        // is no steady boundary-value problem to solve.  Everything derived
-        // from it below (gradUs, pS, dUsdz) then comes out zero on its own,
-        // which is what makes the m1..m3 terms, the steady restoring and the
-        // free-surface (W - Uinf) forcings disappear consistently.
-        //
-        // Note the steady body condition W.n = 0 is NOT satisfied by a uniform
-        // stream; the steady disturbance is simply omitted, as is standard in
-        // the unsteady Neumann-Kelvin linearisation.
         Info<< nl << "Basis flow: Neumann-Kelvin, uniform stream (no steady"
                " solve)" << endl;
 
@@ -115,15 +106,9 @@ int main(int argc, char *argv[])
     }
     gradUs = fvc::grad(Us);
 
-    // Steady dynamic pressure, referred to the uniform stream so that it
-    // vanishes in the far field
+    // Steady dynamic pressure due to the basis flow, pS = -1/2 (|W|^2 - |Uinf|^2).
     pS = -0.5*(magSqr(Us) - dimensionedScalar(sqr(dimVelocity), magSqr(Uinf)));
 
-    // dWz/dz from continuity.  On the free-surface patch the tangential
-    // derivatives are taken along the well-resolved plane, whereas the ZZ
-    // component of gradUs there is a one-sided normal difference over a small
-    // distance.
-    // dUsdz = -(gradUs.component(tensor::XX) + gradUs.component(tensor::YY));
     dUsdz = gradUs.component(tensor::ZZ);
 
     Us.write();
@@ -152,18 +137,14 @@ int main(int argc, char *argv[])
         // Prescribed in closed form on cells and on every patch, so that the
         // Froude-Krylov part of the loads carries no discretisation error.
         {
+            // Ramping of the incident wave to avoid ill-conditioning at startup. - Until rampTime.
             const scalar rampFactor =
                 (rampTime > SMALL && t < rampTime)
               ? 0.5*(1.0 - Foam::cos(constant::mathematical::pi*t/rampTime))
               : 1.0;
 
             // The ramp multiplies the AMPLITUDE, so d(phi_I)/dt picks up a
-            // term in rdot as well as the one in the phase.  Without it
-            // dPhiIdt is not the time derivative of PhiI, and since dPhiIdt
-            // goes straight into p the Froude-Krylov load is wrong while the
-            // ramp is running -- by rdot/we, i.e. 1/(4*rampPeriods) of the
-            // converged amplitude at the worst point.  Exactly zero after
-            // rampTime.
+            // term in rdot as well as the one in the phase. 
             const scalar rampFactorDot =
                 (rampTime > SMALL && t < rampTime)
               ? 0.5*constant::mathematical::pi/rampTime
@@ -172,8 +153,8 @@ int main(int argc, char *argv[])
 
             const scalar coshDen = Foam::cosh(waveNumber*waterDepth);
             const scalar Pa = waveAmp*gMag/omega*rampFactor;          // phi_I
-            const scalar Ua = waveAmp*waveNumber*gMag/omega*rampFactor; // u_I
-            const scalar dPa = -waveAmp*gMag*omegaE/omega*rampFactor;  // dphi_I/dt
+            const scalar Ua = Pa*waveNumber; // u_I
+            const scalar dPa = -Pa*omegaE;  // dphi_I/dt
             const scalar dPaR = waveAmp*gMag/omega*rampFactorDot;      // rdot part
 
             // phi_I = A g/w0 cosh k(h+z)/cosh kh sin(kx - we t)
@@ -193,7 +174,6 @@ int main(int argc, char *argv[])
                 const scalar sh = Foam::sinh(waveNumber*(waterDepth + C.z()))/coshDen;
 
                 phiI = Pa*ch*sth;
-                // grad commutes with the ramp, so u_I needs no rdot term
                 uI = vector(Ua*ch*cth, 0, Ua*sh*sth);
                 dphiIdt = dPa*ch*cth + dPaR*ch*sth;
                 elevation = waveAmp*cth*rampFactor;
