@@ -21,6 +21,7 @@ License
 #include "addToRunTimeSelectionTable.H"
 #include "fvPatchFieldMapper.H"
 #include "volFields.H"
+#include "uniformDimensionedFields.H"
 #include "fvMesh.H"
 #include "IOdictionary.H"
 #include "gravityMeshObject.H"
@@ -871,6 +872,46 @@ void Foam::linBodyMotionFvPatchScalarField::updateCoeffs()
     const auto& gradUs = db().lookupObject<volTensorField>(gradUsName_);
     const tensorField& gradW = gradUs.boundaryField()[patch().index()];
 
+    // Cell-centre gradient, for the tangential part of the m-terms
+    const tensorField gradWc
+    (
+        gradUs.boundaryField()[patch().index()].patchInternalField()
+    );
+
+    // Publish the body state so a near-field load object can use it.  The
+    // second-order pressure integration needs the displacement and rotation
+    // of the hull, which otherwise exist only inside this condition.
+    {
+        auto& db_ = const_cast<objectRegistry&>(db());
+
+        auto setVec = [&](const word& nm, const vector& v)
+        {
+            auto* p = db_.getObjectPtr<uniformDimensionedVectorField>(nm);
+            if (!p)
+            {
+                p = new uniformDimensionedVectorField
+                (
+                    IOobject
+                    (
+                        nm,
+                        db().time().timeName(),
+                        db_,
+                        IOobject::NO_READ,
+                        IOobject::NO_WRITE
+                    ),
+                    dimensionedVector(dimless, Zero)
+                );
+                p->store();
+            }
+            p->value() = v;
+        };
+
+        setVec("bodyDisp", X);        // global-axes translation
+        setVec("bodyRot", theta);     // global-axes rotation
+        setVec("bodyVel", Ulin);
+        setVec("bodyOmega", omega);
+    }
+
     scalarField& g = gradient();
     g.setSize(patch().size());
 
@@ -882,8 +923,22 @@ void Foam::linBodyMotionFvPatchScalarField::updateCoeffs()
         const vector Vb(Ulin + (omega ^ r));
         const vector S(X + (theta ^ r));
 
-        // m-terms: (n.grad)W is grad(W)^T & n with OpenFOAM's grad(U)_ij = d_i U_j
-        const vector nGradW(gradW[i].T() & n[i]);
+        // m-terms: (n.grad)W is grad(W)^T & n with OpenFOAM's grad(U)_ij = d_i U_j.
+        // OpenFOAM builds a gradient's boundary value by copying the cell value
+        // and then overwriting only its normal row with snGrad, so Us has
+        // IDENTICAL tangential components at the face and at the cell.  They
+        // cancel exactly in snGrad(Us) and its tangential part is then zero to
+        // round-off (measured 2.8e-15 against a real 0.14).  Keep snGrad for
+        // the normal part, which is accurate, and take the tangential part
+        // from the cell value, which is the only estimate that survives.
+        const vector vb(gradW[i].T() & n[i]);   // snGrad: normal part only
+        const vector vc(gradWc[i].T() & n[i]);   // cell value: has the tangent
+
+        const vector nGradW
+        (
+            (vb & n[i])*n[i]                     // normal part, from snGrad
+          + (vc - (vc & n[i])*n[i])              // tangential part, from the cell
+        );
 
         g[i] =
             (Vb & n[i])                 // body motion
@@ -891,6 +946,7 @@ void Foam::linBodyMotionFvPatchScalarField::updateCoeffs()
           - (S & nGradW)                // m1..m3 and part of m4..m6
           - (W[i] & (theta ^ n[i]));    // rotation of the normal in W
     }
+
 
     if (Pstream::master())
     {
