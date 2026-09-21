@@ -11,7 +11,7 @@ k = 2*np.pi/lam
 omega = np.sqrt(9.81 * k) + Ucur*k*np.cos(head_ang)
 T = 2*np.pi/omega
 zeta	 = 0.025
-Lpp = 1.0
+Lpp = 190/32
 
 fname = f'postProcessing/rigidBodyMotion/motionTurgut.dat'
 data = np.loadtxt(fname, skiprows=1)

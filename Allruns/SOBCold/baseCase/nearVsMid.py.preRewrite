@@ -1,0 +1,207 @@
+#!/usr/bin/env python3
+"""
+Near-field vs midfield mean wave drift force -- two independent routes to the
+same number from the same solution.
+
+  midfield (Chen 2022, Eq.43)   postProcessing/<fo>/*/force.dat      col 1..3
+  near-field (Chen 2022, Eq.29) postProcessing/<fo>/forceNear.dat    col 1..3
+                                 with the hull and waterline parts in 4..6, 7..9
+
+Why the comparison is worth doing: for a FIXED wall-sided body the near-field
+form carries NO explicit forward-speed terms -- all U-dependence enters through
+the solution phi.  The midfield form does carry an explicit O(U) strip term.  So
+
+  they agree      -> the explicit O(U) midfield terms are right, and any
+                     remaining discrepancy with experiment is in phi itself
+  they disagree   -> one integration is wrong, and a gap that grows with U
+                     points straight at the midfield strip term
+
+Both routes drop psi_bar (the second-order steady potential), so agreement does
+NOT clear that term.
+
+Non-dimensionalisation follows Zhao & Faltinsen (BOSS), Fig. 9:
+    F1_mean / (0.5 rho g zeta_a^2 D)        abscissa  omega_e^2 R / g
+
+usage:
+    python3 nearVsMid.py
+    python3 nearVsMid.py --fo MWLforcesClaude --nper 8
+"""
+
+import argparse
+import glob
+import os
+import re
+import sys
+
+import numpy as np
+
+RHO = 1000.0
+G = 9.81
+
+
+def read_dict(path):
+    vals = {}
+    if not os.path.isfile(path):
+        sys.exit(f"ERROR: {path} not found (run from the case directory)")
+    for line in open(path, errors="ignore"):
+        line = line.split("//")[0].strip()
+        m = re.match(r"^([A-Za-z_]\w*)\s+(-?[\d.eE+-]+)\s*;", line)
+        if m:
+            try:
+                vals[m.group(1)] = float(m.group(2))
+            except ValueError:
+                pass
+    return vals
+
+
+def load(pattern):
+    files = sorted(glob.glob(pattern))
+    if not files:
+        return None, []
+    rows = [np.atleast_2d(np.loadtxt(f, comments="#")) for f in files]
+    rows = [r for r in rows if r.size]
+    if not rows:
+        return None, files
+    d = np.vstack(rows)
+    d = d[np.argsort(d[:, 0])]
+    _, keep = np.unique(d[:, 0], return_index=True)
+    return d[keep], files
+
+
+def mean_harmonic(t, y, w, nharm=2):
+    """Mean of a signal that is DC + harmonics of 2*omega_e (quadratic in a
+    first-order field), extracted by least squares rather than by averaging
+    between zero crossings -- which biases when the DC approaches the 2w
+    amplitude."""
+    M = [np.ones_like(t)]
+    for n in range(1, nharm + 1):
+        M += [np.cos(n * w * t), np.sin(n * w * t)]
+    c, *_ = np.linalg.lstsq(np.column_stack(M), y, rcond=None)
+    return c[0]
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--fo", default="MWLforcesClaude", help="function object name")
+    ap.add_argument("--nper", type=int, default=6,
+                    help="encounter periods to average over")
+    ap.add_argument("--nharm", type=int, default=2)
+    a = ap.parse_args()
+
+    wc = read_dict("constant/waveCurConditions")
+    lam, steep = wc["wavelength"], wc["steepness"]
+    U0, head, h = wc["currentspeed"], wc["head_ang"], wc["waterdepth"]
+    R = wc.get("R0", 0.5)
+    D = 2.0 * R
+    ramp_per = wc.get("rampperiod", 0.0)
+
+    k = 2.0 * np.pi / lam
+    w0 = np.sqrt(G * k * np.tanh(k * h))
+    we = w0 + k * U0 * np.cos(head)
+    Te = 2.0 * np.pi / we
+    zeta_a = 0.5 * steep * lam
+    t_ramp = ramp_per * 2.0 * np.pi / w0
+    den = 0.5 * RHO * G * zeta_a**2 * D
+
+    mid, fmid = load(f"postProcessing/{a.fo}/*/force.dat")
+    near, fnear = load(f"postProcessing/{a.fo}/forceNear.dat")
+    if mid is None:
+        sys.exit(f"ERROR: no midfield data under postProcessing/{a.fo}/*/force.dat")
+    if near is None:
+        sys.exit(f"ERROR: no postProcessing/{a.fo}/forceNear.dat -- is "
+                 f"'nearField true' set on the {a.fo} function object?")
+
+    print(f"case      : {os.path.basename(os.getcwd())}")
+    print(f"lambda {lam:.4g}  zeta_a {zeta_a:.5g} m  R {R:.4g} m  U0 {U0:+.4g} m/s"
+          f"  tau {we*U0/G:+.4f}")
+    print(f"we {we:.5g} rad/s   Te {Te:.5g} s   ramp ends {t_ramp:.4g} s")
+    print(f"midfield  : {', '.join(fmid)}   t -> {mid[-1,0]:.4g}")
+    print(f"near-field: {', '.join(fnear)}   t -> {near[-1,0]:.4g}")
+    print()
+    print(f"ABSCISSA  we^2 R / g = {we**2*R/G:.4f}")
+    print(f"denominator 0.5 rho g zeta_a^2 D = {den:.5g} N")
+    print()
+
+    t_end = min(mid[-1, 0], near[-1, 0])
+    n_avail = int(np.floor((t_end - t_ramp) / Te))
+    if n_avail < 1:
+        sys.exit("ERROR: less than one encounter period after the ramp -- "
+                 "let the run go further.")
+    nper = min(a.nper, n_avail)
+    lo = t_end - nper * Te
+
+    def m_of(d, col):
+        msk = (d[:, 0] >= lo) & (d[:, 0] <= t_end)
+        if msk.sum() < 20:
+            return np.nan
+        return mean_harmonic(d[msk, 0], d[msk, col], 2 * we, a.nharm)
+
+    print(f"mean over the last {nper} encounter periods "
+          f"(t = {lo:.4g} .. {t_end:.4g} s), 2*we harmonic fit")
+    print()
+    fx_mid = m_of(mid, 1)
+    fx_near = m_of(near, 1)
+    fx_hull = m_of(near, 4)
+    fx_wl = m_of(near, 7)
+
+    def row(label, v, note=""):
+        print(f"    {label:<26s} {v:+11.6g} N   {v/den:+8.4f} ND"
+              f"   {100*v/fx_mid if fx_mid else float('nan'):+7.1f}% of mid  {note}")
+
+    # --- midfield, split by contribution -----------------------------------
+    midb, fmidb = load(f"postProcessing/{a.fo}/forceMid.dat")
+    print("  MIDFIELD (Chen Eq.43)")
+    row("total", fx_mid)
+    if midb is not None:
+        b_surf = m_of(midb, 4)
+        b_zeta = m_of(midb, 7)
+        b_strip = m_of(midb, 10)
+        b_elev = m_of(midb, 13)
+        row("surfaceCV", b_surf)
+        row("line: zeta^2", b_zeta)
+        row("line: strip", b_strip, "<- O(U), the ONLY explicit")
+        row("steadyElev (Eq.46)", b_elev, "<- O(U^2)   forward-speed terms")
+        resid = fx_mid - (b_surf + b_zeta + b_strip + b_elev)
+        if abs(resid) > 1e-9 * max(abs(fx_mid), 1.0):
+            print(f"    {'(parts - total)':<26s} {resid:+11.6g} N   <- should be ~0")
+    else:
+        print("    (no forceMid.dat -- rerun with the updated library for the "
+              "per-contribution split)")
+    print()
+
+    print("  NEAR-FIELD (Chen Eq.29)")
+    row("total", fx_near)
+    row("hull  1/2|u|^2", fx_hull)
+    row("waterline zeta^2", fx_wl)
+    print()
+
+    d_abs = fx_near - fx_mid
+    print(f"  near - mid  = {d_abs:+.6g} N   = {d_abs/den:+.4f} ND"
+          f"   = {100*d_abs/abs(fx_mid) if fx_mid else float('nan'):+.1f}% of midfield")
+    if midb is not None and abs(b_strip) > 0:
+        print(f"  |near-mid| / |strip term| = {abs(d_abs/b_strip):.2f}"
+              f"   (>>1 means the strip term is too small to explain the gap "
+              f"even if it were 100% wrong)")
+    print()
+    print(f"  cancellation ratio |hull|/|total| = "
+          f"{abs(fx_hull/fx_near) if fx_near else float('nan'):.2f}"
+          f"   (near-field is a difference of two larger terms; a big ratio "
+          f"means it is the more delicate of the two routes)")
+    print()
+
+    # convergence
+    print("  stability over successive 2-Te windows (near | mid):")
+    for j in range(2, n_avail + 1):
+        a1, b1 = t_end - j * Te, t_end - (j - 2) * Te
+        mm = (mid[:, 0] >= a1) & (mid[:, 0] <= b1)
+        nn = (near[:, 0] >= a1) & (near[:, 0] <= b1)
+        if mm.sum() < 20 or nn.sum() < 20:
+            continue
+        vm = mean_harmonic(mid[mm, 0], mid[mm, 1], 2 * we, a.nharm) / den
+        vn = mean_harmonic(near[nn, 0], near[nn, 1], 2 * we, a.nharm) / den
+        print(f"     t=[{a1:7.3f},{b1:7.3f}]   near {vn:+.4f}   mid {vm:+.4f}"
+              f"   diff {vn-vm:+.4f}")
+
+
+if __name__ == "__main__":
+    main()

@@ -261,7 +261,7 @@ def main():
     t_ramp = ramp_per * 2.0 * np.pi / w0
 
     # Seo et al. denominators: the moment is NOT divided by L
-    den_F = RHO * G * A**2 * B**2 / L
+    den_F = -RHO * G * A**2 * B**2 / L
     den_M = RHO * G * A**2 * B**2
 
     print()

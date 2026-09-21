@@ -22,9 +22,9 @@ def mesh(lam):
     if lam >= 4.5:
         subprocess.run(['foamJob', '-parallel', '-screen', 'topoSet', '-dict', 'system/topoSetDict.6'])
         subprocess.run(['foamJob', '-parallel', '-screen', 'refineMesh', '-dict', 'system/refineMeshDict.6', '-overwrite'])
-
-        #subprocess.run(['foamJob', '-parallel', '-screen', 'topoSet', '-dict', 'system/topoSetDict.7'])
-        #subprocess.run(['foamJob', '-parallel', '-screen', 'refineMesh', '-dict', 'system/refineMeshDict.7', '-overwrite'])
+    # if lam >= 5.0:
+    #subprocess.run(['foamJob', '-parallel', '-screen', 'topoSet', '-dict', 'system/topoSetDict.7'])
+    #subprocess.run(['foamJob', '-parallel', '-screen', 'refineMesh', '-dict', 'system/refineMeshDict.7', '-overwrite'])
     subprocess.run(['./snappy.sh'])
     
 
@@ -32,7 +32,7 @@ def run_case(Nproc):
     subprocess.run(['rm', '-r', '0'])
     subprocess.run(['cp', '-r', '0.orig', '0'])
     subprocess.run(['topoSet', '-dict', 'system/topoSetDict'])
-    subprocess.run(['topoSet', '-dict', 'system/topoSetDict_2'])
+    # subprocess.run(['topoSet', '-dict', 'system/topoSetDict_2'])
     #subprocess.run(['topoSet', '-dict', 'system/topoSetDict_3'])
     #subprocess.run(['topoSet', '-dict', 'system/topoSetDict_4'])
     #subprocess.run(['topoSet', '-dict', 'system/topoSetDict_5'])

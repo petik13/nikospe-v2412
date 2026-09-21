@@ -30,7 +30,7 @@ heading = args.heading
 lam = args.lam
 zeta0 = 0.5*steepness*lam
 scale = 32.0
-L_2 = 190/scale/2
+L_2 = 190.0/scale/2
 B = 32.2/scale
 draft = 11.0/scale
 Ucur = args.Ucur
@@ -59,7 +59,7 @@ zmax = 0.0
 discX = 7 # cells per lam
 discY = discX // 1.0
 discZ = int(2.0*discX)
-Nref = 3 # number of refinements for snappyHexMesh in x-direction.
+Nref = 2 # number of refinements for snappyHexMesh in x-direction.
 if lam >= 1.5:
     Nref = 3
 if lam >= 3.0:
@@ -230,7 +230,7 @@ update_file('boxend', xbody + l4*L_2, path='system/topoSetDict.6')
 update_file('zbox', max(1.4*draft, 0.12*lam), path='system/topoSetDict.6')
 
 # -- Modify topoSetDict.7
-l4 = 1.4
+l4 = 1.2
 update_file('ybox', l4*L_2, path='system/topoSetDict.7')
 update_file('boxstart', xbody - l4*L_2, path='system/topoSetDict.7')
 update_file('boxend', xbody + l4*L_2, path='system/topoSetDict.7')
@@ -264,10 +264,6 @@ update_file('i_y', i_[1], path='system/topoSetDict.6')
 update_file('j_x', j_[0], path='system/topoSetDict.6')
 update_file('j_y', j_[1], path='system/topoSetDict.6')
 """
-# -- Modify runCase.sh
-rcpath = 'runCase.sh'
-hf.console("Modifying runCase.sh")
-update_file('Nproc', f'={Nproc}', path=rcpath, endl='')
 
 # -- Modify decomposeParDict
 dpdpath = os.path.join('system', 'decomposeParDict')
@@ -289,7 +285,7 @@ rgpath = os.path.join('constant', 'bodyMotionProperties')
 update_file('xG', f'{xbody:.4}', path = rgpath)
 update_file('Lpp', f'{2*L_2:.6}', path = rgpath)
 update_file('beam', f'{B:.6}', path = rgpath)
-update_file('heading', f'{np.pi - head_ang:.4}', path = rgpath)
+update_file('heading', f'{np.pi - head_ang:.12}', path = rgpath)
 
 # -- Modify linMotions.py
 rgpath = 'linMotions.py'

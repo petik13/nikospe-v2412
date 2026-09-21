@@ -50,7 +50,7 @@ libs
 (
     "libsampling.so"
     "libpotForwardSpeedBC.so"
-    "liblinBodyMotion.so"
+    "liblinBodyMotionMj.so"
     "libmiddleFieldForm.so"
 );
 
