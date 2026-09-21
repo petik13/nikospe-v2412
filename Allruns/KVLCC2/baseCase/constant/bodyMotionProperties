@@ -62,15 +62,18 @@ rhoInf              1000;
 //     (surge sway heave roll pitch yaw)
 // The body condition sets dphi_D/dn = V_b.n, so the pressure -dphi/dt responds
 // to the body ACCELERATION and the coupling is an added-mass one, evaluated
-// lagged.  It goes unstable once the fluid added mass exceeds the body mass,
-// which in heave it does.  Putting A on the left and A*a_old on the right
+// lagged.  It goes unstable once the fluid added mass exceeds the body mass
+// Putting A on the left and A*a_old on the right
 // suppresses that.  A single scalar applies to all six; 0 is off.
-addedMass           (0.1 1 1 0.3 0.5 1);
+// sub-iterations needed enable with addedMassFromTimeStep false, 
+// which uses the previous corrector rather than the previous time step to drive A.
+// At convergence the left and right side terms cancel out and the physics are consistent.
+// The fastest convergence is achieved when the added mass estimates are exactly equal
+// to the infinite frequency added masses of the body (obtained e.g. from WAMMIT)
+addedMass           (0.01 1 1 0.3 0.5 0.5);
 
 // Drive A from the previous TIME STEP (true) or the previous CORRECTOR
-// (false).  The time-step form is what stabilises the coupling, at the price
-// of an O(dt) consistency error.  The corrector form is consistent -- A
-// cancels once the correctors converge -- but then provides no stabilisation.
+// (false).  Keep addedMassFromTimeStep false to enable subiterations with the non-orthogonal correctors.
 addedMassFromTimeStep   false;
 steadyRestoring         true;
 

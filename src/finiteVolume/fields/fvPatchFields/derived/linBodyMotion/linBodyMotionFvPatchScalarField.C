@@ -378,15 +378,12 @@ void Foam::linBodyMotionFvPatchScalarField::readProperties()
     mooringK11_ = bodyDict.getOrDefault<scalar>("mooringK11", 0);
     mooringK22_ = bodyDict.getOrDefault<scalar>("mooringK22", 0);
     mooringK66_ = bodyDict.getOrDefault<scalar>("mooringK66", 0);
-    mooringDampingFraction_ =
-        bodyDict.getOrDefault<scalar>("mooringDampingFraction", 0);
+    mooringDampingFraction_ = bodyDict.getOrDefault<scalar>("mooringDampingFraction", 0);
 
     heading_ = bodyDict.getOrDefault<scalar>("heading", 0);
     rho_     = bodyDict.getOrDefault<scalar>("rhoInf", 1000);
 
-    // Per-DOF artificial added mass; a single scalar is accepted and applied
-    // to all six.  Defaults reproduce the values that damped the coupling in
-    // practice: light on surge, full inertia on the rest.
+    // Per-DOF artificial added mass as fraction of the physical mass.
     addedMass_ = scalar(0);
     if (bodyDict.found("addedMass"))
     {

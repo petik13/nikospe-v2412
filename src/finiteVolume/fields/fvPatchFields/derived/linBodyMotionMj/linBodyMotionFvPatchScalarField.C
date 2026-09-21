@@ -1171,13 +1171,14 @@ void Foam::linBodyMotionFvPatchScalarField::solveMotion()
     qDotNew_ = qDotStar + (gamma_*dt)*qDdotNew_;
     qNew_    = qStar + (beta_*dt*dt)*qDdotNew_;
 
-    // if (Pstream::master())
-    // {
-    //     Info<< "    qddot corrector change:";
-    //     forAll(qDdotNew_, i)
-    //         Info<< ' ' << mag(qDdotNew_[i] - qDdotPrevIter_[i]);
-    //     Info<< endl;
-    // }
+    if (Pstream::master())
+    {
+        Info<< "    qddot corrector change percentage =";
+        forAll(qDdotNew_, i)
+            Info<< ' ' << mag(qDdotNew_[i] - qDdotPrevIter_[i])/
+                (mag(qDdotPrevIter_[i]) + VSMALL)*100.0;
+        Info<< endl;
+    }
 
     qDdotPrevIter_ = qDdotNew_;
 
