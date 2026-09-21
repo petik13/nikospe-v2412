@@ -243,6 +243,18 @@ class linBodyMotionFvPatchScalarField
         vectorField nGradW_;
         bool nGradWValid_;
 
+        //- grad(p_S) on the patch, for the steady-flow restoring.  Built in
+        //  the same pass as nGradW_ and from the same stencil, because it
+        //  needs exactly the same two things:
+        //
+        //      n.grad(p_S) = -W.[(n.grad)W]     <- nGradW_, contracted with W
+        //      grad_s(p_S)                      <- the surface fit
+        //
+        //  Doing it any other way means reading grad(Us) on the boundary,
+        //  which is the zeroth-order quantity this whole library exists to
+        //  avoid.  Zero-sized when p_S is not registered.
+        vectorField gradPs_;
+
         //- State: displacement, velocity, acceleration at n and n+1
         vector6 q_, qDot_, qDdot_;
         vector6 qNew_, qDotNew_, qDdotNew_;

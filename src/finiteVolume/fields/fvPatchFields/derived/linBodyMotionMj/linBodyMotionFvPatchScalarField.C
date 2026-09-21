@@ -642,6 +642,23 @@ void Foam::linBodyMotionFvPatchScalarField::calcNGradW()
         nGradW_[i] = nGradWLegacy(i, nLoc[i], gradWb, gradWc);
     }
 
+    // grad(p_S) for the steady-flow restoring, seeded with the same legacy
+    // expression so that any face without a stencil keeps the old behaviour
+    const bool havePs = db().foundObject<volScalarField>(pSName_);
+
+    if (havePs)
+    {
+        gradPs_.setSize(nLocal, Zero);
+        for (label i = 0; i < nLocal; ++i)
+        {
+            gradPs_[i] = -(gradWb[i] & WLoc[i]);
+        }
+    }
+    else
+    {
+        gradPs_.clear();
+    }
+
     if (!mTermsFromSurface_)
     {
         if (Pstream::master())
@@ -681,17 +698,25 @@ void Foam::linBodyMotionFvPatchScalarField::calcNGradW()
     List<vectorField> allCf(Pstream::nProcs());
     List<vectorField> allN(Pstream::nProcs());
     List<vectorField> allW(Pstream::nProcs());
+    List<scalarField> allPs(Pstream::nProcs());
     allCf[Pstream::myProcNo()] = fvp.Cf();
     allN[Pstream::myProcNo()]  = nSm;
     allW[Pstream::myProcNo()]  = WLoc;
+    allPs[Pstream::myProcNo()] =
+        havePs
+      ? scalarField(db().lookupObject<volScalarField>(pSName_)
+                      .boundaryField()[patchi])
+      : scalarField(nLocal, Zero);
     Pstream::allGatherList(allCf);
     Pstream::allGatherList(allN);
     Pstream::allGatherList(allW);
+    Pstream::allGatherList(allPs);
 
     label nGlob = 0;
     forAll(allCf, proci) nGlob += allCf[proci].size();
 
     vectorField gCf(nGlob), gN(nGlob), gW(nGlob);
+    scalarField gPs(nGlob);
     {
         label k = 0;
         forAll(allCf, proci)
@@ -701,6 +726,7 @@ void Foam::linBodyMotionFvPatchScalarField::calcNGradW()
                 gCf[k] = allCf[proci][j];
                 gN[k]  = allN[proci][j];
                 gW[k]  = allW[proci][j];
+                gPs[k] = allPs[proci][j];
                 ++k;
             }
         }
@@ -741,6 +767,7 @@ void Foam::linBodyMotionFvPatchScalarField::calcNGradW()
 
     DynamicList<scalar> uu(64), vv(64);
     DynamicList<scalar> nx(64), ny(64), nz(64), w1(64), w2(64);
+    DynamicList<scalar> ps(64);
 
     label nFallback = 0;
 
@@ -762,6 +789,7 @@ void Foam::linBodyMotionFvPatchScalarField::calcNGradW()
         {
             uu.clear(); vv.clear();
             nx.clear(); ny.clear(); nz.clear(); w1.clear(); w2.clear();
+            ps.clear();
 
             const scalar R2 = R*R;
 
@@ -781,6 +809,8 @@ void Foam::linBodyMotionFvPatchScalarField::calcNGradW()
                 wj -= (wj & ni)*ni;
                 w1.append(wj & t1);
                 w2.append(wj & t2);
+
+                ps.append(gPs[j]);
             }
 
             if (uu.size() >= 6) { built = true; break; }
@@ -823,6 +853,28 @@ void Foam::linBodyMotionFvPatchScalarField::calcNGradW()
         const scalar divsW = (dW1du + dW2dv)*rh;
 
         nGradW_[i] = tang - divsW*ni;
+
+        // grad(p_S), from the same stencil.  p_S = -1/2(|W|^2 - |Uinf|^2) and
+        // W is tangential on the hull, so p_S is genuinely a surface field and
+        // its tangential gradient is just another fit.  The normal part needs
+        // no fit at all:
+        //
+        //     n.grad(p_S) = -W_j n.grad(W_j) = -W.[(n.grad)W]
+        //
+        // which is nGradW_ contracted with W -- so it inherits the convergent
+        // estimate instead of the boundary volume gradient.
+        if (havePs)
+        {
+            scalar dPdu = 0, dPdv = 0;
+
+            if (fitGrad(uu, vv, ps, dPdu, dPdv))
+            {
+                gradPs_[i] =
+                    (dPdu*rh)*t1
+                  + (dPdv*rh)*t2
+                  - (WLoc[i] & nGradW_[i])*ni;
+            }
+        }
     }
 
     // --- report -------------------------------------------------------------
@@ -868,11 +920,17 @@ void Foam::linBodyMotionFvPatchScalarField::steadyRestoringMatrix
     const auto& pS = db().lookupObject<volScalarField>(pSName_);
     const scalarField& pSb = pS.boundaryField()[patch().index()];
 
-    const auto& Us = db().lookupObject<volVectorField>(UsName_);
-    const vectorField& W = Us.boundaryField()[patch().index()];
-
-    const auto& gradUs = db().lookupObject<volTensorField>(gradUsName_);
-    const tensorField& gradW = gradUs.boundaryField()[patch().index()];
+    // grad(p_S) comes from the surface operators, built alongside nGradW_.
+    // calcNGradW() must therefore have run before this; solveMotion() calls it
+    // first for exactly that reason.  Falling back to the boundary volume
+    // gradient here would put the steady restoring straight back onto the
+    // zeroth-order estimate the m-terms were moved off.
+    if (gradPs_.size() != patch().size())
+    {
+        FatalErrorInFunction
+            << "grad(p_S) has not been built.  calcNGradW() must be called"
+               " before steadyRestoringMatrix()." << exit(FatalError);
+    }
 
     const vector rRef(xG_, 0, 0);
 
@@ -893,8 +951,7 @@ void Foam::linBodyMotionFvPatchScalarField::steadyRestoringMatrix
             const vector r(Cf[i] - rRef);
             const vector S(sK + (thK ^ r));
 
-            // grad(p_S) = -(gradUs & Us), since p_S = -(|W|^2 - |Uinf|^2)/2
-            const vector gradPs(-(gradW[i] & W[i]));
+            const vector& gradPs = gradPs_[i];
 
             const vector f
             (
@@ -1029,6 +1086,11 @@ void Foam::linBodyMotionFvPatchScalarField::solveMotion()
     // solved the basis flow and while Us and pS are still zero.
     if (steadyRestoring_ && !KsValid_)
     {
+        // Ks needs grad(p_S), which is built with the surface operators in
+        // calcNGradW().  updateCoeffs() also calls it, later -- this one is
+        // first and the nGradWValid_ guard makes the second a no-op.
+        calcNGradW();
+
         steadyRestoringMatrix(Ks_);
         KsValid_ = true;
 
@@ -1249,13 +1311,6 @@ void Foam::linBodyMotionFvPatchScalarField::updateCoeffs()
           - (uI[i] & n[i])                 // incident flux to be cancelled
           - mOn*(S & nGradW_[i])           // m1..m3 and part of m4..m6
           - mOn*(W[i] & (theta ^ n[i]));   // rotation of the normal in W
-    }
-
-
-    if (Pstream::master())
-    {
-        Info<< "    body: heave " << qNew_[2]
-            << "  pitch " << qNew_[4] << endl;
     }
 
     fixedGradientFvPatchField<scalar>::updateCoeffs();

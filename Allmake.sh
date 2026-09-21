@@ -27,6 +27,7 @@ targets=(
     src/finiteVolume/fields/fvPatchFields/derived/rigidTurgutBody         # librigidTurgutBody
     src/finiteVolume/fields/fvPatchFields/derived/linearizedRigidBody     # liblinearizedRigidBody
     src/finiteVolume/fields/fvPatchFields/derived/linBodyMotion           # liblinBodyMotion
+    src/finiteVolume/fields/fvPatchFields/derived/linBodyMotionMj         # liblinBodyMotionMj
     src/finiteVolume/fields/fvPatchFields/derived/waveCurrentPotential3D  # libwaveCurrentPotential3D
     src/finiteVolume/fields/fvPatchFields/derived/potForwardSpeedBC       # libpotForwardSpeedBC
     src/functionObjects/forces/myFunctionObject                           # libmyFunctionObject
@@ -55,6 +56,20 @@ targets=(
 #       Archived copy. Its Make/files builds the SAME target as linBodyMotion
 #       ($(FOAM_USER_LIBBIN)/liblinBodyMotion), so building both would mean one
 #       silently overwrites the other depending on build order.
+#------------------------------------------------------------------------------
+# Note on linBodyMotion vs linBodyMotionMj:
+#
+#   Both are built, to separate targets (liblinBodyMotion / liblinBodyMotionMj),
+#   and they differ only in how the m-terms are evaluated.  linBodyMotionMj
+#   takes (n.grad)W from in-surface least-squares operators on the hull patch;
+#   linBodyMotion takes it from the volume gradient of Us, which is zeroth-order
+#   accurate (78% error on an analytic sphere, unchanged by halving the cell
+#   size).  linBodyMotionMj reproduces the old behaviour exactly with
+#   "mTermsFromSurface false" in constant/bodyMotionProperties.
+#
+#   They register the SAME run-time type name, "linBodyMotion", so a case must
+#   list exactly one of them in controlDict/libs.  Listing both is a duplicate
+#   entry in the selection table and aborts at start-up.
 #------------------------------------------------------------------------------
 
 failed=()
