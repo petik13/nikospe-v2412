@@ -42,8 +42,7 @@ Description
     Both are explicit in time, so each step is a single elliptic solve.
 
     Prescribing PhiI rather than generating it numerically keeps the incident
-    wave exact everywhere, and lets the sponge layers damp the disturbance
-    without touching it.
+    wave exact everywhere, and lets the sponge layers damp the disturbance alone.
 
 \*---------------------------------------------------------------------------*/
 
@@ -109,7 +108,7 @@ int main(int argc, char *argv[])
     // Steady dynamic pressure due to the basis flow, pS = -1/2 (|W|^2 - |Uinf|^2).
     pS = -0.5*(magSqr(Us) - dimensionedScalar(sqr(dimVelocity), magSqr(Uinf)));
 
-    dUsdz = gradUs.component(tensor::ZZ);
+    dUsdz = gradUs.component(tensor::ZZ); // dWz/dz on the free surface, for the linearised kinematic FSBC.
 
     Us.write();
     gradUs.write();

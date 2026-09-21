@@ -13,12 +13,12 @@ IOdictionary waveConditions
 
 const scalar gMag = mag(g.value());
 
-const scalar steepness   = waveConditions.get<scalar>("steepness");
-const scalar waveLength  = waveConditions.get<scalar>("waveLength");
-const scalar waterDepth  = waveConditions.get<scalar>("waterDepth");
-const scalar currentSpeed = waveConditions.get<scalar>("currentSpeed");
-const scalar headingAngle = waveConditions.get<scalar>("headingAngle");
-const scalar rampPeriods  = waveConditions.get<scalar>("rampPeriods");
+const scalar steepness   = waveConditions.get<scalar>("steepness");    // wave steepness, H/L
+const scalar waveLength  = waveConditions.get<scalar>("waveLength");   // Wave length, m
+const scalar waterDepth  = waveConditions.get<scalar>("waterDepth");   // Water depth, m
+const scalar currentSpeed = waveConditions.get<scalar>("currentSpeed"); // Forward current speed, m/s
+const scalar headingAngle = waveConditions.get<scalar>("headingAngle"); // Heading angle of the current
+const scalar rampPeriods  = waveConditions.get<scalar>("rampPeriods");  // Ramp time in wave periods
 
 // Basis-flow linearisation.
 //   DBL  double body: solve the steady BVP, W is the ship-shaped stream.
@@ -44,8 +44,7 @@ if (basisLinearisation != "DBL" && basisLinearisation != "NKL")
 // dispersion relation; omegaE is the encounter frequency
 const scalar waveAmp = 0.5*steepness*waveLength;
 const scalar waveNumber = constant::mathematical::twoPi/waveLength;
-const scalar omega =
-    Foam::sqrt(gMag*waveNumber*Foam::tanh(waveNumber*waterDepth));
+const scalar omega = Foam::sqrt(gMag*waveNumber*Foam::tanh(waveNumber*waterDepth)); // absolute wave frequency
 
 // Freestream velocity vector
 const vector Uinf
@@ -53,7 +52,7 @@ const vector Uinf
     currentSpeed*vector(Foam::cos(headingAngle), Foam::sin(headingAngle), 0)
 );
 
-const scalar omegaE = omega + waveNumber*Uinf.x();
+const scalar omegaE = omega + waveNumber*Uinf.x(); // Encounter frequency
 const scalar wavePeriod = constant::mathematical::twoPi/omega;
 const scalar rampTime = rampPeriods*wavePeriod;
 
@@ -202,9 +201,7 @@ volTensorField gradUs
 );
 
 // dWz/dz on the free surface.  Wz is odd in z for a double-body flow, so this
-// does not vanish there, unlike the tangential derivatives. Taken from
-// continuity rather than from a one-sided normal difference, because the
-// tangential derivatives are the well-resolved ones on a flat patch.
+// does not vanish there, unlike the tangential derivatives.
 volScalarField dUsdz
 (
     IOobject("dUsdz", runTime.timeName(), mesh, IOobject::NO_READ, IOobject::AUTO_WRITE),
