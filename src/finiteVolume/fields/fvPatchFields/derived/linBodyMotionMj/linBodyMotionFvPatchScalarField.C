@@ -481,12 +481,14 @@ void Foam::linBodyMotionFvPatchScalarField::readProperties()
     const scalar U0 = waveDict.get<scalar>("currentSpeed");
     const scalar headAngle = waveDict.get<scalar>("headingAngle");
     const scalar rampPeriods = waveDict.get<scalar>("rampPeriods");
+    const scalar swaySpeed = waveDict.getOrDefault<scalar>("swaySpeed", 0);
     depth_ = waveDict.get<scalar>("waterDepth");
 
     waveAmp_    = 0.5*steepness*waveLength;
     waveNumber_ = constant::mathematical::twoPi/waveLength;
     omega_      = Foam::sqrt(g*waveNumber_*Foam::tanh(waveNumber_*depth_));
-    Uinf_       = U0*vector(Foam::cos(headAngle), Foam::sin(headAngle), 0);
+    Uinf_       = U0*vector(Foam::cos(headAngle), Foam::sin(headAngle), 0)
+                + swaySpeed*vector(-Foam::sin(headAngle), Foam::cos(headAngle), 0);
     omegaE_     = omega_ + waveNumber_*Uinf_.x();
     rampTime_   = rampPeriods*constant::mathematical::twoPi/omega_;
 }

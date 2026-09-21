@@ -247,6 +247,7 @@ def main():
     steep = wc["steepness"]
     U0 = wc["currentSpeed"]
     head = wc["headingAngle"]
+    Usway = wc.get("swaySpeed", 0)
     h = wc["waterDepth"]
     ramp_per = wc.get("rampPeriods", 0.0)
 
@@ -255,7 +256,12 @@ def main():
 
     k = 2.0 * np.pi / lam
     w0 = np.sqrt(G * k * np.tanh(k * h))
-    we = w0 + k * U0 * np.cos(head)
+    # Uinf as the solver builds it: surge along the heading, sway 90 deg to it
+    Ux = U0*np.cos(head) - Usway*np.sin(head)
+    Uy = U0*np.sin(head) + Usway*np.cos(head)
+    Umag = np.hypot(Ux, Uy)
+
+    we = w0 + k * Ux          # the wave runs along +x, so only Ux Doppler-shifts it
     Te = 2.0 * np.pi / we
     A = 0.5 * steep * lam
     t_ramp = ramp_per * 2.0 * np.pi / w0
