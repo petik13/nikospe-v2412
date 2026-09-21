@@ -19,6 +19,7 @@ const scalar waterDepth  = waveConditions.get<scalar>("waterDepth");   // Water 
 const scalar currentSpeed = waveConditions.get<scalar>("currentSpeed"); // Forward current speed, m/s
 const scalar headingAngle = waveConditions.get<scalar>("headingAngle"); // Heading angle of the current
 const scalar rampPeriods  = waveConditions.get<scalar>("rampPeriods");  // Ramp time in wave periods
+const scalar swaySpeed    = waveConditions.getOrDefault<scalar>("swaySpeed", 0); // Sway current speed, m/s
 
 // Basis-flow linearisation.
 //   DBL  double body: solve the steady BVP, W is the ship-shaped stream.
@@ -49,7 +50,8 @@ const scalar omega = Foam::sqrt(gMag*waveNumber*Foam::tanh(waveNumber*waterDepth
 // Freestream velocity vector
 const vector Uinf
 (
-    currentSpeed*vector(Foam::cos(headingAngle), Foam::sin(headingAngle), 0)
+    currentSpeed*vector(Foam::cos(headingAngle), Foam::sin(headingAngle), 0) + 
+    swaySpeed*vector(Foam::cos(headingAngle + constant::mathematical::pi/2), Foam::sin(headingAngle + constant::mathematical::pi/2), 0)
 );
 
 const scalar omegaE = omega + waveNumber*Uinf.x(); // Encounter frequency
@@ -67,7 +69,8 @@ Info<< "Incident wave" << nl
     << "    Uinf        " << Uinf << " m/s   (tau = "
     << omegaE*currentSpeed/gMag << ")" << nl
     << "    depth       " << waterDepth << " m" << nl
-    << "    ramp        " << rampTime << " s" << nl << endl;
+    << "    ramp        " << rampTime << " s" << nl << nl
+    << "    sway speed   " << swaySpeed << " m/s" << endl;
 
 
 // --- Potentials ------------------------------------------------------------
