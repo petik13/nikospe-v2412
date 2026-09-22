@@ -108,7 +108,9 @@ int main(int argc, char *argv[])
     // Steady dynamic pressure due to the basis flow, pS = -1/2 (|W|^2 - |Uinf|^2).
     pS = -0.5*(magSqr(Us) - dimensionedScalar(sqr(dimVelocity), magSqr(Uinf)));
 
-    dUsdz = gradUs.component(tensor::ZZ); // dWz/dz on the free surface, for the linearised kinematic FSBC.
+    // dUsdz = gradUs.component(tensor::ZZ); // dWz/dz on the free surface, for the linearised kinematic FSBC.
+    // Take dUsdz from continuity
+    dUsdz = -gradUs.component(tensor::XX) - gradUs.component(tensor::YY);
 
     Us.write();
     gradUs.write();
