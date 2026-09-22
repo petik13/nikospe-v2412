@@ -1,0 +1,66 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\\\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\\\    /   O peration     | Version:  2412                                  |
+|   \\\\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\\\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    location    "0";
+    object      PhiS;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [0 2 -1 0 0 0 0];
+
+internalField   uniform 0;
+
+boundaryField
+{
+    "(inlet|outlet|front|back)"
+    {
+        // Uniform stream.  u = +grad(Phi), so PhiS = +U0(cos b x + sin b y).
+        type            codedFixedValue;
+        value           uniform 0;
+        name            basisPotential;
+        codeContext
+        {
+            Ucur	0.2;
+            heading	-0.0;
+        }
+        codeInclude     #{
+            #include "fvCFD.H"
+        #};
+        code            #{
+            const vectorField& Cf = patch().Cf();
+
+            const scalar heading = readScalar(this->dict().lookup("heading"));
+            const scalar Ucur    = readScalar(this->dict().lookup("Ucur"));
+
+            const scalar b = heading*constant::mathematical::pi/180.0;
+
+            operator==
+            (
+                Ucur*Foam::cos(b)*Cf.component(vector::X)
+              + Ucur*Foam::sin(b)*Cf.component(vector::Y)
+            );
+        #};
+        codeOptions     #{
+            -I$(LIB_SRC)/finiteVolume/lnInclude \
+            -I$(LIB_SRC)/meshTools/lnInclude
+        #};
+    }
+
+    // Rigid-wall (double-body) condition on the mean free surface and on the
+    // seabed; no flux through the hull.
+    "(upper|lower|sphere)"
+    {
+        type            zeroGradient;
+    }
+}
+
+// ************************************************************************* //

@@ -1,0 +1,55 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\\\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\\\    /   O peration     | Version:  2412                                  |
+|   \\\\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\\\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "constant";
+    object      waveConditions;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Incident wave.  headingAngle is in RADIANS and is the direction of the
+// uniform stream in the ship-fixed frame; the wave itself runs along +x.
+steepness	0.016666666666666666;
+waveLength	3.0;
+waterDepth	2.5;
+currentSpeed	0.2;
+headingAngle	-0.0;
+rampPeriods	5.0;
+
+// Basis-flow linearisation:
+//   DBL  double body -- solve the steady BVP; W is the ship-shaped stream.
+//   NKL  Neumann-Kelvin -- no steady solve, W = Uinf everywhere.
+//
+// NKL makes grad(W) and pS vanish identically, and with them the m1..m3
+// terms, the steady restoring, and the (W - Uinf) forcings of the incident
+// wave on the free surface.  Only the -n x W half of m4..m6 survives, which
+// is the classical uniform-stream result (pitch and yaw only).
+linearisation	DBL;
+
+// Kreiss-Oliger fourth-difference filter on zeta_D.  Damps the grid-scale
+// mode admitted by the 4th-order central free-surface stencil, and is applied
+// only on faces using that stencil.  It acts once per TIME STEP, so its effect
+// per wave period scales with the number of steps per period rather than with
+// the timestep.  0 disables it.
+filterCoeff	5e-4;
+
+// Sponge layers.  These damp the DISTURBANCE potential only: the incident wave
+// is prescribed analytically and passes through untouched.
+spongeStrength      3.0;
+
+xInlet	6.0;
+LInlet	6.0;
+xOutlet	42.0;
+LOutlet	6.0;
+ySide	21.0;
+LSide	6.0;
+
+// ************************************************************************* //
