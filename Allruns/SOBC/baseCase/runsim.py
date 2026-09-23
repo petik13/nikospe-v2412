@@ -35,8 +35,8 @@ B = 32.2/scale
 draft = 11.0/scale
 Ucur = args.Ucur
 rampperiod = 3.0
-Co = 0.1
-Nproc = 56 # Number of processors for parallel run
+Co = 0.2
+Nproc = 28 # Number of processors for parallel run
 procD = [8, 6, 1]
 
 head_ang = heading*np.pi/180

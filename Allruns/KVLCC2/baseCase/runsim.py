@@ -89,7 +89,7 @@ period = 2 * np.pi / omega
 celerity = omega / k
 Cgroup = 0.5*celerity
 T = 2*np.pi/omega
-endTime = rampperiod*T + 0.5*(xbody + xbody)/Cgroup
+endTime = rampperiod*T + 0.6*(xbody + xbody)/Cgroup
 deltaT = Co * lam_mesh / ((celerity+Ucur) * discX)/(Nref + 1)
 hf.console(f"Calculated timestep deltaT = {deltaT:.6f} s for Co = {Co}")
 

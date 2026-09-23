@@ -11,20 +11,20 @@ def mesh(lam):
     subprocess.run(['foamJob', '-parallel', '-screen', 'refineMesh', '-dict', 'system/refineMeshDict.1', '-overwrite'])
     # subprocess.run(['foamJob', '-parallel', '-screen', 'topoSet', '-dict', 'system/topoSetDict.2'])
     # subprocess.run(['foamJob', '-parallel', '-screen', 'refineMesh', '-dict', 'system/refineMeshDict.2', '-overwrite'])
-    if lam >= 1.5:
+    if lam >= 1.0:
         subprocess.run(['foamJob', '-parallel', '-screen', 'topoSet', '-dict', 'system/topoSetDict.3'])
         subprocess.run(['foamJob', '-parallel', '-screen', 'refineMesh', '-dict', 'system/refineMeshDict.3', '-overwrite'])
     # subprocess.run(['foamJob', '-parallel', '-screen', 'topoSet', '-dict', 'system/topoSetDict.4'])
     # subprocess.run(['foamJob', '-parallel', '-screen', 'refineMesh', '-dict', 'system/refineMeshDict.4', '-overwrite'])
-    if lam >= 3.0:
+    if lam >= 2.0:
         subprocess.run(['foamJob', '-parallel', '-screen', 'topoSet', '-dict', 'system/topoSetDict.5'])
         subprocess.run(['foamJob', '-parallel', '-screen', 'refineMesh', '-dict', 'system/refineMeshDict.5', '-overwrite'])
-    if lam >= 4.5:
+    if lam >= 2.75:
         subprocess.run(['foamJob', '-parallel', '-screen', 'topoSet', '-dict', 'system/topoSetDict.6'])
         subprocess.run(['foamJob', '-parallel', '-screen', 'refineMesh', '-dict', 'system/refineMeshDict.6', '-overwrite'])
-
-        #subprocess.run(['foamJob', '-parallel', '-screen', 'topoSet', '-dict', 'system/topoSetDict.7'])
-        #subprocess.run(['foamJob', '-parallel', '-screen', 'refineMesh', '-dict', 'system/refineMeshDict.7', '-overwrite'])
+    if lam >= 3.5:
+        subprocess.run(['foamJob', '-parallel', '-screen', 'topoSet', '-dict', 'system/topoSetDict.7'])
+        subprocess.run(['foamJob', '-parallel', '-screen', 'refineMesh', '-dict', 'system/refineMeshDict.7', '-overwrite'])
     subprocess.run(['./snappy.sh'])
     
 
