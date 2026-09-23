@@ -30,6 +30,7 @@ boundaryField
         codeContext
         {
             Ucur	0.2;
+            swaySpeed	0.0;
             heading	-0.0;
         }
         codeInclude     #{
@@ -40,6 +41,7 @@ boundaryField
 
             const scalar heading = readScalar(this->dict().lookup("heading"));
             const scalar Ucur    = readScalar(this->dict().lookup("Ucur"));
+            const scalar swaySpeed = readScalar(this->dict().lookup("swaySpeed"));
 
             const scalar b = heading*constant::mathematical::pi/180.0;
 
@@ -47,6 +49,8 @@ boundaryField
             (
                 Ucur*Foam::cos(b)*Cf.component(vector::X)
               + Ucur*Foam::sin(b)*Cf.component(vector::Y)
+              + swaySpeed*Foam::cos(b + constant::mathematical::pi/2)*Cf.component(vector::X)
+              + swaySpeed*Foam::sin(b + constant::mathematical::pi/2)*Cf.component(vector::Y)
             );
         #};
         codeOptions     #{

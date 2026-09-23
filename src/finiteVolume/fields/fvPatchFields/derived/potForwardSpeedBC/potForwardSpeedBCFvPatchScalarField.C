@@ -195,8 +195,9 @@ void Foam::potForwardSpeedBCFvPatchScalarField::readParamsFrom
     params_.amp    = 0.5*params_.steepness*params_.wavelength;
     params_.k      = constant::mathematical::twoPi/params_.wavelength;
     params_.omega  = Foam::sqrt(g*params_.k*Foam::tanh(params_.k*params_.hdepth));
-    params_.Uinf   = params_.U0
-                    *vector(Foam::cos(params_.head_ang), Foam::sin(params_.head_ang), 0);
+    const scalar Usway = dict.getOrDefault<scalar>("swaySpeed", 0);
+    params_.Uinf = params_.U0*vector(Foam::cos(params_.head_ang), Foam::sin(params_.head_ang), 0)
+                + Usway*vector(-Foam::sin(params_.head_ang), Foam::cos(params_.head_ang), 0);
     params_.omegaE = params_.omega + params_.k*params_.Uinf.x();
 
     params_.rampTime = params_.rampperiod*constant::mathematical::twoPi/params_.omega;

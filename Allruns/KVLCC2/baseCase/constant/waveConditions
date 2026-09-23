@@ -23,6 +23,7 @@ waterDepth	2.5;
 currentSpeed	0.2;
 headingAngle	-0.0;
 rampPeriods	5.0;
+swaySpeed	0.0;
 
 // Basis-flow linearisation:
 //   DBL  double body -- solve the steady BVP; W is the ship-shaped stream.

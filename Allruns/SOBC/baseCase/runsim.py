@@ -39,6 +39,8 @@ Co = 0.2
 Nproc = 56 # Number of processors for parallel run
 procD = [8, 6, 1]
 
+beta = 0.0
+
 head_ang = heading*np.pi/180
 xsponge = 2 * lam
 Lsponge = 2 * lam
@@ -136,7 +138,7 @@ update_file('bodyXpos', xbody, path='system/snappyHexMeshDict')
 
 # -- Modify waveCurConditions
 wCpath = os.path.join('constant', 'waveConditions')
-hf.console("Modifying waveCurConditions")
+hf.console("Modifying waveConditions")
 update_file('headingAngle', -head_ang, path=wCpath)
 update_file('steepness', steepness, path=wCpath)
 update_file('waveLength', lam, path=wCpath)
@@ -149,6 +151,7 @@ update_file('LSide', Lydamp, path=wCpath)
 update_file('xInlet', xsponge, path=wCpath)
 update_file('LInlet', Lsponge, path=wCpath)
 update_file('rampPeriods', rampperiod, path=wCpath)
+update_file('swaySpeed', np.tan(np.radians(beta)) * Ucur, path=wCpath)
 
 # -- Modify meanVal.py
 mvpath = 'meanVal.py'
@@ -298,6 +301,8 @@ update_file('Ucur', f' = {Ucur:.4}', path = rgpath,  endl='')
 phicurpath = os.path.join('0.orig', 'PhiS')
 update_file('Ucur', f'{Ucur:.4}', path = phicurpath)
 update_file('heading', f'{-heading:.4}', path = phicurpath)
+update_file('swaySpeed', f'{np.tan(np.radians(beta)) * Ucur:.12}', path = phicurpath)
+
 
 # -- translate surface
 subprocess.run(['surfaceTransformPoints', '-rotate', f'((-1 0 0) ({-np.cos(head_ang)} {np.sin(head_ang)} 0))', 'constant/triSurface/' + hull + '.stl', 'constant/triSurface/' + hull + '_rotated.stl'])
