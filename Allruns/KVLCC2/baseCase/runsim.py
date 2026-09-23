@@ -39,7 +39,7 @@ Co = 0.2
 Nproc = 56 # Number of processors for parallel run
 procD = [8, 6, 1]
 
-beta = 10.0
+beta = 0.0
 
 head_ang = heading*np.pi/180
 xsponge = 2 * lam
