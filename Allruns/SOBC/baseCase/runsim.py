@@ -36,7 +36,7 @@ draft = 11.0/scale
 Ucur = args.Ucur
 rampperiod = 3.0
 Co = 0.2
-Nproc = 28 # Number of processors for parallel run
+Nproc = 56 # Number of processors for parallel run
 procD = [8, 6, 1]
 
 head_ang = heading*np.pi/180
@@ -201,7 +201,7 @@ update_file('boxend', xdamp, path='system/topoSetDict.2')
 update_file('zbox', max(2.5*draft, 0.25*lam), path='system/topoSetDict.2')
 
 # -- Modify topoSetDict.3
-l3 = max(4.0*L_2, lam)
+l3 = max(2.2*L_2, lam)
 update_file('ybox', l3, path='system/topoSetDict.3')
 update_file('boxstart', xbody - l3, path='system/topoSetDict.3')
 update_file('boxend', xbody + l3, path='system/topoSetDict.3')
@@ -215,7 +215,7 @@ update_file('boxend', xbody + l4*L_2, path='system/topoSetDict.4')
 update_file('zbox', max(1.8*draft, 0.18*lam), path='system/topoSetDict.4')
 
 # -- Modify topoSetDict.5
-l4 = 2.0
+l4 = 1.4
 update_file('ybox', l4*L_2, path='system/topoSetDict.5')
 update_file('boxstart', xbody - l4*L_2, path='system/topoSetDict.5')
 update_file('boxend', xbody + l4*L_2, path='system/topoSetDict.5')
@@ -223,7 +223,7 @@ update_file('zbox', max(1.6*draft, 0.16*lam), path='system/topoSetDict.5')
 
 
 # -- Modify topoSetDict.6
-l4 = 1.6
+l4 = 1.3
 update_file('ybox', l4*L_2, path='system/topoSetDict.6')
 update_file('boxstart', xbody - l4*L_2, path='system/topoSetDict.6')
 update_file('boxend', xbody + l4*L_2, path='system/topoSetDict.6')
