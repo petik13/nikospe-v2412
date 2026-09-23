@@ -201,21 +201,21 @@ update_file('boxend', xdamp, path='system/topoSetDict.2')
 update_file('zbox', max(2.5*draft, 0.25*lam), path='system/topoSetDict.2')
 
 # -- Modify topoSetDict.3
-l3 = max(4.0*L_2, lam)
+l3 = max(2.5*L_2, lam)
 update_file('ybox', l3, path='system/topoSetDict.3')
 update_file('boxstart', xbody - l3, path='system/topoSetDict.3')
 update_file('boxend', xbody + l3, path='system/topoSetDict.3')
 update_file('zbox', max(2.0*draft, 0.2*lam), path='system/topoSetDict.3')
 
 # -- Modify topoSetDict.4
-l4 = 2.5
+l4 = 1.8
 update_file('ybox', l4*L_2, path='system/topoSetDict.4')
 update_file('boxstart', xbody - l4*L_2, path='system/topoSetDict.4')
 update_file('boxend', xbody + l4*L_2, path='system/topoSetDict.4')
 update_file('zbox', max(1.8*draft, 0.18*lam), path='system/topoSetDict.4')
 
 # -- Modify topoSetDict.5
-l4 = 2.0
+l4 = 1.6
 update_file('ybox', l4*L_2, path='system/topoSetDict.5')
 update_file('boxstart', xbody - l4*L_2, path='system/topoSetDict.5')
 update_file('boxend', xbody + l4*L_2, path='system/topoSetDict.5')
@@ -223,7 +223,7 @@ update_file('zbox', max(1.6*draft, 0.16*lam), path='system/topoSetDict.5')
 
 
 # -- Modify topoSetDict.6
-l4 = 1.6
+l4 = 1.4
 update_file('ybox', l4*L_2, path='system/topoSetDict.6')
 update_file('boxstart', xbody - l4*L_2, path='system/topoSetDict.6')
 update_file('boxend', xbody + l4*L_2, path='system/topoSetDict.6')

@@ -21,7 +21,7 @@ fixBody             false;
 
 heading	2.094;
 xG	49.0;
-zG                  0.021875;
+zG                  0.02472;
 
 // Reference dimensions, used to non-dimensionalise the loads
 Lpp                 5.9375;        // length between perpendiculars [m]
