@@ -801,34 +801,36 @@ static inline bool GreenGaussUpwindXY
     gradW += wSelf * nMiss;
     gradP += pMissVal * nMiss;
 
+    
     // ---------- fallback: if ALL edges were OUTFLOW, switch to downwind ----------
     // With every edge outflow the loop above takes the self value everywhere,
     // and since sum(nk) + nMiss = 0 that gives wSelf*(sum(nk) + nMiss) = 0
     // identically -- a zero gradient.  Rebuild it from the neighbours instead.
     const bool fallback = !usedNeighbour;
 
-    if (fallback)
-    {
-        gradW = vector::zero;
-        gradP = vector::zero;
+    // if (fallback)
+    // {
+    //     gradW = vector::zero;
+    //     gradP = vector::zero;
 
-        forAll(neiGids, k)
-        {
-            const label gidN = neiGids[k];
-            const vector& nk = neiEdgeNormals2D[k];
+    //     forAll(neiGids, k)
+    //     {
+    //         const label gidN = neiGids[k];
+    //         const vector& nk = neiEdgeNormals2D[k];
 
-            // downwind everywhere: always neighbour
-            gradW += getWp(gidN)   * nk;
-            gradP += getPhip(gidN) * nk;
-        }
+    //         // downwind everywhere: always neighbour
+    //         gradW += getWp(gidN)   * nk;
+    //         gradP += getPhip(gidN) * nk;
+    //     }
 
-        // The hull edge is still absent from this contour.  Green-Gauss rests
-        // on a CLOSED contour, so it has to be closed here exactly as it is on
-        // the main path; leaving it open is an O(1) error, not a truncation
-        // error.
-        gradW += wSelf * nMiss;
-        gradP += pMissVal * nMiss;
-    }
+    //     // The hull edge is still absent from this contour.  Green-Gauss rests
+    //     // on a CLOSED contour, so it has to be closed here exactly as it is on
+    //     // the main path; leaving it open is an O(1) error, not a truncation
+    //     // error.
+    //     gradW += wSelf * nMiss;
+    //     gradP += pMissVal * nMiss;
+    // }
+    
 
     gradW /= A;
     gradP /= A;
