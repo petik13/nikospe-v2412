@@ -261,8 +261,7 @@ def main():
     Uy = U0*np.sin(head) + Usway*np.cos(head)
     Umag = np.hypot(Ux, Uy)
 
-    we = w0 + k * Ux  
-    we = w0 + k * U0 * np.cos(head)
+    we = w0 + k * Ux
     Te = 2.0 * np.pi / we
     A = 0.5 * steep * lam
     t_ramp = ramp_per * 2.0 * np.pi / w0
