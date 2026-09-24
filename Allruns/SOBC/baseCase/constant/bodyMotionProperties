@@ -68,7 +68,7 @@ rhoInf              1000;
 // sub-iterations needed enable with addedMassFromTimeStep false, 
 // which uses the previous corrector rather than the previous time step to drive A.
 // At convergence the left and right side terms cancel out and the physics are consistent.
-addedMass           (0.1 1 1 0.3 0.5 1);
+addedMass           (0.1 0.5 1.4 0.3 1.3 0.5);
 
 // Drive A from the previous TIME STEP (true) or the previous CORRECTOR
 // (false).  Keep addedMassFromTimeStep false to enable subiterations with the non-orthogonal correctors.

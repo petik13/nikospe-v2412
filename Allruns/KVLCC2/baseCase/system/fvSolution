@@ -20,7 +20,7 @@ solvers
     {
         solver  GAMG;
         smoother DIC;
-        tolerance 1e-7;
+        tolerance 1e-6d;
         relTol  0.0;
         agglomerator	faceAreaPair;
         mergeLevels	1;
@@ -50,7 +50,7 @@ solvers
 
 potentialFlow
 {
-    nNonOrthogonalCorrectors 3;
+    nNonOrthogonalCorrectors 2;
 }
 
 basisFlow
