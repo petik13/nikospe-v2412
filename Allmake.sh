@@ -34,11 +34,18 @@ targets=(
     src/functionObjects/forces/myMeanForce                                # libmyMeanForce
     src/functionObjects/forces/meanWaveLoads                              # libMeanWaveLoads
     src/functionObjects/forces/middleFieldForm                            # libmiddleFieldForm
+    src/functionObjects/forces/nearFieldForm                              # libnearFieldForm
+
+    # Prescribed-motion (rotating ship frame) set, used by manFlowPrescribed.
+    # They include the header-only src/prescribedShipMotion (nothing to build).
+    src/finiteVolume/fields/fvPatchFields/derived/potRotatingFrameBC      # libpotRotatingFrameBC
+    src/finiteVolume/fields/fvPatchFields/derived/linBodyMotionRot        # liblinBodyMotionRot
 
     # --- Solvers ---
     applications/solvers/PHIWaveCurSph2                                   # PHIWaveCurSph2
     applications/solvers/shipFlow                                         # shipFlow
     applications/solvers/manFlow                                          # manFlow
+    applications/solvers/manFlowPrescribed                                # manFlowPrescribed
     applications/solvers/incompressible/myPimpleFoam                      # myPimpleFoam
     applications/solvers/incompressible/mySimpleFoam                      # mySimpleFoam
 )
@@ -70,6 +77,11 @@ targets=(
 #   They register the SAME run-time type name, "linBodyMotion", so a case must
 #   list exactly one of them in controlDict/libs.  Listing both is a duplicate
 #   entry in the selection table and aborts at start-up.
+#
+#   linBodyMotionRot (type "linBodyMotionRot") and potRotatingFrameBC (type
+#   "potRotatingFrameBC") are copies of linBodyMotionMj and potForwardSpeedBC
+#   for the rotating ship frame of manFlowPrescribed.  Their type names are
+#   distinct, so they can coexist with the originals.
 #------------------------------------------------------------------------------
 
 failed=()
