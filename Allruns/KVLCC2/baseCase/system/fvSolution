@@ -20,7 +20,7 @@ solvers
     {
         solver  GAMG;
         smoother DIC;
-        tolerance 1e-6d;
+        tolerance 1e-6;
         relTol  0.0;
         agglomerator	faceAreaPair;
         mergeLevels	1;

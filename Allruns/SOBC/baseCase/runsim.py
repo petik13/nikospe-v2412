@@ -36,7 +36,7 @@ draft = 11.0/scale
 Ucur = args.Ucur
 rampperiod = 3.0
 Co = 0.2
-Nproc = 56 # Number of processors for parallel run
+Nproc = 52 # Number of processors for parallel run
 procD = [8, 6, 1]
 
 beta = 0.0
