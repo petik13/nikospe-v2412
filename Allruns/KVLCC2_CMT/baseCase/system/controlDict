@@ -55,11 +55,38 @@ libs
     "libpotRotatingFrameBC.so"
     "liblinBodyMotionRot.so"
     "libmiddleFieldForm.so"
+    "libmiddleFieldFormRot.so"
     "libnearFieldForm.so"
 );
 
 functions
 {
+    // Mean wave loads for the ROTATING control volume: middleFieldForm plus
+    // the storage and Coriolis terms (derivation in
+    // longWavelengthDiscrepancies.ipynb).  The period mean of 'total' is the
+    // mean load; 'chen' is identical to meanLoads.  Use these.
+    meanLoadsRot
+    {
+        type            middleFieldFormRot;
+        libs            ("libmiddleFieldFormRot.so");
+        faceZone        controlZone;
+        cvPoint	(27.0 0 -0.25);
+        freeSurfacePatch upper;
+        hullPatch       sphere;
+        CofR	(27.0 0 0);
+        rhoInf          1000;
+        gMag            9.81;
+        writeControl    timeStep;
+    }
+
+    // Same on the larger control volume (topoSetDict_2): the corrected load
+    // must not depend on the control-volume size
+    meanLoadsRot2
+    {
+        $meanLoadsRot;
+        faceZone        controlZone2;
+    }
+
     // Linear (first-order) loads on the hull, from the unsteady pressure
     hullForces
     {
@@ -76,7 +103,9 @@ functions
     }
 
     // Mean wave loads, NEARFIELD (pressure integration over the hull).
-    // Instantaneous and frame independent: the one to use while turning.
+    // NOT RELIABLE here: 24% off the midfield for a restrained hull at zero
+    // speed, about 2x with motions or forward speed (tests lam3.2_zeroSpeed*,
+    // lam3.2_fixed).  Kept only for comparison.
     meanLoadsNear
     {
         type            nearFieldForm;
@@ -89,11 +118,10 @@ functions
         writeControl    timeStep;
     }
 
-    // Mean wave loads, midfield formulation.
-    // WARNING: only valid for r = 0.  With yaw rate the control-volume balance
-    // misses the storage term d/dt int rho u dV, the Omega x M_V frame term
-    // and the rotation part of the strip/flux terms.  Kept for the r = 0
-    // regression against manFlow and for comparison with meanLoadsNear.
+    // Mean wave loads, midfield formulation (Chen 2022 eq 43), unchanged.
+    // Only valid for r = 0: in a turn it misses the storage and Coriolis
+    // terms, about 2.2 rho g A^2 B^2/L for the KVLCC2 CMT at lambda/L = 1.
+    // Kept for the r = 0 regression against manFlow.
     meanLoads
     {
         type            middleFieldForm;

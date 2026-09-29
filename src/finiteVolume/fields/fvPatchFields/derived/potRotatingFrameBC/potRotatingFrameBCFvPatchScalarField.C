@@ -25,6 +25,7 @@ License
 #include "fvMesh.H"
 #include "fixedGradientFvPatchFields.H"
 #include "gravityMeshObject.H"
+#include "uniformDimensionedFields.H"
 #include "EulerDdtScheme.H"
 #include "CrankNicolsonDdtScheme.H"
 #include "backwardDdtScheme.H"
@@ -314,7 +315,7 @@ void Foam::potRotatingFrameBCFvPatchScalarField::freeSurfaceRates
         // Absolute double-body disturbance velocity grad(Phi_B) = W + V_S:
         // zero in the far field, O(U) near the body.  This is what the
         // incident wave does not see.  For a pure translation V_S = -Uinf.
-        const vector VS(mo.VS(Cf[i]));
+        const vector VS(mo.VS(Cf[i], t));
         const scalar dWx = W[i].x() + VS.x();
         const scalar dWy = W[i].y() + VS.y();
 
@@ -336,6 +337,21 @@ void Foam::potRotatingFrameBCFvPatchScalarField::freeSurfaceRates
     // wave, which is prescribed analytically.
     const tmp<scalarField> tnu = spongeCoeff();
     dPhiDdt -= tnu()*wD;
+}
+
+
+void Foam::potRotatingFrameBCFvPatchScalarField::resetFlowDependentSchemes()
+{
+    schemesDetected_ = false;
+    candidatesCalculated_ = false;
+
+    schemeCodeX_.clear();
+    schemeCodeY_.clear();
+    interpNeededX_.clear();
+    interpNeededY_.clear();
+    interpNeeded4thX_.clear();
+    interpNeeded4thY_.clear();
+    lsMergedCandidates_.clear();
 }
 
 
@@ -540,6 +556,24 @@ void Foam::potRotatingFrameBCFvPatchScalarField::updateCoeffs()
     findSphereEdgeVertexFaces();
     calcNeigboursV3();
     buildEdgeNeighbours();
+
+    // Basis flow rebuilt by the solver (yaw-rate onset): redo the upwind
+    // scheme detection, which depends on the sign of Us.  Every rank sees the
+    // same index, so the collective calls inside stay matched.
+    {
+        const auto* idx =
+            db().findObject<uniformDimensionedScalarField>("basisFlowIndex");
+        const scalar current = idx ? idx->value() : 0;
+
+        if (current != lastBasisIndex_)
+        {
+            if (lastBasisIndex_ >= 0)
+            {
+                resetFlowDependentSchemes();
+            }
+            lastBasisIndex_ = current;
+        }
+    }
 
     if (neigboursCalculated_)
     {

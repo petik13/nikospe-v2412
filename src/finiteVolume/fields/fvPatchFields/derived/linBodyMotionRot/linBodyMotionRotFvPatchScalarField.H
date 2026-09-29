@@ -275,6 +275,10 @@ class linBodyMotionRotFvPatchScalarField
         //  surge and sway motions
         Switch rotatingFrameInertia_;
 
+        //- basisFlowIndex (published by manFlowPrescribed) that nGradW_,
+        //  gradPs_ and Ks_ were built from
+        scalar lastBasisIndex_{-1};
+
         //- Prescribed motion and incident wave, built on first use
         mutable autoPtr<prescribedShipMotion> motionPtr_;
 

@@ -12,13 +12,20 @@ usage (from a copy of this baseCase):
 options:
     --psi0 0            initial heading [deg]
     --waveDir           wave propagation direction [deg], default psi0 + 180 (head seas at t = 0)
-    --endTime           default: ramp + 0.6*(2 xbody)/c_g, as runsim.py
+    --yawOnsetPeriods 10  straight run before the yaw rate starts, in encounter
+                        periods at the initial heading (the motions settle)
+    --yawRampPeriods 2  duration of the (half-cosine) yaw-rate ramp, same units
+    --endTime           default: r != 0: onset + ramp + one full turn (2 pi/r);
+                        r = 0: wave ramp + 0.6*(2 xbody)/c_g, as runsim.py
     --nproc 56 --procD 8 6 1
     --noMesh --noRun --noPost
 
 u, v, r are MMG quantities at midship (x forward, y starboard, r > 0 to
 starboard).  The r = 0 run is equivalent to the manFlow run with
 --Ucur u and sway speed -v (see constant/prescribedMotion).
+
+Mean loads: meanLoadsRot (control volume +-1.2 L/2) and meanLoadsRot2
+(+-3 L/2, topoSetDict_2) are the rotating-frame midfield; they must agree.
 """
 
 import numpy as np
@@ -36,6 +43,10 @@ parser.add_argument("--v", type=float, default=0.0, help="sway at midship [m/s],
 parser.add_argument("--r", type=float, default=0.0, help="yaw rate [rad/s], starboard +")
 parser.add_argument("--psi0", type=float, default=0.0, help="initial heading [deg]")
 parser.add_argument("--waveDir", type=float, default=None, help="wave propagation direction [deg]")
+parser.add_argument("--yawOnsetPeriods", type=float, default=10.0,
+                    help="straight run before the yaw-rate ramp [encounter periods]")
+parser.add_argument("--yawRampPeriods", type=float, default=2.0,
+                    help="duration of the yaw-rate ramp [encounter periods]")
 parser.add_argument("--endTime", type=float, default=None)
 parser.add_argument("--nproc", type=int, default=56)
 parser.add_argument("--procD", type=int, nargs=3, default=[8, 6, 1])
@@ -121,11 +132,31 @@ T = 2*np.pi/omega
 dt_near = Co * lam_mesh / ((celerity + V_near) * discX)/(Nref + 1)
 dt_far = Co * lam_mesh / ((celerity + V_far) * discX)
 deltaT = min(dt_near, dt_far)
-endTime = rampperiod*T + 0.6*(xbody + xbody)/Cgroup if args.endTime is None else args.endTime
+
+# -- Yaw-rate onset, in encounter periods at the initial heading (finite-depth
+#    dispersion, as the solver).  Wave direction in mesh axes e = (-cos a, sin a),
+#    a = chi - psi0; frame velocity V0 = (-u, v); omega_e = |omega - k e.V0|.
+omega_h = np.sqrt(g*k*np.tanh(k*(-zmin)))
+a0 = np.radians(waveDir - psi0)
+eV0 = np.cos(a0)*u + np.sin(a0)*v
+Te0 = 2*np.pi/abs(-omega_h + k*eV0)
+tOn = args.yawOnsetPeriods*Te0
+tRamp = args.yawRampPeriods*Te0
+
+if args.endTime is not None:
+    endTime = args.endTime
+elif r != 0:
+    endTime = tOn + tRamp + 2*np.pi/abs(r)            # one full turn after the onset
+else:
+    endTime = rampperiod*T + 0.6*(xbody + xbody)/Cgroup
 
 hf.console(f"CMT: u {u} m/s  v {v} m/s  r {r} rad/s  (beta {np.degrees(np.arctan2(-v, u)):.1f} deg,"
            f" turn radius {np.hypot(u, v)/r if r else np.inf:.3g} m)")
-hf.console(f"     heading change over the run {np.degrees(r*endTime):.1f} deg")
+hf.console(f"     encounter period at the start {Te0:.3f} s; yaw onset at {tOn:.2f} s"
+           f" ({args.yawOnsetPeriods:g} periods), ramp {tRamp:.2f} s ({args.yawRampPeriods:g} periods)")
+if r != 0:
+    hf.console(f"     heading change over the run "
+               f"{np.degrees(r*max(endTime - tOn - 0.5*tRamp, 0)):.1f} deg")
 hf.console(f"     max |V_S|: near {V_near:.3f} m/s, far {V_far:.3f} m/s")
 hf.console(f"     deltaT = {deltaT:.6f} s (near {dt_near:.6f}, far {dt_far:.6f}),"
            f" endTime = {endTime:.2f} s")
@@ -190,8 +221,10 @@ update_file('r', f'{r:.6g}', path=pmpath)
 update_file('psi0', f'{psi0:.6g}', path=pmpath)
 update_file('waveDirection', f'{waveDir:.6g}', path=pmpath)
 update_file('rotationCentre', f'({xbody} 0 0)', path=pmpath)
+update_file('yawOnsetTime', f'{tOn:.6g}', path=pmpath)
+update_file('yawRampTime', f'{tRamp:.6g}', path=pmpath)
 
-####### CONTROL VOLUMES (midfield, only meaningful for r = 0) ########
+####### CONTROL VOLUMES: controlZone (+-1.2 L/2), controlZone2 (+-3 L/2) ########
 tsdpath = os.path.join('system', 'topoSetDict')
 l1 = 1.2
 update_file('xmin', xbody - l1*L_2, path=tsdpath)
@@ -199,6 +232,15 @@ update_file('xmax', xbody + l1*L_2, path=tsdpath)
 update_file('ymin', -l1*L_2, path=tsdpath)
 update_file('ymax', l1*L_2, path=tsdpath)
 update_file('zmin', -1.5*draft, path=tsdpath)
+update_file('zmax', zmax, path=tsdpath)
+
+tsdpath = os.path.join('system', 'topoSetDict_2')
+l1 = 3.0
+update_file('xmin', xbody - l1*L_2, path=tsdpath)
+update_file('xmax', xbody + l1*L_2, path=tsdpath)
+update_file('ymin', -l1*L_2, path=tsdpath)
+update_file('ymax', l1*L_2, path=tsdpath)
+update_file('zmin', -3.0*draft, path=tsdpath)
 update_file('zmax', zmax, path=tsdpath)
 
 #### ----- REFINEMENTS (as runsim.py) ---------- ####
@@ -256,6 +298,7 @@ def run_case(Nproc):
     subprocess.run(['rm', '-r', '0'])
     subprocess.run(['cp', '-r', '0.orig', '0'])
     subprocess.run(['topoSet', '-dict', 'system/topoSetDict'])
+    subprocess.run(['topoSet', '-dict', 'system/topoSetDict_2'])
     subprocess.run(['renumberMesh', '-overwrite'])
     subprocess.run(['decomposePar'])
     subprocess.run(['foamJob', '-s', '-p', 'renumberMesh', '-overwrite'])

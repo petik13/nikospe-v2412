@@ -35,6 +35,7 @@ targets=(
     src/functionObjects/forces/meanWaveLoads                              # libMeanWaveLoads
     src/functionObjects/forces/middleFieldForm                            # libmiddleFieldForm
     src/functionObjects/forces/nearFieldForm                              # libnearFieldForm
+    src/functionObjects/forces/middleFieldFormRot                         # libmiddleFieldFormRot
 
     # Prescribed-motion (rotating ship frame) set, used by manFlowPrescribed.
     # They include the header-only src/prescribedShipMotion (nothing to build).
@@ -81,7 +82,10 @@ targets=(
 #   linBodyMotionRot (type "linBodyMotionRot") and potRotatingFrameBC (type
 #   "potRotatingFrameBC") are copies of linBodyMotionMj and potForwardSpeedBC
 #   for the rotating ship frame of manFlowPrescribed.  Their type names are
-#   distinct, so they can coexist with the originals.
+#   distinct, so they can coexist with the originals.  middleFieldFormRot
+#   (type "middleFieldFormRot") is middleFieldForm plus the storage and
+#   Coriolis terms of a control volume rotating with the ship; for a ship on
+#   a straight course it gives the same mean loads as middleFieldForm.
 #------------------------------------------------------------------------------
 
 failed=()

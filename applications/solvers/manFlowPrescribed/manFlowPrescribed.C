@@ -56,10 +56,20 @@ Description
 
     with dPhiI/dt|ship analytic (local encounter frequency).
 
+    Yaw-rate onset
+    --------------
+    The ship runs straight until yawOnsetTime (so the motions settle) and the
+    yaw rate is then ramped in over yawRampTime (constant/prescribedMotion).
+    During the ramp the basis flow is rebuilt every step (updateBasisFlow.H,
+    quasi-steady: dPhiS/dt is not in the pressure) and basisFlowIndex is
+    incremented, so linBodyMotionRot rebuilds its m-terms and steady-flow
+    restoring and potRotatingFrameBC its upwind schemes.  frameOmega carries
+    the current Omega for middleFieldFormRot.
+
     Output
     ------
     postProcessing/shipTrajectory/trajectory.dat: time, heading, earth
-    position, encounter angle (manModel convention) and u, v, r.
+    position, encounter angle (manModel convention) and u, v, r(t).
 
 \*---------------------------------------------------------------------------*/
 
@@ -68,6 +78,7 @@ Description
 #include "mathematicalConstants.H"
 #include "fixedGradientFvPatchFields.H"
 #include "OFstream.H"
+#include "uniformDimensionedFields.H"
 #include "prescribedShipMotion.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
@@ -185,43 +196,11 @@ int main(int argc, char *argv[])
             << "   m66 = " << m66 << "   m26 = " << m26 << nl << endl;
     }
 
-    // --- Basis flow for the prescribed motion ------------------------------
+    // --- Basis flow for the prescribed motion at the start time -------------
     {
-        // Phi1, Phi2 have dimensions of length (dPhi/dn is a direction
-        // cosine), Phi6 of length^2 (dPhi/dn is a lever arm)
-        const dimensionedScalar V0x("V0x", dimVelocity, motion.V0().x());
-        const dimensionedScalar V0y("V0y", dimVelocity, motion.V0().y());
-        const dimensionedScalar Oz("Oz", dimless/dimTime, motion.Omega().z());
-
-        PhiS == V0x*Phi1 + V0y*Phi2 + Oz*Phi6;
-
-        // Frame velocity on cells and faces
-        {
-            vectorField& VSc = VS.primitiveFieldRef();
-            const vectorField& C = mesh.C();
-            forAll(C, i) VSc[i] = motion.VS(C[i]);
-
-            forAll(mesh.boundary(), patchi)
-            {
-                vectorField& VSb = VS.boundaryFieldRef()[patchi];
-                const vectorField& Cf = mesh.boundary()[patchi].Cf();
-                forAll(Cf, i) VSb[i] = motion.VS(Cf[i]);
-            }
-        }
-
-        // W = grad(PhiS) - V_S, cells and faces.  On the hull the normal
-        // component of grad(PhiS) is V_S.n by construction, so W.n = 0 there.
-        Us == fvc::grad(PhiS) - VS;
+        const scalar tBasis = runTime.value();
+        #include "updateBasisFlow.H"
     }
-
-    gradUs = fvc::grad(Us);
-
-    // Steady dynamic pressure, pS = -1/2 (|W|^2 - |V_S|^2)
-    pS == -0.5*(magSqr(Us) - magSqr(VS));
-
-    // dWz/dz on the free surface from continuity; the rigid rotation has no
-    // divergence and no diagonal gradient, so this is still exact.
-    dUsdz = -gradUs.component(tensor::XX) - gradUs.component(tensor::YY);
 
     PhiS.write();
     Us.write();
@@ -245,7 +224,9 @@ int main(int argc, char *argv[])
         trajFile()
             << "# Prescribed motion, MMG axes at the rotation centre" << nl
             << "# u = " << motion.u() << "  v = " << motion.v()
-            << "  r = " << motion.r() << nl
+            << "  r = " << motion.rTarget()
+            << "  (yaw onset at t = " << motion.yawOnsetTime()
+            << " s, ramp " << motion.yawRampTime() << " s)" << nl
             << "# Time\tpsi[deg]\tX[m]\tY[m]\tmu[deg]\tu\tv\tr" << endl;
     }
 
@@ -262,6 +243,16 @@ int main(int argc, char *argv[])
             << "  deltaT = " << runTime.deltaTValue() << nl << endl;
 
         const scalar t = runTime.value();
+
+        // --- Basis flow: rebuild while the yaw rate changes (onset ramp) ---
+        if (mag(motion.Omega(t).z() - OzBasis) > 1e-12*max(mag(motion.rTarget()), 1e-12))
+        {
+            const scalar tBasis = t;
+            #include "updateBasisFlow.H"
+
+            Info<< "    basis flow updated: r = " << motion.r(t)
+                << " rad/s (index " << basisFlowIndex.value() << ")" << endl;
+        }
 
         // --- Incident wave ------------------------------------------------
         {
@@ -332,7 +323,7 @@ int main(int argc, char *argv[])
             trajFile()
                 << t << tab << radToDeg(motion.psi(t)) << tab << X << tab << Y
                 << tab << motion.encounterAngle(t)
-                << tab << motion.u() << tab << motion.v() << tab << motion.r()
+                << tab << motion.u() << tab << motion.v() << tab << motion.r(t)
                 << endl;
         }
 

@@ -647,7 +647,7 @@ void Foam::linBodyMotionRotFvPatchScalarField::calcNGradW()
     }
 
     // Rotating frame: Omega and the frame velocity on the hull faces
-    const vector Om(motion().Omega());
+    const vector Om(motion().Omega(db().time().value()));
     const vectorField& CfLoc = fvp.Cf();
 
     // grad(p_S) for the steady-flow restoring, seeded with the same legacy
@@ -662,7 +662,7 @@ void Foam::linBodyMotionRotFvPatchScalarField::calcNGradW()
         {
             gradPs_[i] =
                 -(gradWb[i] & WLoc[i])
-              + (motion().VS(CfLoc[i]) ^ Om);
+              + (motion().VS(CfLoc[i], db().time().value()) ^ Om);
         }
     }
     else
@@ -891,7 +891,7 @@ void Foam::linBodyMotionRotFvPatchScalarField::calcNGradW()
                     (dPdu*rh)*t1
                   + (dPdv*rh)*t2
                   - (WLoc[i] & nGradW_[i])*ni
-                  + (motion().VS(ci) & (Om ^ ni))*ni;
+                  + (motion().VS(ci, db().time().value()) & (Om ^ ni))*ni;
             }
         }
     }
@@ -1045,7 +1045,7 @@ void Foam::linBodyMotionRotFvPatchScalarField::assembleSystem
     // in body and mesh axes.  Gyroscopic terms of the rotations are neglected.
     if (rotatingFrameInertia_)
     {
-        const scalar Oz = motion().Omega().z();
+        const scalar Oz = motion().Omega(db().time().value()).z();
 
         C[0][1] += -2.0*mass_*Oz;
         C[1][0] +=  2.0*mass_*Oz;
@@ -1112,8 +1112,24 @@ void Foam::linBodyMotionRotFvPatchScalarField::solveMotion()
 {
     const scalar dt = db().time().deltaTValue();
 
-    // W, p_S and the mean hull are all steady, so the steady-flow restoring
-    // is a constant matrix.  Build it on the first step rather than in
+    // The solver rebuilds the basis flow while the yaw rate is ramped in and
+    // increments basisFlowIndex; (n.grad)W, grad(p_S) and the steady-flow
+    // restoring are then rebuilt from the new W and p_S.
+    {
+        const auto* idx =
+            db().findObject<uniformDimensionedScalarField>("basisFlowIndex");
+        const scalar current = idx ? idx->value() : 0;
+
+        if (current != lastBasisIndex_)
+        {
+            nGradWValid_ = false;
+            KsValid_ = false;
+            lastBasisIndex_ = current;
+        }
+    }
+
+    // W, p_S and the mean hull are steady (after the yaw-rate onset), so the
+    // steady-flow restoring is a constant matrix.  Build it on the first step rather than in
     // readProperties(), which runs at construction, before the solver has
     // solved the basis flow and while Us and pS are still zero.
     if (steadyRestoring_ && !KsValid_)

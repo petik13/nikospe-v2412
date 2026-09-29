@@ -7,12 +7,20 @@ averaged with a centred boxcar over ONE LOCAL ENCOUNTER PERIOD, which removes
 the omega_e and 2 omega_e content exactly for a slowly varying period.  The
 encounter frequency at midship is |dtheta/dt| = |-omega + k e(t).V0|.
 
+Loads (all non-dimensional, rho g A^2 B^2 / L and rho g A^2 B^2):
+    rot      meanLoadsRot 'total': midfield for the rotating control volume
+             (Chen + Coriolis + storage).  THE result.
+    rot2     the same on the larger control volume (must agree with rot)
+    chen     Chen's midfield alone (= middleFieldForm); wrong while turning
+    cor, sto the Coriolis and storage parts of rot
+    near     near-field (not reliable, for comparison only)
+    table    the straight-course table at the same encounter heading
+
 Axes: the hull is always aligned with the mesh (bow at -x, y starboard), so
 the function-object loads are already in the axes of the waveData tables
 (meanLoads.py rotates the fixed-heading runs into exactly these axes):
 F1 > 0 is added resistance, and F2, Mz are as in the table columns
-F1mean, F2mean, Mzmean.  Non-dimensional by rho g A^2 B^2 / L and
-rho g A^2 B^2.
+F1mean, F2mean, Mzmean.
 
 Equivalent table heading h (0 = head sea, table convention) at time t:
     h = 180 - (chi - psi(t))      wrapped to (-180, 180]
@@ -22,7 +30,8 @@ F1(h) = F1(|h|), F2(h) = -F2(|h|), Mz(h) = -Mz(|h|).
 usage:
     python3 cmtPost.py
     python3 cmtPost.py --table /path/to/waveData.dat --U 0.33
-Writes cmt_meanLoads.csv and cmt_meanLoads.png.
+Writes cmt_meanLoads.csv and cmt_meanLoads.png.  By default the analysis
+starts two encounter periods after the end of the yaw-rate ramp.
 """
 
 import argparse
@@ -57,7 +66,12 @@ def load(pattern):
                 if line.startswith("#") or not line.strip():
                     continue
                 vals = line.replace("(", " ").replace(")", " ").split()
-                rows.append([float(x) for x in vals])
+                try:
+                    rows.append([float(x) for x in vals])
+                except ValueError:
+                    pass
+    if not rows:
+        return None
     n = min(len(r) for r in rows)
     a = np.array([r[:n] for r in rows])
     _, idx = np.unique(a[:, 0], return_index=True)     # restarts
@@ -108,7 +122,8 @@ def main():
     ap.add_argument("--table", default=None, help="waveData table for comparison")
     ap.add_argument("--U", type=float, default=None, help="table speed (default: prescribed u)")
     ap.add_argument("--tskip", type=float, default=None,
-                    help="discard t < tskip (default: ramp + 3 periods)")
+                    help="discard t < tskip (default: end of the yaw ramp + 2 periods,"
+                         " or wave ramp + 3 periods for r = 0)")
     a = ap.parse_args()
 
     wc = read_dict("constant/waveConditions")
@@ -125,6 +140,8 @@ def main():
     B = num(bd, "beam", 1.0)
     u, v, r = num(pm, "u"), num(pm, "v"), num(pm, "r")
     chi = num(pm, "waveDirection")
+    tOn = num(pm, "yawOnsetTime", 0.0)
+    tRamp = num(pm, "yawRampTime", 0.0)
     denF = RHO*G*A**2*B**2/L
     denM = RHO*G*A**2*B**2
 
@@ -141,21 +158,42 @@ def main():
 
     tskip = a.tskip
     if tskip is None:
-        tskip = (num(wc, "rampPeriods", 3.0) + 3.0)*2*np.pi/w0
+        if r:
+            tskip = tOn + tRamp + 2*Te[0]
+        else:
+            tskip = (num(wc, "rampPeriods", 3.0) + 3.0)*2*np.pi/w0
 
     out = {"t": t, "psi": psi, "h_table": hdg, "Te": Te}
 
-    for name, fo in (("near", "meanLoadsNear"), ("mid", "meanLoads")):
+    def add(name, F, M, cF, cM):
+        """F, M loaded arrays; cF: first column of the force vector, cM: column
+        of the moment z component"""
+        out[f"F1_{name}"] = boxcar(t, np.interp(t, F[:, 0], F[:, cF]), Te)/denF
+        out[f"F2_{name}"] = boxcar(t, np.interp(t, F[:, 0], F[:, cF + 1]), Te)/denF
+        out[f"Mz_{name}"] = boxcar(t, np.interp(t, M[:, 0], M[:, cM]), Te)/denM
+
+    # Rotating-frame midfield: Time total chen surface elevation strip coriolis storage
+    for fo, tag in (("meanLoadsRot", "rot"), ("meanLoadsRot2", "rot2")):
         F = load(f"postProcessing/{fo}/*/force.dat")
         M = load(f"postProcessing/{fo}/*/moment.dat")
         if F is None or M is None:
             continue
-        Fx = np.interp(t, F[:, 0], F[:, 1])
-        Fy = np.interp(t, F[:, 0], F[:, 2])
-        Mz = np.interp(t, M[:, 0], M[:, 3])
-        out[f"F1_{name}"] = boxcar(t, Fx, Te)/denF
-        out[f"F2_{name}"] = boxcar(t, Fy, Te)/denF
-        out[f"Mz_{name}"] = boxcar(t, Mz, Te)/denM
+        add(tag, F, M, 1, 3)
+        if tag == "rot":
+            add("chen", F, M, 4, 6)
+            add("cor", F, M, 16, 18)
+            add("sto", F, M, 19, 21)
+
+    # Old objects, if present: first vector is the total
+    if "F1_chen" not in out:
+        F = load("postProcessing/meanLoads/*/force.dat")
+        M = load("postProcessing/meanLoads/*/moment.dat")
+        if F is not None and M is not None:
+            add("chen", F, M, 1, 3)
+    F = load("postProcessing/meanLoadsNear/*/force.dat")
+    M = load("postProcessing/meanLoadsNear/*/moment.dat")
+    if F is not None and M is not None:
+        add("near", F, M, 1, 3)
 
     if a.table:
         Uq = u if a.U is None else a.U
@@ -167,9 +205,15 @@ def main():
     cols = list(out)
     np.savetxt("cmt_meanLoads.csv", np.column_stack([out[c][keep] for c in cols]),
                delimiter=",", header=",".join(cols), comments="")
-    print(f"  u {u}  v {v}  r {r}   lam {lam}  A {A:.4g}   denF {denF:.4g} N  denM {denM:.4g} Nm")
-    print(f"  heading {psi[keep][0]:.1f} -> {psi[keep][-1]:.1f} deg,"
-          f" table heading {hdg[keep][0]:.1f} -> {hdg[keep][-1]:.1f} deg")
+    print(f"  u {u}  v {v}  r {r} (onset {tOn:.2f} s, ramp {tRamp:.2f} s)"
+          f"   lam {lam}  A {A:.4g}   denF {denF:.4g} N  denM {denM:.4g} Nm")
+    if keep.any():
+        print(f"  analysed t >= {tskip:.2f} s: heading {psi[keep][0]:.1f} -> {psi[keep][-1]:.1f} deg,"
+              f" table heading {hdg[keep][0]:.1f} -> {hdg[keep][-1]:.1f} deg")
+    if "F1_rot" in out and "F1_rot2" in out and keep.any():
+        for q in ("F1", "F2", "Mz"):
+            d = out[f"{q}_rot"][keep] - out[f"{q}_rot2"][keep]
+            print(f"  control-volume dependence {q}: max |rot - rot2| = {np.nanmax(np.abs(d)):.3f}")
     print("  wrote cmt_meanLoads.csv")
 
     try:
@@ -179,17 +223,22 @@ def main():
     except ImportError:
         return
 
+    styles = (("rot", "b-", "midfield, rotating CV"),
+              ("rot2", "c--", "same, large CV"),
+              ("chen", "g:", "Chen only (uncorrected)"),
+              ("table", "k-", "straight-course table"),
+              ("near", "r:", "near-field"))
     fig, axs = plt.subplots(3, 1, figsize=(8, 9), sharex=True)
     for ax, q, lab in zip(axs, ("F1", "F2", "Mz"),
                           (r"$F_1/(\rho g A^2 B^2/L)$", r"$F_2/(\rho g A^2 B^2/L)$",
                            r"$M_z/(\rho g A^2 B^2)$")):
-        for name, sty in (("near", "b-"), ("mid", "g--"), ("table", "k:")):
+        for name, sty, leg in styles:
             key = f"{q}_{name}"
             if key in out:
-                ax.plot(hdg[keep], out[key][keep], sty, label=name)
+                ax.plot(hdg[keep], out[key][keep], sty, label=leg, lw=1.2)
         ax.set_ylabel(lab)
         ax.grid(True)
-    axs[0].legend()
+    axs[0].legend(fontsize=8)
     axs[-1].set_xlabel("equivalent table heading h [deg] (0 = head sea)")
     axs[0].set_title(f"CMT  u={u} v={v} r={r}   lam={lam} m")
     fig.tight_layout()

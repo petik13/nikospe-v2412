@@ -40,9 +40,12 @@ const scalar rhoRef
 
 Info<< "Prescribed motion (MMG axes at the rotation centre " << xc << ")" << nl
     << "    u = " << motion.u() << " m/s   v = " << motion.v()
-    << " m/s   r = " << motion.r() << " rad/s" << nl
+    << " m/s   r = " << motion.rTarget() << " rad/s" << nl
+    << "    yaw rate ramped in from t = " << motion.yawOnsetTime()
+    << " s over " << motion.yawRampTime() << " s" << nl
     << "    frame velocity V0 = " << motion.V0()
-    << "   Omega = " << motion.Omega() << "  (mesh axes)" << nl
+    << "   Omega (after onset) = " << vector(0, 0, -motion.rTarget())
+    << "  (mesh axes)" << nl
     << "Incident wave" << nl
     << "    amplitude   " << motion.amplitude() << " m" << nl
     << "    wavenumber  " << motion.waveNumber() << " 1/m" << nl
@@ -50,6 +53,27 @@ Info<< "Prescribed motion (MMG axes at the rotation centre " << xc << ")" << nl
     << "    direction at t = 0 (mesh axes) " << motion.waveDir(0)
     << "   encounter angle " << motion.encounterAngle(0) << " deg" << nl
     << endl;
+
+
+// --- Frame state published for the boundary conditions and function objects
+
+// Angular velocity of the frame, mesh axes (read by middleFieldFormRot)
+uniformDimensionedVectorField frameOmega
+(
+    IOobject("frameOmega", runTime.constant(), mesh, IOobject::NO_READ, IOobject::NO_WRITE),
+    dimensionedVector(dimless/dimTime, Zero)
+);
+
+// Incremented whenever the basis flow is rebuilt; the boundary conditions
+// compare it with the value they built their caches from
+uniformDimensionedScalarField basisFlowIndex
+(
+    IOobject("basisFlowIndex", runTime.constant(), mesh, IOobject::NO_READ, IOobject::NO_WRITE),
+    dimensionedScalar(dimless, Zero)
+);
+
+// Omega_z of the basis flow currently in Us, pS, ...
+scalar OzBasis = 0;
 
 
 // --- Potentials ------------------------------------------------------------

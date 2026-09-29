@@ -229,6 +229,17 @@ private:
 		 bool schemesDetected_{false};
 		 bool candidatesCalculated_{false};
 
+        //- basisFlowIndex (published by manFlowPrescribed) the upwind schemes
+        //  were detected with.  When the basis flow changes (yaw-rate onset)
+        //  the sign of Us, and with it the upwind direction, can change.
+        scalar lastBasisIndex_{-1};
+
+        //- Forget everything detectFDSchemes() and initCandidates() derived
+        //  from the sign of Us, so the next call rebuilds it.  Lists are
+        //  cleared because setSize() on a list of unchanged size keeps the
+        //  old entries.
+        void resetFlowDependentSchemes();
+
 
 
 

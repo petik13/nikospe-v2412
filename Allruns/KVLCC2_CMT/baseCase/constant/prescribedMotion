@@ -25,18 +25,27 @@ FoamFile
 // Equivalent manFlow translation run (r = 0): currentSpeed = u,
 // swaySpeed = -v, headingAngle = 0.
 //
-// Heading psi(t) = psi0 + r t.  waveDirection is the propagation direction in
-// earth axes (manModel waveDict convention: 0 = north, clockwise), so
-// waveDirection = psi0 + 180 starts in head seas.
+// The ship runs straight (heading psi0) until yawOnsetTime, so the motions
+// settle, and the yaw rate is then ramped from 0 to r over yawRampTime
+// (half-cosine).  Heading psi(t) = psi0 + int r(t) dt.  runCMT.py sets both
+// times from --yawOnsetPeriods (default 10) and --yawRampPeriods (default 2)
+// encounter periods at the initial heading.
+//
+// waveDirection is the propagation direction in earth axes (manModel waveDict
+// convention: 0 = north, clockwise), so waveDirection = psi0 + 180 starts in
+// head seas.
 
 type            constant;       // circular motion test
 
 u               0.318;          // [m/s]
 v               -0.097;         // [m/s]   (beta = atan(-v/u) = 17 deg)
-r               0.08;           // [rad/s]
+r               0.08;           // [rad/s], after the onset
 
 psi0            0;              // [deg]
 waveDirection   180;            // [deg]
+
+yawOnsetTime    12.5;           // [s]
+yawRampTime     2.5;            // [s]
 
 rotationCentre  (22.4 0 0);     // mesh coordinates; set to xbody by runCMT.py
 
