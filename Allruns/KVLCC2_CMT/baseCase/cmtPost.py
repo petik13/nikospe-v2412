@@ -2,10 +2,23 @@
 """
 Post-processing of a circular motion test (manFlowPrescribed).
 
-Mean (second-order) wave loads during the turn: the instantaneous loads are
-averaged with a centred boxcar over ONE LOCAL ENCOUNTER PERIOD, which removes
-the omega_e and 2 omega_e content exactly for a slowly varying period.  The
-encounter frequency at midship is |dtheta/dt| = |-omega + k e(t).V0|.
+Mean (second-order) wave loads during the turn.  In the rotating frame the
+local encounter frequency varies over the control volume,
+
+    omega_e(x) = |-omega + k e.V_S(x)|,   V_S = V0 + Omega x r,
+
+so the quadratic integrands oscillate at a BAND of frequencies 2 omega_e(x),
++-2 k Omega r_max wide (+-0.1 Hz for the small, +-0.24 Hz for the large
+KVLCC2 control volume at r = 0.08).  Their amplitude is 5-20 times the mean
+(storage and strip terms in particular).  A boxcar over one midship encounter
+period only removes the centre frequency and leaves a ripple at 2 omega_e.
+
+Default smoother: a centred Gaussian (zero phase), sigma = --sigma x the
+largest encounter period (default 0.5).  Its response exp(-2 pi^2 sigma^2 f^2)
+is ~1e-6 at the lowest 2 omega_e and >= 0.95 at the harmonics of the turn rate
+(<= 0.07 Hz) that make up the physical mean.  --smoother boxcar gives the
+one-period boxcar (the encounter frequency at midship is
+|dtheta/dt| = |-omega + k e(t).V0|).
 
 Loads (all non-dimensional, rho g A^2 B^2 / L and rho g A^2 B^2):
     rot      meanLoadsRot 'total': midfield for the rotating control volume
@@ -89,6 +102,23 @@ def boxcar(t, y, T):
     return out
 
 
+def gauss(t, y, sigma):
+    """Centred Gaussian smoothing with standard deviation sigma [s], on a
+    uniform resampling of t.  Points closer than 3 sigma to either end are
+    returned as NaN (the kernel would be truncated there)."""
+    dt = np.median(np.diff(t))
+    tu = np.arange(t[0], t[-1] + 0.5*dt, dt)
+    yu = np.interp(tu, t, y)
+    n = int(np.ceil(4*sigma/dt))
+    s = np.arange(-n, n + 1)*dt
+    w = np.exp(-0.5*(s/sigma)**2)
+    w /= w.sum()
+    ys = np.convolve(yu, w, mode="same")
+    ys[:n] = np.nan
+    ys[-n:] = np.nan
+    return np.interp(t, tu, ys, left=np.nan, right=np.nan)
+
+
 def wrap180(a):
     return (a + 180.0) % 360.0 - 180.0
 
@@ -124,6 +154,11 @@ def main():
     ap.add_argument("--tskip", type=float, default=None,
                     help="discard t < tskip (default: end of the yaw ramp + 2 periods,"
                          " or wave ramp + 3 periods for r = 0)")
+    ap.add_argument("--smoother", choices=("gauss", "boxcar"), default="gauss")
+    ap.add_argument("--sigma", type=float, default=0.5,
+                    help="Gaussian standard deviation in largest encounter periods")
+    ap.add_argument("--tag", default="",
+                    help="suffix for the output files, cmt_meanLoads<tag>.csv/.png")
     a = ap.parse_args()
 
     wc = read_dict("constant/waveConditions")
@@ -165,12 +200,20 @@ def main():
 
     out = {"t": t, "psi": psi, "h_table": hdg, "Te": Te}
 
+    sigma = a.sigma*np.max(Te[t >= min(tskip, t[-1])])
+    if a.smoother == "gauss":
+        smooth = lambda y: gauss(t, y, sigma)
+        print(f"  smoother: Gaussian, sigma = {sigma:.3f} s")
+    else:
+        smooth = lambda y: boxcar(t, y, Te)
+        print("  smoother: boxcar over one midship encounter period")
+
     def add(name, F, M, cF, cM):
         """F, M loaded arrays; cF: first column of the force vector, cM: column
         of the moment z component"""
-        out[f"F1_{name}"] = boxcar(t, np.interp(t, F[:, 0], F[:, cF]), Te)/denF
-        out[f"F2_{name}"] = boxcar(t, np.interp(t, F[:, 0], F[:, cF + 1]), Te)/denF
-        out[f"Mz_{name}"] = boxcar(t, np.interp(t, M[:, 0], M[:, cM]), Te)/denM
+        out[f"F1_{name}"] = smooth(np.interp(t, F[:, 0], F[:, cF]))/denF
+        out[f"F2_{name}"] = smooth(np.interp(t, F[:, 0], F[:, cF + 1]))/denF
+        out[f"Mz_{name}"] = smooth(np.interp(t, M[:, 0], M[:, cM]))/denM
 
     # Rotating-frame midfield: Time total chen surface elevation strip coriolis storage
     for fo, tag in (("meanLoadsRot", "rot"), ("meanLoadsRot2", "rot2")):
@@ -203,7 +246,7 @@ def main():
 
     keep = t >= tskip
     cols = list(out)
-    np.savetxt("cmt_meanLoads.csv", np.column_stack([out[c][keep] for c in cols]),
+    np.savetxt(f"cmt_meanLoads{a.tag}.csv", np.column_stack([out[c][keep] for c in cols]),
                delimiter=",", header=",".join(cols), comments="")
     print(f"  u {u}  v {v}  r {r} (onset {tOn:.2f} s, ramp {tRamp:.2f} s)"
           f"   lam {lam}  A {A:.4g}   denF {denF:.4g} N  denM {denM:.4g} Nm")
@@ -214,7 +257,7 @@ def main():
         for q in ("F1", "F2", "Mz"):
             d = out[f"{q}_rot"][keep] - out[f"{q}_rot2"][keep]
             print(f"  control-volume dependence {q}: max |rot - rot2| = {np.nanmax(np.abs(d)):.3f}")
-    print("  wrote cmt_meanLoads.csv")
+    print(f"  wrote cmt_meanLoads{a.tag}.csv")
 
     try:
         import matplotlib
@@ -242,8 +285,8 @@ def main():
     axs[-1].set_xlabel("equivalent table heading h [deg] (0 = head sea)")
     axs[0].set_title(f"CMT  u={u} v={v} r={r}   lam={lam} m")
     fig.tight_layout()
-    fig.savefig("cmt_meanLoads.png", dpi=150)
-    print("  wrote cmt_meanLoads.png")
+    fig.savefig(f"cmt_meanLoads{a.tag}.png", dpi=150)
+    print(f"  wrote cmt_meanLoads{a.tag}.png")
 
 
 if __name__ == "__main__":
