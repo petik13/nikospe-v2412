@@ -1,0 +1,3 @@
+linBodyMotionRotFvPatchScalarField.C
+
+LIB = $(FOAM_USER_LIBBIN)/liblinBodyMotionRot

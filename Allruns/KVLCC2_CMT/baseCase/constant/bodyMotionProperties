@@ -1,0 +1,105 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\\\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\\\    /   O peration     | Version:  2412                                  |
+|   \\\\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\\\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "constant";
+    object      bodyMotionProperties;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Hold the body at its mean position: the condition then reduces to the pure
+// diffraction problem and the m-terms drop out.
+fixBody             false;
+
+// Rotating ship frame (linBodyMotionRot): Coriolis and centrifugal terms on
+// surge and sway.  The hull is always aligned with the mesh (bow at -x), so
+// heading is pi; runCMT.py sets it.
+rotatingFrameInertia true;
+
+heading	2.094;
+xG	49.0;
+zG                  -0.0224;
+
+// Reference dimensions, used to non-dimensionalise the loads
+Lpp	3.2;
+beam	0.58;
+
+mass                312.622;
+
+I44                 10.56;
+I55                 182.85;
+I66                 200.08;
+I46                 0.0;
+
+C33                 16401.0;   // rho g Awp
+C44                 177.88;
+C55                 12222.818;
+C35                 1806.4;
+
+rollDampingFraction 0.02;       // fraction of critical, roll only
+
+// Soft mooring on the DOF with no hydrostatic restoring (surge, sway, yaw).
+// Pick the stiffness so the planar natural period is well above the highest
+// wave period -- Seo et al. used "more than five times" -- so the springs hold
+// the mean position without touching the wave-frequency response:
+//     T_n = 2 pi sqrt( (m + a) / K )   =>   K = (m + a) (2 pi / T_n)^2
+// Zero leaves the DOF free.
+mooringK11              60;      // surge [N/m]
+mooringK22              130;      // sway  [N/m]
+mooringK66              100;      // yaw   [N m/rad]
+
+// Damping on the moored DOF as a fraction of critical, to bleed off the slow
+// drift oscillation the springs would otherwise sustain.  Formed from the dry
+// inertia, so it is a numerical device, not a physical damping model.
+mooringDampingFraction  0.1;
+rhoInf              1000;
+
+// Artificial added mass for the explicit fluid-structure coupling, per DOF as
+// a fraction of the corresponding diagonal inertia:
+//     (surge sway heave roll pitch yaw)
+// The body condition sets dphi_D/dn = V_b.n, so the pressure -dphi/dt responds
+// to the body ACCELERATION and the coupling is an added-mass one, evaluated
+// lagged.  It goes unstable once the fluid added mass exceeds the body mass
+// Putting A on the left and A*a_old on the right
+// suppresses that.  A single scalar applies to all six; 0 is off.
+// sub-iterations needed enable with addedMassFromTimeStep false, 
+// which uses the previous corrector rather than the previous time step to drive A.
+// At convergence the left and right side terms cancel out and the physics are consistent.
+// The fastest convergence is achieved when the added mass estimates are exactly equal
+// to the infinite frequency added masses of the body (obtained e.g. from WAMMIT)
+addedMass           (0.01 1 1 0.3 0.5 0.5);
+
+// Drive A from the previous TIME STEP (true) or the previous CORRECTOR
+// (false).  Keep addedMassFromTimeStep false to enable subiterations with the non-orthogonal correctors.
+addedMassFromTimeStep   false;
+steadyRestoring         true;
+
+// m-terms.  mTermsFromSurface picks the in-surface least-squares evaluation of
+// (n.grad)W over the legacy volume-gradient one.  The legacy route is
+// zeroth-order: measured against the analytic double-body flow past a sphere it
+// gave 78.06% error, and 77.91% after halving the cell size.  Set false to
+// reproduce it exactly for an A/B.
+mTerms                  true;
+mTermsFromSurface       true;
+
+// Stencil cut-off (deg): a neighbouring face is only used when its normal is
+// within this angle.  Stops the stencil reaching across a sharp feature or onto
+// the far side of a thin section, where the curvature really is discontinuous.
+mTermFeatureAngle       50;
+
+// Under-relaxation and decay on the new acceleration; 1 is off
+accelRelaxation     1.0;
+accelDamping        1.0;
+
+newmarkGamma        0.5;
+newmarkBeta         0.25;
+
+// ************************************************************************* //

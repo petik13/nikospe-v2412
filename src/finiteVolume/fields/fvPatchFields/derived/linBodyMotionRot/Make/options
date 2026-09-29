@@ -1,0 +1,11 @@
+EXE_INC = \
+    -I$(LIB_SRC)/finiteVolume/lnInclude \
+    -I$(LIB_SRC)/meshTools/lnInclude \
+    -I$(LIB_SRC)/rigidBodyDynamics/lnInclude \
+    -I$(LIB_SRC)/finiteArea/lnInclude \
+    -I$(WM_PROJECT_USER_DIR)/src/prescribedShipMotion
+
+LIB_LIBS = \
+    -lfiniteVolume \
+    -lmeshTools \
+    -lfiniteArea

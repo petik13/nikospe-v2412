@@ -1,0 +1,3 @@
+potRotatingFrameBCFvPatchScalarField.C
+
+LIB = $(FOAM_USER_LIBBIN)/libpotRotatingFrameBC

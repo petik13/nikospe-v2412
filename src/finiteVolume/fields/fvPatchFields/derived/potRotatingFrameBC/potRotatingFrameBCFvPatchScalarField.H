@@ -1,0 +1,464 @@
+/*---------------------------------------------------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     |
+    \\  /    A nd           | www.openfoam.com
+     \\/     M anipulation  |
+-------------------------------------------------------------------------------
+    Copyright (C) 2011-2016 OpenFOAM Foundation
+-------------------------------------------------------------------------------
+License
+    This file is part of OpenFOAM.
+
+    OpenFOAM is free software: you can redistribute it and/or modify it
+    under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+Class
+    Foam::potRotatingFrameBCFvPatchScalarField
+
+Group
+    grpGenericBoundaryConditions
+
+Description
+    Copy of potForwardSpeedBC for a ship on a prescribed planar motion
+    (translation AND yaw), solved in the ship-fixed rotating frame.  Used with
+    manFlowPrescribed.
+
+    Linearised free-surface condition for the disturbance potential on the
+    double-body basis flow.  Velocity convention is  u = +grad(Phi).
+
+        phi = phi_I + phi_D ,        zeta = zeta_I + zeta_D
+
+    W = Us is the steady flow RELATIVE to the ship,
+
+        W = grad(Phi_B) - V_S(x),   V_S = V_0 + Omega x (x - x_c)
+
+    with Phi_B the absolute double-body potential and V_S the frame velocity
+    (prescribedShipMotion).  With rotation W is not a potential flow.  The
+    incident wave is prescribed analytically in the earth frame and satisfies
+    the free-surface conditions convected by -V_S exactly, so subtracting them
+    leaves a forcing by the ABSOLUTE disturbance velocity grad(Phi_B) =
+    W + V_S, which vanishes far away (Yang & Kim 2026, eqs 4-5):
+
+        zeta_D,t = phi_D,z + (zeta_D + zeta_I) dWz/dz
+                 - W_h.grad_h(zeta_D) - (W_h + V_S).grad_h(zeta_I)
+
+        phi_D,t  = -g zeta_D - W.grad(phi_D) - (W + V_S).grad(phi_I)
+                 + nu phi_D,z                                     (sponge)
+
+    For a pure translation V_S = -Uinf and this is potForwardSpeedBC exactly.
+    The incident wave can come from any direction and rotates with the
+    heading; its elevation gradient and velocity are taken from
+    prescribedShipMotion rather than assumed along +x.
+
+    Both are advanced explicitly and phi_D is imposed as a fixed value.
+    Horizontal derivatives on the patch come from the finite-difference
+    machinery in the included headers, which carries its own parallel halo.
+    The upwind direction of those stencils is chosen per face from the local
+    sign of Us, so it follows the rotating relative flow.
+
+Usage
+    \table
+      Property | Description                        | Reqd | Default
+      PhiD     | Disturbance potential field        | no   | PhiD
+      zetaD    | Disturbance elevation field        | no   | zetaD
+      shape    | Stencil shape parameter            | no   | 100
+    \endtable
+
+    Sponge parameters are read from constant/waveConditions and re-read if
+    that file changes.  The motion and the incident wave come from
+    constant/prescribedMotion and constant/waveConditions through
+    prescribedShipMotion.
+
+SourceFiles
+    potRotatingFrameBCFvPatchScalarField.C
+
+\*---------------------------------------------------------------------------*/
+
+#ifndef Foam_potRotatingFrameBCFvPatchScalarField_H
+#define Foam_potRotatingFrameBCFvPatchScalarField_H
+
+#include "fixedValueFvPatchFields.H"
+#include "Enum.H"
+#include "IOdictionary.H"
+#include "globalIndex.H"
+#include "HashTable.H"
+#include "Map.H"
+#include "prescribedShipMotion.H"
+
+namespace Foam
+{
+
+/*---------------------------------------------------------------------------*\
+            Class potRotatingFrameBCFvPatchScalarField Declaration
+\*---------------------------------------------------------------------------*/
+
+class potRotatingFrameBCFvPatchScalarField
+:
+    public fixedValueFvPatchScalarField
+{
+public:
+
+    //- Time-integration variants, selected from the ddtScheme of zetaD
+    enum ddtSchemeType
+    {
+        tsEuler,
+        tsCrankNicolson,
+        tsBackward
+    };
+
+
+private:
+
+    // Private Data - names
+
+        word PhiDName_;
+        word zetaDName_;
+        word bodyPatchName_;
+        scalar shape_;
+
+        static const Enum<ddtSchemeType> ddtSchemeTypeNames_;
+
+
+    // Private Data - explicit time-integration state
+
+        //- Patch value already built at this time index.  updateCoeffs() is
+        //  called once per non-orthogonal corrector; only the first call does
+        //  work, the rest replay this.
+        scalarField cachedPhiD_;
+        label lastTimeIndex_;
+
+        //- Right-hand sides at t-dt and t-2dt for Adams-Bashforth
+        scalarField dPhiDdt1_, dPhiDdt2_;
+        scalarField dZetaDdt1_, dZetaDdt2_;
+
+
+		
+		
+		
+		
+		
+		
+		
+		
+		vectorField zetaDx_;
+		
+		scalarField PhiDx_;
+		scalarField PhiDy_;
+		
+		//List<labelList> neighbours_;
+		
+		
+		List<List<label>> upwindNodesX_;   ///< Stores multiple upwind nodes per face
+		List<List<label>> downwindNodesX_; ///< Stores multiple downwind nodes per face
+		
+		List<List<label>> upwindNodesY_;   ///< Stores multiple upwind nodes per face
+		List<List<label>> downwindNodesY_; ///< Stores multiple downwind nodes per face
+		
+		// Two flags per face: [0] = multiple direct neighbors, [1] = multiple second neighbors
+		List<FixedList<bool,2>> interpNeededX_;
+		List<FixedList<bool,2>> interpNeededY_;
+
+        List<FixedList<bool,4>> interpNeeded4thX_;
+        List<FixedList<bool,4>> interpNeeded4thY_;
+
+
+		//- Guard so we only build the above once
+		boolList procBoundaryFace_; 
+		List<labelList> neighbProcNos_; //modified
+		Foam::boolList ownerHasInletFace_;
+		Foam::boolList ownerHasBodyFace_;
+		Foam::boolList ownerHasFirstBodyFace_;
+		Foam::Map<Foam::label> ringNodeX_;
+		
+		//Foam::boolList interpolationNeeded_;
+		Map<List<label>> secondRingToFirstRing_;  // key: 2nd-ring local face idx, value: list of first-ring face local idx
+		Map<label> ring2NodeX_;  // second-ring face → globalID of its upwind first-ring face
+	
+		
+		Foam::autoPtr<Foam::globalIndex> gIndexPatch_;
+		Foam::labelList globalIdOfLocalFace_;     // size = patch().size()
+		//Foam::List<Foam::labelList> neighboursGlobal_;  // same shape as neighbours_, but GLOBAL ids
+		Foam::Map<label> globalIdToPackedIdx_;
+		Foam::Map<Foam::vector> globalIdToCf_;
+		
+		//Foam::HashTable<Foam::List<Foam::label>, Foam::label> remoteIdToUpwindNodesX_;
+		//Foam::HashTable<Foam::List<Foam::label>, Foam::label> remoteIdToDownwindNodesX_;
+		//Foam::HashTable<List<label>, label> remoteIdToUpwindNodesY_;     //BUNLAR YENI EKLENDI
+		//Foam::HashTable<List<label>, label> remoteIdToDownwindNodesY_;   //BUNLAR YENI EKLENDI
+		//HashTable<List<label>, label> remoteNeighbours_;
+		
+		Foam::HashTable<labelList, label> remoteIdToUpwindNodesX_;
+		Foam::HashTable<labelList, label> remoteIdToDownwindNodesX_;
+		Foam::HashTable<labelList, label> remoteIdToUpwindNodesY_;
+		Foam::HashTable<labelList, label> remoteIdToDownwindNodesY_;
+		Foam::HashTable<labelList, label> remoteNeighbours_;
+		Foam::HashTable<labelList, label> remoteNeighbours2_;
+		
+		Foam::HashTable<labelList, label> remIdToUpwindNewX_;
+		Foam::HashTable<labelList, label> remIdToDownwindNewX_;
+		Foam::HashTable<labelList, label> remIdToUpwindNewY_;
+		Foam::HashTable<labelList, label> remIdToDownwindNewY_;
+		
+		
+	    labelHashSet sendTo; // 16D	
+		Foam::List<labelList> neighbours_;
+		Foam::List<labelList> neighboursGlobal_;
+		
+		List<List<label>> lsMergedCandidates_;
+		//List<List<label>> lsMergedCandidatesY_; 
+		
+		
+		Foam::labelHashSet neededGIDs_;
+		Foam::List<Foam::labelHashSet> neededByProc_;
+		
+		
+		Foam::HashTable<scalar, label> globalIdToWp_;
+		Foam::HashTable<scalar, label> globalIdToPhi_;
+		scalarField schemeCodeX_; 
+		scalarField schemeCodeY_; 
+		
+		
+		
+		// Flag indicating if the matrix has been computed already
+		 bool neigboursCalculated_{false};
+         bool sphereEdgeVertexFacesCalculated_{false};
+		 bool windsCalculated_{false};
+		 bool schemesDetected_{false};
+		 bool candidatesCalculated_{false};
+
+
+
+
+
+    // Private Member Functions - free-surface machinery
+    // (defined in the included headers, carried over unchanged; they own the
+    //  parallel halo exchange for the patch finite-difference stencils)
+
+        void calcNeigboursV3();
+        void buildEdgeNeighbours();
+        void buildVertexBasedConnections();
+        void initCandidates();
+        void findInletFaces();
+        void findSphereFaces();
+        void findSphereEdgeVertexFaces();
+        void findUpwindDownwindNodesV2();
+        void detectFDSchemes();
+        void UPFDV2();
+        void outputter();
+        void exchangeWpGhostField(const scalarField& Wp, const scalarField& Wp2);
+
+        void computeFirstDerivativeCoeffs5pt
+        (
+            const scalar xm2, const scalar xm1, const scalar x0,
+            const scalar xp1, const scalar xp2,
+            scalar& am2, scalar& am1, scalar& a0,
+            scalar& ap1, scalar& ap2
+        ) const;
+
+        //- Kreiss-Oliger hyperviscosity, damps the grid-scale mode admitted by
+        //  the 4th-order central stencil
+        void applyKreissOligerFilter
+        (
+            scalarField& zetaD,
+            const scalarField& zetaDOld
+        );
+
+
+    // Private Member Functions - physics
+
+        //- Read constant/waveConditions into params_
+        void readParamsFrom(const dictionary& d);
+        void ensureDictLoaded() const;
+
+        //- Ramp applied to the incident wave
+        scalar ramp(const scalar t) const;
+
+        //- Sponge coefficient nu(x,y), zero outside the damping zones
+        tmp<scalarField> spongeCoeff() const;
+
+        //- Assemble the two explicit right-hand sides at the old time level
+        void freeSurfaceRates
+        (
+            const scalar t,
+            const scalarField& zetaD,
+            scalarField& dZetaDdt,
+            scalarField& dPhiDdt
+        );
+
+
+public:
+
+    //- Runtime type information
+    TypeName("potRotatingFrameBC");
+
+    //- Wave and sponge parameters, shared with the FD machinery
+    mutable autoPtr<IOdictionary> waveDictPtr_;
+
+    //- Prescribed motion and incident wave, built on first use
+    mutable autoPtr<prescribedShipMotion> motionPtr_;
+
+    const prescribedShipMotion& motion() const
+    {
+        if (!motionPtr_)
+        {
+            motionPtr_.reset(new prescribedShipMotion(db()));
+        }
+        return *motionPtr_;
+    }
+
+    struct Params
+    {
+        scalar U0{0}, head_ang{0}, steepness{0}, wavelength{0}, hdepth{0},
+               v0{0}, xdamp{0}, Lxdamp{0}, ydamp{0}, Lydamp{0},
+               xsponge{0}, Lsponge{0}, rampperiod{0};
+
+        //- Kreiss-Oliger fourth-difference filter coefficient.  Damps the
+        //  grid-scale mode the 4th-order central stencil admits; applied only
+        //  where that stencil is in use (scheme code 14).  Was hard-coded at
+        //  5e-4.  It acts once per TIME STEP, so its effect per wave period
+        //  scales with the number of steps per period, not with the timestep.
+        scalar koFilter{5.0e-4};
+
+        // derived
+        scalar amp{0}, k{0}, omega{0}, omegaE{0}, rampTime{0};
+        vector Uinf{Zero};
+
+        bool init{false};
+    } mutable params_;
+
+
+    // Constructors
+
+        potRotatingFrameBCFvPatchScalarField
+        (
+            const fvPatch&,
+            const DimensionedField<scalar, volMesh>&
+        );
+
+        potRotatingFrameBCFvPatchScalarField
+        (
+            const fvPatch&,
+            const DimensionedField<scalar, volMesh>&,
+            const dictionary&
+        );
+
+        potRotatingFrameBCFvPatchScalarField
+        (
+            const potRotatingFrameBCFvPatchScalarField&,
+            const fvPatch&,
+            const DimensionedField<scalar, volMesh>&,
+            const fvPatchFieldMapper&
+        );
+
+        potRotatingFrameBCFvPatchScalarField
+        (
+            const potRotatingFrameBCFvPatchScalarField&
+        );
+
+        potRotatingFrameBCFvPatchScalarField
+        (
+            const potRotatingFrameBCFvPatchScalarField&,
+            const DimensionedField<scalar, volMesh>&
+        );
+
+        virtual tmp<fvPatchScalarField> clone() const
+        {
+            return tmp<fvPatchScalarField>
+            (
+                new potRotatingFrameBCFvPatchScalarField(*this)
+            );
+        }
+
+        virtual tmp<fvPatchScalarField> clone
+        (
+            const DimensionedField<scalar, volMesh>& iF
+        ) const
+        {
+            return tmp<fvPatchScalarField>
+            (
+                new potRotatingFrameBCFvPatchScalarField(*this, iF)
+            );
+        }
+
+
+    // Member Functions
+
+        //- Advance the free surface and impose the new phi_D
+        virtual void updateCoeffs();
+
+        //- Write
+        virtual void write(Ostream&) const;
+
+
+    // Access
+    // Getters and friend declarations required by the inline stencil helpers,
+    // which are free template functions and reach the state through these.
+
+        inline const labelList& globalIdOfLocalFace() const
+        { return globalIdOfLocalFace_; }
+
+        inline const Map<label>& globalIdToPackedIdx() const
+        { return globalIdToPackedIdx_; }
+
+        inline const Map<vector>& globalIdToCf() const
+        { return globalIdToCf_; }
+
+        List<FixedList<bool,2>>& interpNeededX() { return interpNeededX_; }
+        const List<FixedList<bool,2>>& interpNeededX() const { return interpNeededX_; }
+
+        List<FixedList<bool,2>>& interpNeededY() { return interpNeededY_; }
+        const List<FixedList<bool,2>>& interpNeededY() const { return interpNeededY_; }
+
+        List<FixedList<bool,4>>& interpNeeded4thX() { return interpNeeded4thX_; }
+        const List<FixedList<bool,4>>& interpNeeded4thX() const { return interpNeeded4thX_; }
+
+        List<FixedList<bool,4>>& interpNeeded4thY() { return interpNeeded4thY_; }
+        const List<FixedList<bool,4>>& interpNeeded4thY() const { return interpNeeded4thY_; }
+
+        template<class PatchField>
+        friend bool tryUpwind2nd(const PatchField&, label, label&, const vectorField&, const scalarField&, const scalarField&, const List<List<label>>&, const HashTable<List<label>, label>&);
+
+        template<class PatchField>
+        friend bool tryCentered2nd(const PatchField&, label, label&, const vectorField&, const scalarField&, const scalarField&, const List<List<label>>&, const List<List<label>>&);
+
+        template<class PatchField>
+        friend bool tryDownwind2nd(const PatchField&, label, label&, const vectorField&, const scalarField&, const scalarField&, const List<List<label>>&, const HashTable<List<label>, label>&);
+
+        template<class PatchField>
+        friend bool tryFourthOrderCentral(const PatchField&, label, label&, const vectorField&, const scalarField&, const scalarField&, const List<List<label>>&, const List<List<label>>&,
+            const HashTable<List<label>, label>&, const HashTable<List<label>, label>&, const word&);
+
+        //- Previous-step derivatives, used by the near-body fallback
+        mutable scalarField DzetaZdxOld_, DzetaZdyOld_;
+        mutable scalarField DPhidxOld_,   DPhidyOld_;
+        mutable bool gradOldInit_ = false;
+
+        //- Body-adjacency masks and edge stencils
+        boolList ownerHasBodyEdge_;
+        boolList ownerHasBodyVertex_;
+        List<labelList> edgeNeighbours_;
+        List<List<vector>> edgeNormals2D_;
+
+        //- For each free-surface face that shares an edge with the hull: the
+        //  hull patch face on the other side of that edge, and the projection
+        //  of (edge midpoint - face centre) onto the hull normal.  The
+        //  Green-Gauss reconstruction has to put a value of PhiD on that
+        //  missing edge; using the face's own value assumes a zero gradient
+        //  toward the hull, whereas linBodyMotion PRESCRIBES dPhiD/dn there.
+        //  With these two the edge value can be extrapolated properly,
+        //      PhiD_edge = PhiD_self + g * proj
+        //  which is the difference between an O(g/2) error and none.
+        //  -1 / 0 where no hull edge is shared.
+        labelList bodyEdgeHullFace_;
+        scalarField bodyEdgeProj_;
+};
+
+
+} // End namespace Foam
+
+#endif
+
+// ************************************************************************* //
