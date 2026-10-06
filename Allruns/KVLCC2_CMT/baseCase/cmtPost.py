@@ -22,10 +22,13 @@ one-period boxcar (the encounter frequency at midship is
 
 Loads (all non-dimensional, rho g A^2 B^2 / L and rho g A^2 B^2):
     rot      meanLoadsRot 'total': midfield for the rotating control volume
-             (Chen + Coriolis + storage).  THE result.
+             (Chen + Coriolis + storage + centripetal).  THE result.
     rot2     the same on the larger control volume (must agree with rot)
     chen     Chen's midfield alone (= middleFieldForm); wrong while turning
-    cor, sto the Coriolis and storage parts of rot
+    cor, sto the Coriolis and storage parts of rot (they include the
+             waterline corner through P)
+    cen      the centripetal part of rot (waterline corner only; written by
+             middleFieldFormRot with cornerTerm on, absent in older runs)
     near     near-field (not reliable, for comparison only)
     table    the straight-course table at the same encounter heading
 
@@ -215,7 +218,8 @@ def main():
         out[f"F2_{name}"] = smooth(np.interp(t, F[:, 0], F[:, cF + 1]))/denF
         out[f"Mz_{name}"] = smooth(np.interp(t, M[:, 0], M[:, cM]))/denM
 
-    # Rotating-frame midfield: Time total chen surface elevation strip coriolis storage
+    # Rotating-frame midfield: Time total chen surface elevation strip coriolis
+    # storage [centripetal]
     for fo, tag in (("meanLoadsRot", "rot"), ("meanLoadsRot2", "rot2")):
         F = load(f"postProcessing/{fo}/*/force.dat")
         M = load(f"postProcessing/{fo}/*/moment.dat")
@@ -226,6 +230,8 @@ def main():
             add("chen", F, M, 4, 6)
             add("cor", F, M, 16, 18)
             add("sto", F, M, 19, 21)
+            if F.shape[1] >= 25 and M.shape[1] >= 25:
+                add("cen", F, M, 22, 24)
 
     # Old objects, if present: first vector is the total
     if "F1_chen" not in out:

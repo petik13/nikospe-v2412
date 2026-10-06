@@ -102,12 +102,15 @@ Foam::functionObjects::middleFieldFormRot::middleFieldFormRot
     writeFile(mesh_, name, typeName, dict),
     UName_("U"),
     UsName_("Us"),
+    VSName_("VS"),
     zetaName_("zeta"),
     UDName_("UD"),
     PhiDName_("PhiD"),
     UIName_("UI"),
     zetaIName_("zetaI"),
     snGradNormal_(true),
+    cornerTerm_(true),
+    cornerReported_(false),
     faceZoneName_(word::null),
     faceZoneID_(-1),
     cvPoint_(Zero),
@@ -123,6 +126,7 @@ Foam::functionObjects::middleFieldFormRot::middleFieldFormRot
     fsInside_(),
     fsInsideBuilt_(false),
     P_(Zero), PI_(Zero), Hz_(0), Q_(0),
+    Pc_(Zero), Hc_(0), Qc_(0),
     Pold_(Zero), HzOld_(0), tOld_(0), lastTimeIndex_(-1), haveOld_(false)
 {
     reset();
@@ -140,6 +144,7 @@ void Foam::functionObjects::middleFieldFormRot::reset()
     elevationForce_ = Zero;  elevationMoment_ = Zero;
     stripForce_ = Zero;      stripMoment_ = Zero;
     coriolisForce_ = Zero;   coriolisMoment_ = Zero;
+    centripetalForce_ = Zero; centripetalMoment_ = Zero;
 }
 
 
@@ -437,10 +442,152 @@ void Foam::functionObjects::middleFieldFormRot::momentumIntegrals()
         }
     }
 
+    // --- Waterline corner: adds its local parts to P_, Hz_, Q_ --------------
+    cornerIntegrals(Omega());
+
     reduce(P_, sumOp<vector>());
     reduce(PI_, sumOp<vector>());
     reduce(Hz_, sumOp<scalar>());
     reduce(Q_, sumOp<scalar>());
+}
+
+
+void Foam::functionObjects::middleFieldFormRot::cornerIntegrals
+(
+    const vector& Om
+)
+{
+    // The fluid between z = 0 and the free surface that the hull leaves or
+    // takes.  Per waterline edge of length L its mass is
+    //     m = rho zeta (xi.n_h) L
+    // (wall-sided at the waterline), moving with the relative steady flow W.
+    // Its parts of P, H, Q are added to P_, Hz_, Q_ (local sums, reduced by
+    // the caller); the centripetal term is its part of
+    // -rho Omega x int_D V_S dV.
+    Pc_ = Zero;
+    Hc_ = 0;
+    Qc_ = 0;
+    centripetalForce_ = Zero;
+    centripetalMoment_ = Zero;
+
+    if (!cornerTerm_ || hullPatchID_ < 0) return;
+
+    const auto* dispPtr =
+        mesh_.findObject<uniformDimensionedVectorField>("bodyDisp");
+    const auto* rotPtr =
+        mesh_.findObject<uniformDimensionedVectorField>("bodyRot");
+    if (!dispPtr || !rotPtr) return;
+
+    const vector xi(dispPtr->value());
+    const vector th(rotPtr->value());
+
+    const auto& zeta = mesh_.lookupObject<volScalarField>(zetaName_);
+    const auto& Us = mesh_.lookupObject<volVectorField>(UsName_);
+    const auto* VSptr = mesh_.findObject<volVectorField>(VSName_);
+
+    const polyBoundaryMesh& pbm = mesh_.boundaryMesh();
+    const polyPatch& hullPatch = pbm[hullPatchID_];
+    const polyPatch& fsPatch = pbm[freeSurfacePatchID_];
+    const label fsStart = fsPatch.start();
+    const label fsEnd = fsStart + fsPatch.size();
+
+    const faceList& faces = mesh_.faces();
+    const pointField& pts = mesh_.points();
+    const cellList& cells = mesh_.cells();
+    const labelList& hullCells = hullPatch.faceCells();
+    const vectorField nf(mesh_.boundary()[hullPatchID_].nf());
+
+    const scalarField& zetaFs = zeta.boundaryField()[freeSurfacePatchID_];
+    const vectorField& WFs = Us.boundaryField()[freeSurfacePatchID_];
+    const vectorField& WHull = Us.boundaryField()[hullPatchID_];
+
+    vector mVS(Zero);       // sum m V_S,h
+    scalar mrVS = 0;        // sum m r_h.V_S
+    scalar lengthSum = 0;
+    label nEdges = 0;
+
+    forAll(hullCells, i)
+    {
+        // Horizontal unit normal, out of the fluid (into the body)
+        vector nh(nf[i].x(), nf[i].y(), 0);
+        const scalar nhMag = mag(nh);
+        if (nhMag < SMALL) continue;
+        nh /= nhMag;
+
+        const face& hullFace = faces[hullPatch.start() + i];
+
+        for (const label facej : cells[hullCells[i]])
+        {
+            if (facej < fsStart || facej >= fsEnd) continue;
+
+            point p0(Zero), p1(Zero);
+            if (!sharedSegmentRot(faces[facej], hullFace, pts, p0, p1)) continue;
+
+            const scalar L = mag(p1 - p0);
+            if (L < SMALL) continue;
+
+            const label fsi = facej - fsStart;
+            const vector r(0.5*(p0 + p1) - CofR_);
+            const vector S(xi + (th ^ r));
+
+            const scalar m = rhoRef_*zetaFs[fsi]*(S & nh)*L;
+
+            vector W(0.5*(WHull[i] + WFs[fsi]));
+            W.z() = 0;
+
+            Pc_ += m*W;
+            Hc_ += m*(r.x()*W.y() - r.y()*W.x());
+            Qc_ += m*(r.x()*W.x() + r.y()*W.y());
+
+            if (VSptr)
+            {
+                vector V
+                (
+                    0.5*
+                    (
+                        VSptr->boundaryField()[hullPatchID_][i]
+                      + VSptr->boundaryField()[freeSurfacePatchID_][fsi]
+                    )
+                );
+                V.z() = 0;
+
+                mVS += m*V;
+                mrVS += m*(r.x()*V.x() + r.y()*V.y());
+            }
+
+            lengthSum += L;
+            ++nEdges;
+        }
+    }
+
+    P_ += Pc_;
+    Hz_ += Hc_;
+    Q_ += Qc_;
+
+    reduce(Pc_, sumOp<vector>());
+    reduce(Hc_, sumOp<scalar>());
+    reduce(Qc_, sumOp<scalar>());
+    reduce(mVS, sumOp<vector>());
+    reduce(mrVS, sumOp<scalar>());
+
+    centripetalForce_ = -(Om ^ mVS);
+    centripetalMoment_ = vector(0, 0, -Om.z()*mrVS);
+
+    if (!cornerReported_)
+    {
+        cornerReported_ = true;
+        reduce(lengthSum, sumOp<scalar>());
+        reduce(nEdges, sumOp<label>());
+
+        Info<< type() << ' ' << name() << ": waterline corner, "
+            << nEdges << " edges, length " << lengthSum << " m";
+        if (!VSptr)
+        {
+            Info<< " (no field " << VSName_
+                << ": the centripetal term is left out)";
+        }
+        Info<< endl;
+    }
 }
 
 
@@ -460,9 +607,11 @@ void Foam::functionObjects::middleFieldFormRot::createFiles()
         writeHeader
         (
             *os,
-            "total = chen + coriolis + storage; chen = surface + elevation"
-            " + strip (middleFieldForm)"
+            "total = chen + coriolis + storage + centripetal; chen = surface"
+            " + elevation + strip (middleFieldForm); the waterline corner is in"
+            " coriolis, storage (through P) and centripetal"
         );
+        writeHeaderValue(*os, "cornerTerm", word(cornerTerm_ ? "on" : "off"));
         writeCommented(*os, "Time");
         writeTabbed(*os, "total_x\ttotal_y\ttotal_z");
         writeTabbed(*os, "chen_x\tchen_y\tchen_z");
@@ -471,6 +620,7 @@ void Foam::functionObjects::middleFieldFormRot::createFiles()
         writeTabbed(*os, "strip_x\tstrip_y\tstrip_z");
         writeTabbed(*os, "coriolis_x\tcoriolis_y\tcoriolis_z");
         writeTabbed(*os, "storage_x\tstorage_y\tstorage_z");
+        writeTabbed(*os, "centripetal_x\tcentripetal_y\tcentripetal_z");
         *os << endl;
     }
 
@@ -478,11 +628,18 @@ void Foam::functionObjects::middleFieldFormRot::createFiles()
     writeHeader
     (
         momentumFilePtr_(),
-        "P = rho int_AF zeta u_h dA + rho int_SB (xi.n) u_h dS;"
-        " P_I = rho int_AF zetaI uI_h dA (incident self-part)"
+        "P = rho int_AF zeta u_h dA + rho int_SB (xi.n) u_h dS"
+        " + int_GH m_c W_h dl;"
+        " P_I = rho int_AF zetaI uI_h dA (incident self-part);"
+        " Pc, Hc, Qc = waterline-corner parts (included in P, Hz, Q)"
     );
     writeCommented(momentumFilePtr_(), "Time");
-    writeTabbed(momentumFilePtr_(), "P_x\tP_y\tP_z\tPI_x\tPI_y\tPI_z\tHz\tQ\tOmega_z");
+    writeTabbed
+    (
+        momentumFilePtr_(),
+        "P_x\tP_y\tP_z\tPI_x\tPI_y\tPI_z\tHz\tQ\tOmega_z"
+        "\tPc_x\tPc_y\tPc_z\tHc\tQc"
+    );
     momentumFilePtr_() << endl;
 }
 
@@ -497,19 +654,23 @@ void Foam::functionObjects::middleFieldFormRot::writeFiles()
     forceFilePtr_() << tab << force() << tab << chenForce()
                     << tab << surfaceForce_ << tab << elevationForce_
                     << tab << stripForce_ << tab << coriolisForce_
-                    << tab << storageForce_ << endl;
+                    << tab << storageForce_ << tab << centripetalForce_
+                    << endl;
 
     writeCurrentTime(momentFilePtr_());
     momentFilePtr_() << tab << moment() << tab << chenMoment()
                      << tab << surfaceMoment_ << tab << elevationMoment_
                      << tab << stripMoment_ << tab << coriolisMoment_
-                     << tab << storageMoment_ << endl;
+                     << tab << storageMoment_ << tab << centripetalMoment_
+                     << endl;
 
     writeCurrentTime(momentumFilePtr_());
     momentumFilePtr_() << tab << P_.x() << tab << P_.y() << tab << P_.z()
                        << tab << PI_.x() << tab << PI_.y() << tab << PI_.z()
                        << tab << Hz_ << tab << Q_
-                       << tab << Omega().z() << endl;
+                       << tab << Omega().z()
+                       << tab << Pc_.x() << tab << Pc_.y() << tab << Pc_.z()
+                       << tab << Hc_ << tab << Qc_ << endl;
 }
 
 
@@ -527,6 +688,9 @@ bool Foam::functionObjects::middleFieldFormRot::read(const dictionary& dict)
     dict.readIfPresent("PhiD", PhiDName_);
     snGradNormal_ = dict.getOrDefault<Switch>("snGradNormal", Switch(true));
     dict.readIfPresent("Us", UsName_);
+    dict.readIfPresent("VS", VSName_);
+    cornerTerm_ = dict.getOrDefault<Switch>("cornerTerm", Switch(true));
+    cornerReported_ = false;
     dict.readIfPresent("zeta", zetaName_);
     dict.readIfPresent("UI", UIName_);
     dict.readIfPresent("zetaI", zetaIName_);
@@ -571,6 +735,7 @@ bool Foam::functionObjects::middleFieldFormRot::read(const dictionary& dict)
         << "    free surface    : " << freeSurfacePatchName_ << nl
         << "    hull            : " << hullPatchName_ << nl
         << "    rhoInf          : " << rhoRef_ << nl
+        << "    waterline corner: " << (cornerTerm_ ? "on" : "off") << nl
         << "    Omega           : frameOmega if registered, else "
         << OmegaDict_ << nl
         << "    CofR            : " << CofR_
@@ -642,7 +807,9 @@ bool Foam::functionObjects::middleFieldFormRot::execute()
         << "    chen      " << chenForce() << nl
         << "    coriolis  " << coriolisForce_ << nl
         << "    storage   " << storageForce_ << nl
-        << "    P         " << P_ << "   P_I " << PI_ << endl;
+        << "    centripetal " << centripetalForce_ << nl
+        << "    P         " << P_ << "   P_I " << PI_
+        << "   P_corner " << Pc_ << endl;
 
     setResult("force", force());
     setResult("moment", moment());
@@ -678,13 +845,13 @@ Foam::vector Foam::functionObjects::middleFieldFormRot::chenMoment() const
 
 Foam::vector Foam::functionObjects::middleFieldFormRot::force() const
 {
-    return chenForce() + coriolisForce_ + storageForce_;
+    return chenForce() + coriolisForce_ + storageForce_ + centripetalForce_;
 }
 
 
 Foam::vector Foam::functionObjects::middleFieldFormRot::moment() const
 {
-    return chenMoment() + coriolisMoment_ + storageMoment_;
+    return chenMoment() + coriolisMoment_ + storageMoment_ + centripetalMoment_;
 }
 
 
