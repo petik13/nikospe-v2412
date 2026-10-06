@@ -1,0 +1,49 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  2412                                  |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    location    "0";
+    object      Phi2;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Unit double-body potential for manFlowPrescribed.  Absolute potential
+// (fluid at rest far away), u = +grad(Phi).  On the hull the normal gradient
+// is set by the solver to n_y (sway), in mesh axes.
+
+dimensions      [0 1 0 0 0 0 0];
+
+internalField   uniform 0;
+
+boundaryField
+{
+    // Disturbance of a body moving through still water: zero far away
+    "(inlet|outlet|front|back)"
+    {
+        type            fixedValue;
+        value           uniform 0;
+    }
+
+    // Rigid wall (double body) on the mean free surface and on the seabed
+    "(upper|lower)"
+    {
+        type            zeroGradient;
+    }
+
+    // Gradient overwritten by manFlowPrescribed
+    sphere
+    {
+        type            fixedGradient;
+        gradient        uniform 0;
+    }
+}
+
+// ************************************************************************* //

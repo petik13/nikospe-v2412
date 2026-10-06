@@ -47,32 +47,9 @@ is folded onto the table range: plotted at 360 - h = |h| (running 180 -> 0),
 with F2 and Mz sign-flipped, in a different colour.  The CSV keeps the
 unfolded values and adds h_fold = |h| and mirror = sign.
 
-Per-heading results (results.csv, same format as the meanLoads.py --csv
-collection, plus V): one row per heading 0, dh, 2 dh, ... (default dh = 10 deg)
-along the turn, from the yaw onset (heading 0 is always there) to 360 deg if
-the run gets that far:
-
-    lam/L,U,V,heading,F1mean,F2mean,Mzmean,eta1,eta2,eta3,eta4,eta5,eta6
-
-    lam/L      wavelength / Lpp
-    U, V       prescribed surge and sway speed at midship [m/s] (MMG axes)
-    heading    table heading h [deg] (0 = head sea), unwrapped along the turn
-               and reported in [0, 360]; NOT folded, so F2 and Mz for
-               h > 180 have the signs of the actual heading
-    F1..Mz     filtered mean loads of the rotating midfield (meanLoadsRot,
-               --resultsCV rot2 for the large control volume), at the time
-               the heading is reached; F / (rho g A^2 B^2 / L), Mz / (rho g A^2 B^2)
-    eta1..6    first-order motion amplitudes at that time (harmonic fit at the
-               local midship encounter frequency over +-1 encounter period),
-               eta1..3 / A, eta4..6 / (k A), as meanLoads.py
-
-FORCE_SIGN (below) is the sign convention of this hull's meanLoads.py for F1
-and F2 (KVLCC2 +1, SOBC -1), so the CMT loads and tables agree.
-
 usage:
     python3 cmtPost.py
     python3 cmtPost.py --table /path/to/waveData.dat --U 0.33
-    python3 cmtPost.py --dh 5 --csv ../results_CMT.csv   # also merge into a collection
 Writes cmt_meanLoads.csv and cmt_meanLoads.png.  By default the output starts
 at the yaw onset (heading change 0); the function objects run from t = 0, so
 the centred filter has the straight run before the onset to work on.  The
@@ -83,17 +60,8 @@ does not contain.
 
 import argparse
 import glob
-import os
 import re
 import numpy as np
-
-# Sign of F1, F2 in this hull's tables (the den_F of its meanLoads.py):
-# KVLCC2 +1; SOBC -1 (SOBC/baseCase/meanLoads.py divides by -rho g A^2 B^2/L).
-# Mz is not affected.
-FORCE_SIGN = 1.0
-
-RESULTS_COLS = (["lam/L", "U", "V", "heading", "F1mean", "F2mean", "Mzmean"]
-                + [f"eta{i}" for i in range(1, 7)])
 
 
 def read_dict(path):
@@ -162,43 +130,6 @@ def gauss(t, y, sigma):
     return np.interp(t, tu, ys, left=np.nan, right=np.nan)
 
 
-def motion_amplitude(tm, ym, tc, wc, Tc):
-    """First-harmonic amplitude of y around time tc: least-squares fit of
-    a + b (t - tc) + c cos(wc t) + d sin(wc t) over tc +- Tc.  The linear term
-    absorbs the slow drift of the soft-moored modes."""
-    sel = (tm >= tc - Tc) & (tm <= tc + Tc)
-    if sel.sum() < 8:
-        return np.nan
-    tt, yy = tm[sel], ym[sel]
-    X = np.column_stack([np.ones_like(tt), tt - tc, np.cos(wc*tt), np.sin(wc*tt)])
-    coef, *_ = np.linalg.lstsq(X, yy, rcond=None)
-    return float(np.hypot(coef[2], coef[3]))
-
-
-def write_results(path, rows):
-    """Write rows (dicts with RESULTS_COLS) to path.  If path exists, rows with
-    the same (lam/L, U, V, heading) are replaced and the rest kept."""
-    def key(vals):
-        return tuple(round(float(x), 6) for x in vals[:4])
-
-    table = {}
-    if os.path.isfile(path):
-        with open(path) as f:
-            head = f.readline().strip().split(",")
-            if head == RESULTS_COLS:
-                for line in f:
-                    vals = line.strip().split(",")
-                    if len(vals) == len(RESULTS_COLS):
-                        table[key(vals)] = vals
-    for row in rows:
-        vals = [f"{row[c]:.6g}" for c in RESULTS_COLS]
-        table[key(vals)] = vals
-    with open(path, "w") as f:
-        f.write(",".join(RESULTS_COLS) + "\n")
-        for kk in sorted(table):
-            f.write(",".join(table[kk]) + "\n")
-
-
 def wrap180(a):
     return (a + 180.0) % 360.0 - 180.0
 
@@ -239,12 +170,6 @@ def main():
                     help="Gaussian standard deviation in largest encounter periods")
     ap.add_argument("--tag", default="",
                     help="suffix for the output files, cmt_meanLoads<tag>.csv/.png")
-    ap.add_argument("--dh", type=float, default=10.0,
-                    help="heading step for results.csv [deg]")
-    ap.add_argument("--resultsCV", choices=("rot", "rot2"), default="rot",
-                    help="control volume for results.csv")
-    ap.add_argument("--csv", default=None, metavar="PATH",
-                    help="also merge the results.csv rows into this collection file")
     a = ap.parse_args()
 
     wc = read_dict("constant/waveConditions")
@@ -303,8 +228,8 @@ def main():
     def add(name, F, M, cF, cM):
         """F, M loaded arrays; cF: first column of the force vector, cM: column
         of the moment z component"""
-        out[f"F1_{name}"] = FORCE_SIGN*smooth(np.interp(t, F[:, 0], F[:, cF]))/denF
-        out[f"F2_{name}"] = FORCE_SIGN*smooth(np.interp(t, F[:, 0], F[:, cF + 1]))/denF
+        out[f"F1_{name}"] = smooth(np.interp(t, F[:, 0], F[:, cF]))/denF
+        out[f"F2_{name}"] = smooth(np.interp(t, F[:, 0], F[:, cF + 1]))/denF
         out[f"Mz_{name}"] = smooth(np.interp(t, M[:, 0], M[:, cM]))/denM
 
     # Rotating-frame midfield: Time total chen surface elevation strip coriolis
@@ -353,54 +278,6 @@ def main():
             d = out[f"{q}_rot"][keep] - out[f"{q}_rot2"][keep]
             print(f"  control-volume dependence {q}: max |rot - rot2| = {np.nanmax(np.abs(d)):.3f}")
     print(f"  wrote cmt_meanLoads{a.tag}.csv")
-
-    # -- results.csv: one row per heading step along the turn ----------------
-    cv = a.resultsCV
-    if f"F1_{cv}" in out:
-        hu = np.degrees(np.unwrap(np.radians(180.0 - (chi - psi))))
-        mot = load("postProcessing/bodyMotion/motion.dat")
-        ok = keep & np.isfinite(out[f"F1_{cv}"])
-        rows = []
-        if r and ok.any():
-            sgn = 1.0 if r > 0 else -1.0
-            tt, hh = t[ok], sgn*hu[ok]                      # hh increases along the turn
-            hh = np.maximum.accumulate(hh)
-            h0, h1 = hh[0], hh[-1]
-            first = np.ceil(h0/a.dh - 1e-6)*a.dh
-            targets = np.arange(first, h1 + 1e-9, a.dh)
-            # t at which each heading is reached (first sample at or beyond it)
-            tk = np.array([tt[np.searchsorted(hh, ht - 1e-9)] for ht in targets])
-            for ht, tc in zip(targets, tk):
-                hrep = (sgn*ht) % 360.0
-                if hrep < 1e-6 and abs(ht - h0) > 1.0:
-                    hrep = 360.0
-                rows.append((hrep, tc))
-        elif ok.any():
-            tc = t[ok][-1]
-            rows.append((hu[ok][-1] % 360.0, tc))
-
-        res = []
-        for hrep, tc in rows:
-            i = int(np.argmin(np.abs(t - tc)))
-            row = {"lam/L": lam/L, "U": u, "V": v, "heading": hrep,
-                   "F1mean": out[f"F1_{cv}"][i], "F2mean": out[f"F2_{cv}"][i],
-                   "Mzmean": out[f"Mz_{cv}"][i]}
-            for j in range(6):
-                if mot is not None:
-                    amp = motion_amplitude(mot[:, 0], mot[:, 1 + j], tc, we[i], Te[i])
-                else:
-                    amp = np.nan
-                row[f"eta{j + 1}"] = amp/(A if j < 3 else k*A)
-            res.append(row)
-
-        if res:
-            write_results("results.csv", res)
-            print(f"  wrote results.csv: {len(res)} headings"
-                  f" ({res[0]['heading']:.0f} .. {res[-1]['heading']:.0f} deg, step {a.dh:g},"
-                  f" control volume {cv})")
-            if a.csv:
-                write_results(a.csv, res)
-                print(f"  merged into {a.csv}")
 
     try:
         import matplotlib

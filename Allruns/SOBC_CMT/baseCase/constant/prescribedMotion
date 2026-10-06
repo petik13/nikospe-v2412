@@ -1,0 +1,54 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  2412                                  |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "constant";
+    object      prescribedMotion;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Prescribed planar ship motion for manFlowPrescribed (prescribedShipMotion).
+//
+// u, v, r are MMG quantities at the rotation centre: x forward, y starboard,
+// z down; r > 0 turns to starboard.  In mesh axes (x aft, y starboard, z up,
+// bow at -x) the ship-fixed point x moves with
+//     V_S = (-u, v, 0) + (0, 0, -r) x (x - rotationCentre).
+//
+// Equivalent manFlow translation run (r = 0): currentSpeed = u,
+// swaySpeed = -v, headingAngle = 0.
+//
+// The ship runs straight (heading psi0) until yawOnsetTime, so the motions
+// settle, and the yaw rate is then ramped from 0 to r over yawRampTime
+// (half-cosine).  Heading psi(t) = psi0 + int r(t) dt.  runCMT.py sets both
+// times from --yawOnsetPeriods (default 10) and --yawRampPeriods (default 2)
+// encounter periods at the initial heading.
+//
+// waveDirection is the propagation direction in earth axes (manModel waveDict
+// convention: 0 = north, clockwise), so waveDirection = psi0 + 180 starts in
+// head seas.
+
+type            constant;       // circular motion test
+
+u               0.318;          // [m/s]
+v               -0.097;         // [m/s]   (beta = atan(-v/u) = 17 deg)
+r               0.08;           // [rad/s], after the onset
+
+psi0            0;              // [deg]
+waveDirection   180;            // [deg]
+
+yawOnsetTime    12.5;           // [s]
+yawRampTime     2.5;            // [s]
+
+rotationCentre  (22.4 0 0);     // mesh coordinates; set to xbody by runCMT.py
+
+hullPatch       sphere;
+
+// ************************************************************************* //

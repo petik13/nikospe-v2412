@@ -1,0 +1,67 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2312                                 |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      fvSolution;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+solvers
+{
+    PhiD
+    {
+        solver  GAMG;
+        smoother DIC;
+        tolerance 1e-6;
+        relTol  0.0;
+        agglomerator	faceAreaPair;
+        mergeLevels	1;
+        nCellsInCoarsestLevel	100;
+        cacheAgglomeration	true;
+    }
+
+    PhiS
+    {
+        $PhiD;
+        relTol 0;
+        tolerance 1e-11;
+    }
+
+    // Unit basis potentials of manFlowPrescribed, solved once at startup
+    "(Phi1|Phi2|Phi6)"
+    {
+        $PhiS;
+    }
+
+    p
+    {
+        $Phi;
+    }
+	
+	p_gh
+    {
+        $Phi;
+    }
+	
+}
+
+
+potentialFlow
+{
+    nNonOrthogonalCorrectors 2;
+}
+
+basisFlow
+{
+    nNonOrthogonalCorrectors 10;
+}
+
+// ************************************************************************* //
