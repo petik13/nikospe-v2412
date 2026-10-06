@@ -34,8 +34,9 @@ through the frame velocity
   (default 10) encounter periods so the motions settle, then r is ramped in
   (half-cosine) over `--yawRampPeriods` (default 2). During the ramp the basis
   flow is rebuilt every step (quasi-steady) and the boundary conditions
-  rebuild their m-terms, steady-flow restoring and upwind schemes. The loads
-  during the ramp are transitional and are not analysed.
+  rebuild their m-terms, steady-flow restoring and upwind schemes. The mean
+  loads are output from the onset; during the ramp they are transitional
+  (shaded in the `cmtPost.py` plot).
 * **Basis flow**: absolute double-body potential, Kirchhoff split into unit
   potentials solved once: `PhiS = V0x Phi1 + V0y Phi2 + Omega_z Phi6`. The
   relative flow `Us = W = grad(PhiS) - V_S` (not irrotational with yaw), and
@@ -60,7 +61,7 @@ through the frame velocity
   strip + hull displacement). Without them the midfield is wrong by about
   2.2 rho g A^2 B^2/L in the KVLCC2 CMT at lambda/L = 1 (the incident wave's
   momentum in the rotating control volume). `meanLoadsRot2` is the same on
-  the larger control volume (+-3 L/2); the two must agree. `meanLoads`
+  the larger control volume (+-2 L/2); the two must agree. `meanLoads`
   (uncorrected) and `meanLoadsNear` (near-field, not reliable: 24% off for a
   restrained hull at zero speed, ~2x with motions or speed) are kept for
   comparison.
@@ -80,7 +81,11 @@ KVLCC2 mesh: 19, 260, 139).
 `runCMT.py` meshes exactly like `runsim.py` (heading 0), builds both control
 volumes, sets `constant/prescribedMotion` (including the yaw onset), and
 picks the timestep with the largest frame velocity near and far from the
-hull. Default end time for r != 0: onset + ramp + one full turn.
+hull. Default end time for r != 0: onset + ramp/2 + one full turn (2 pi/|r|)
++ the half-width of the mean-load filter (2 Te_max), so that `cmtPost.py`
+gives mean loads for a full turn, starting at the yaw onset (heading change 0).
+The yaw-rate ramp is shaded in the plot (dOmega/dt != 0 there, not in the
+midfield formula).
 `cmtPost.py` averages the loads over one local encounter period, from two
 periods after the yaw ramp, and writes them in the waveData table axes
 against the equivalent table heading, with the table if given. It also

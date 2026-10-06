@@ -42,10 +42,6 @@ Equivalent table heading h (0 = head sea, table convention) at time t:
     h = 180 - (chi - psi(t))      wrapped to (-180, 180]
 The table is tabulated for h in [0, 180]; for h < 0 the mirror image is used,
 F1(h) = F1(|h|), F2(h) = -F2(|h|), Mz(h) = -Mz(|h|).
-In the plot, the second half of a turn (h > 180, i.e. h < 0 in (-180, 180])
-is folded onto the table range: plotted at 360 - h = |h| (running 180 -> 0),
-with F2 and Mz sign-flipped, in a different colour.  The CSV keeps the
-unfolded values and adds h_fold = |h| and mirror = sign.
 
 usage:
     python3 cmtPost.py
@@ -202,12 +198,6 @@ def main():
 
     hdg = wrap180(180.0 - (chi - psi))
 
-    # Fold onto the table range [0, 180]: the hull is symmetric, so heading
-    # h > 180 (hdg < 0) is the mirror image of 360 - h = |hdg|, with F2 and Mz
-    # changing sign.  mirror = -1 marks those samples.
-    hfold = np.abs(hdg)
-    mirror = np.where(hdg < 0, -1.0, 1.0)
-
     tskip = a.tskip
     if tskip is None:
         if r:
@@ -215,7 +205,7 @@ def main():
         else:
             tskip = (num(wc, "rampPeriods", 3.0) + 3.0)*2*np.pi/w0
 
-    out = {"t": t, "psi": psi, "h_table": hdg, "h_fold": hfold, "mirror": mirror, "Te": Te}
+    out = {"t": t, "psi": psi, "h_table": hdg, "Te": Te}
 
     sigma = a.sigma*np.max(Te[t >= min(tskip, t[-1])])
     if a.smoother == "gauss":
@@ -286,54 +276,28 @@ def main():
     except ImportError:
         return
 
-    # name, line style, colour for h <= 180, colour for h > 180 (mirrored), label
-    styles = (("rot", "-", "tab:blue", "tab:orange", "midfield, rotating CV"),
-              ("rot2", "--", "tab:cyan", "tab:brown", "same, large CV"),
-              ("chen", ":", "tab:green", "tab:olive", "Chen only (uncorrected)"),
-              ("table", "-", "k", "k", "straight-course table"),
-              ("near", ":", "tab:red", "tab:pink", "near-field"),
-              ("cen", ":", "tab:purple", "tab:gray", "centripetal part (waterline corner)"))
-
-    # contiguous pieces with the same mirror sign, so the folded curve runs
-    # 0 -> 180 and then back 180 -> 0 without a jump
-    idx = np.flatnonzero(keep)
-    pieces = []
-    if idx.size:
-        breaks = np.flatnonzero(np.diff(mirror[idx]) != 0) + 1
-        pieces = np.split(idx, breaks)
-
+    styles = (("rot", "b-", "midfield, rotating CV"),
+              ("rot2", "c--", "same, large CV"),
+              ("chen", "g:", "Chen only (uncorrected)"),
+              ("table", "k-", "straight-course table"),
+              ("near", "r:", "near-field"),
+              ("cen", "m:", "centripetal part (waterline corner)"))
     fig, axs = plt.subplots(3, 1, figsize=(8, 9), sharex=True)
     for ax, q, lab in zip(axs, ("F1", "F2", "Mz"),
                           (r"$F_1/(\rho g A^2 B^2/L)$", r"$F_2/(\rho g A^2 B^2/L)$",
                            r"$M_z/(\rho g A^2 B^2)$")):
-        for name, ls, c1, c2, leg in styles:
+        for name, sty, leg in styles:
             key = f"{q}_{name}"
-            if key not in out:
-                continue
-            labelled = set()
-            for pc in pieces:
-                m = mirror[pc[0]]
-                y = out[key][pc] if q == "F1" else m*out[key][pc]
-                if name == "table":
-                    col, lbl = c1, (leg if "table" not in labelled else None)
-                    labelled.add("table")
-                elif m > 0:
-                    col, lbl = c1, (leg if "a" not in labelled else None)
-                    labelled.add("a")
-                else:
-                    col, lbl = c2, (f"{leg}, h > 180 (mirrored)" if "b" not in labelled else None)
-                    labelled.add("b")
-                ax.plot(hfold[pc], y, ls, color=col, label=lbl, lw=1.2)
+            if key in out:
+                ax.plot(hdg[keep], out[key][keep], sty, label=leg, lw=1.2)
         if r and tRamp > 0:
-            hr = np.interp([tOn, tOn + tRamp], t, hfold)
+            hr = np.interp([tOn, tOn + tRamp], t, hdg)
             ax.axvspan(min(hr), max(hr), color="0.85", zorder=0,
                        label="yaw-rate ramp" if q == "F1" else None)
         ax.set_ylabel(lab)
-        ax.set_xlim(0, 180)
         ax.grid(True)
-    axs[0].legend(fontsize=7)
-    axs[-1].set_xlabel("table heading h [deg] (0 = head sea); h > 180 folded to 360 - h,"
-                       " with F2 and Mz sign-flipped")
+    axs[0].legend(fontsize=8)
+    axs[-1].set_xlabel("equivalent table heading h [deg] (0 = head sea)")
     axs[0].set_title(f"CMT  u={u} v={v} r={r}   lam={lam} m")
     fig.tight_layout()
     fig.savefig(f"cmt_meanLoads{a.tag}.png", dpi=150)

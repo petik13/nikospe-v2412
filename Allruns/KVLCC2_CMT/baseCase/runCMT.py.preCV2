@@ -27,7 +27,7 @@ starboard).  The r = 0 run is equivalent to the manFlow run with
 --Ucur u and sway speed -v (see constant/prescribedMotion).
 
 Mean loads: meanLoadsRot (control volume +-1.2 L/2) and meanLoadsRot2
-(+-2 L/2, topoSetDict_2) are the rotating-frame midfield; they must agree.
+(+-3 L/2, topoSetDict_2) are the rotating-frame midfield; they must agree.
 """
 
 import numpy as np
@@ -242,10 +242,7 @@ update_file('rotationCentre', f'({xbody} 0 0)', path=pmpath)
 update_file('yawOnsetTime', f'{tOn:.6g}', path=pmpath)
 update_file('yawRampTime', f'{tRamp:.6g}', path=pmpath)
 
-####### CONTROL VOLUMES: controlZone (+-1.2 L/2), controlZone2 (+-2 L/2) ########
-# controlZone2 is kept close to the hull, inside the refined region (refinement
-# box 5 is +-2.0 L/2): further out the cells are coarser and the numerical
-# errors of the wave field larger, which would spoil the comparison.
+####### CONTROL VOLUMES: controlZone (+-1.2 L/2), controlZone2 (+-3 L/2) ########
 tsdpath = os.path.join('system', 'topoSetDict')
 l1 = 1.2
 update_file('xmin', xbody - l1*L_2, path=tsdpath)
@@ -256,12 +253,12 @@ update_file('zmin', -1.5*draft, path=tsdpath)
 update_file('zmax', zmax, path=tsdpath)
 
 tsdpath = os.path.join('system', 'topoSetDict_2')
-l1 = 2.0
+l1 = 3.0
 update_file('xmin', xbody - l1*L_2, path=tsdpath)
 update_file('xmax', xbody + l1*L_2, path=tsdpath)
 update_file('ymin', -l1*L_2, path=tsdpath)
 update_file('ymax', l1*L_2, path=tsdpath)
-update_file('zmin', -2.0*draft, path=tsdpath)
+update_file('zmin', -3.0*draft, path=tsdpath)
 update_file('zmax', zmax, path=tsdpath)
 
 #### ----- REFINEMENTS (as runsim.py) ---------- ####
