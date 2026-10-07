@@ -15,9 +15,11 @@ refinement boxes as `SOBC/baseCase/runsim.py` (l3 = max(2.2 L/2, lambda);
 boxes 4-7 at 2.5, 1.4, 1.3, 1.2 L/2); control volumes +-1.2 L/2 and +-2 L/2;
 default 52 processors.
 
-`cmtPost.py`: `FORCE_SIGN = -1`, the F1, F2 sign convention of
-`SOBC/baseCase/meanLoads.py` (it divides by -rho g A^2 B^2/L), so that the CMT
-loads compare with the SOBC tables. Mz is unchanged.
+`cmtPost.py` is the same as in `KVLCC2_CMT`: the mean loads are in the same
+axes for both hulls (F1 > 0 added resistance, F2 > 0 to starboard, Mz > 0 bow
+to port), the convention of the existing SOBC and KVLCC2 waveData tables.
+Note: `SOBC/baseCase/meanLoads.py` (and its copy here) currently divides the
+forces by -rho g A^2 B^2/L, which flips F1 and F2 relative to those tables.
 
 usage, from a copy of `baseCase`:
 

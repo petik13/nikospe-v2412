@@ -66,8 +66,12 @@ the run gets that far:
                local midship encounter frequency over +-1 encounter period),
                eta1..3 / A, eta4..6 / (k A), as meanLoads.py
 
-FORCE_SIGN (below) is the sign convention of this hull's meanLoads.py for F1
-and F2 (KVLCC2 +1, SOBC -1), so the CMT loads and tables agree.
+Load axes (the same for every hull): the hull is aligned with the mesh (bow at
+-x, y starboard, z up), and the loads are
+    F1 = F_x,mesh   > 0 aft, i.e. added resistance
+    F2 = F_y,mesh   > 0 to starboard
+    Mz = M_z,mesh   about z up through CofR, > 0 turns the bow to port
+the convention of the waveData tables of both KVLCC2 and SOBC.
 
 usage:
     python3 cmtPost.py
@@ -86,11 +90,6 @@ import glob
 import os
 import re
 import numpy as np
-
-# Sign of F1, F2 in this hull's tables (the den_F of its meanLoads.py):
-# KVLCC2 +1; SOBC -1 (SOBC/baseCase/meanLoads.py divides by -rho g A^2 B^2/L).
-# Mz is not affected.
-FORCE_SIGN = 1.0
 
 RESULTS_COLS = (["lam/L", "U", "V", "heading", "F1mean", "F2mean", "Mzmean"]
                 + [f"eta{i}" for i in range(1, 7)])
@@ -303,8 +302,8 @@ def main():
     def add(name, F, M, cF, cM):
         """F, M loaded arrays; cF: first column of the force vector, cM: column
         of the moment z component"""
-        out[f"F1_{name}"] = FORCE_SIGN*smooth(np.interp(t, F[:, 0], F[:, cF]))/denF
-        out[f"F2_{name}"] = FORCE_SIGN*smooth(np.interp(t, F[:, 0], F[:, cF + 1]))/denF
+        out[f"F1_{name}"] = smooth(np.interp(t, F[:, 0], F[:, cF]))/denF
+        out[f"F2_{name}"] = smooth(np.interp(t, F[:, 0], F[:, cF + 1]))/denF
         out[f"Mz_{name}"] = smooth(np.interp(t, M[:, 0], M[:, cM]))/denM
 
     # Rotating-frame midfield: Time total chen surface elevation strip coriolis
