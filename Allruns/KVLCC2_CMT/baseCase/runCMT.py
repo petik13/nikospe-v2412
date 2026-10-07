@@ -30,6 +30,7 @@ Mean loads: meanLoadsRot (control volume +-1.2 L/2) and meanLoadsRot2
 (+-2 L/2, topoSetDict_2) are the rotating-frame midfield; they must agree.
 """
 
+import glob
 import numpy as np
 import shutil
 import subprocess
@@ -335,11 +336,33 @@ def run_case(Nproc):
     return rc
 
 
+def clean_processors():
+    """Reconstruct the written fields (if any) and remove the processor
+    directories, as prepPost.sh does for the straight-course runs.  The
+    post-processing only needs postProcessing/."""
+    subprocess.run(['reconstructPar'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for d in glob.glob('processor*'):
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def plot_series():
+    """Time series of the rotating-midfield loads and the motions
+    (timeSeries.png).  Without DISPLAY plotSeries.py writes the file instead
+    of opening a window, so the workflow never blocks."""
+    env = dict(os.environ, DISPLAY="")
+    subprocess.run(['python3', 'plotSeries.py', '--save', '--fo', 'meanLoadsRot'], env=env)
+
+
 # -- Ready to run
 if not args.noMesh:
     helpers.mesh(lam)
 if not args.noRun:
     rc = run_case(Nproc)
     print("manFlowPrescribed finished rc=", rc)
+    if rc == 0:
+        clean_processors()
+    else:
+        print("run failed: processor directories kept (restart / debugging)")
 if not args.noPost:
     subprocess.run(['python3', 'cmtPost.py'])
+    plot_series()
