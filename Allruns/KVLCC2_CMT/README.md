@@ -93,8 +93,9 @@ Mz = N > 0 bow to starboard, against the encounter angle
 mu = (waveDirection + 180 - psi) mod 360 (0 head sea, 90 waves from
 starboard), as manModel. The function objects write in mesh axes (x aft,
 y starboard, z up): X = -F_x, Y = F_y, N = -M_z. `results.csv` (manModel
-waveData format, with the `# convention: MMG` marker line) has one row per
-10 deg of mu along the turn. A table given with `--table` is compared as it
+waveData format lam/L,U,V,r,heading,..., with the `# convention: MMG` marker
+line; U, V [m/s] and the yaw rate r [rad/s] of the test) has one row per
+10 deg of mu along the turn; manModel interpolates in U, V and r. A table given with `--table` is compared as it
 is if it has the marker, and converted from the old convention (heading 90 =
 waves from port, F1 > 0 added resistance) if not. It also prints the
 control-volume dependence (max |rot - rot2|). `plotSeries.py` and

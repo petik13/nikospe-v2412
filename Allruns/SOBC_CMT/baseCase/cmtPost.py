@@ -60,10 +60,13 @@ cmt_meanLoads.csv keeps the unfolded values and adds mu_fold and mirror.
 
 Per-heading results (results.csv, the manModel waveData format):
 
-    lam/L,U,V,heading,F1mean,F2mean,Mzmean,eta1,eta2,eta3,eta4,eta5,eta6
+    lam/L,U,V,r,heading,F1mean,F2mean,Mzmean,eta1,eta2,eta3,eta4,eta5,eta6
     # convention: MMG ...                       (marker line, see MMG_MARKER)
 
-one row per dh (default 10 deg) of encounter angle along the turn, from the
+U, V, r are the prescribed surge and sway speed at midship [m/s] and the
+steady yaw rate [rad/s] (> 0 turning to starboard) of the test, model scale;
+the rows within the yaw-rate ramp right after the onset are transitional.
+One row per dh (default 10 deg) of encounter angle along the turn, from the
 yaw onset (head seas, always there) to a full turn if the run gets that far.
 Head seas at the onset and after a full turn are written as 360 and 0 for a
 starboard turn (mu decreasing) and as 0 and 360 for a port turn, so that each
@@ -97,14 +100,16 @@ import re
 import shutil
 import numpy as np
 
-RESULTS_COLS = (["lam/L", "U", "V", "heading", "F1mean", "F2mean", "Mzmean"]
+RESULTS_COLS = (["lam/L", "U", "V", "r", "heading", "F1mean", "F2mean", "Mzmean"]
                 + [f"eta{i}" for i in range(1, 7)])
+N_KEYS = 5                                   # lam/L, U, V, r, heading identify a row
 
 MMG_MARKER = ("# convention: MMG body axes (x forward, y starboard, z down, midship);"
               " heading = encounter angle mu = (waveDirection + 180 - psi) mod 360 [deg],"
               " 0 head sea, 90 waves from starboard;"
               " F1mean = X > 0 forward, F2mean = Y > 0 starboard,"
-              " Mzmean = N > 0 bow to starboard; U, V surge and sway at midship (V > 0 starboard)")
+              " Mzmean = N > 0 bow to starboard; U, V surge and sway at midship (V > 0 starboard)"
+              " [m/s]; r yaw rate [rad/s] (> 0 turning to starboard)")
 
 
 def read_dict(path):
@@ -202,27 +207,27 @@ def old_to_mmg(head, data):
     (no mirroring): mu = 360 - h, X = -F1, Y = F2, N = -Mz.  No modulo: in a
     circular-motion table h = 0 (yaw onset) and h = 360 (end of the turn)
     become 360 and 0 and keep their neighbours."""
-    col = {name: i for i, name in enumerate(head)}
+    ih = head.index("heading")                # loads in the 3 columns after it
     d = data.copy()
-    h = d[:, col["heading"]]
-    d[:, col["heading"]] = (360.0 - h) if np.all((h >= 0.0) & (h <= 360.0)) else (360.0 - h) % 360.0
-    d[:, col["F1mean"]] *= -1.0
-    d[:, col["Mzmean"]] *= -1.0
+    h = d[:, ih]
+    d[:, ih] = (360.0 - h) if np.all((h >= 0.0) & (h <= 360.0)) else (360.0 - h) % 360.0
+    d[:, ih + 1] *= -1.0                      # X = -F1
+    d[:, ih + 3] *= -1.0                      # N = -Mz; Y = F2
     return d
 
 
 def canonical_half(head, data):
     """A table covering only waves from port (no mu in (0, 180)) is mirrored
-    onto waves from starboard: mu -> 360 - mu, V -> -V, Y -> -Y, N -> -N."""
-    col = {name: i for i, name in enumerate(head)}
-    mu = data[:, col["heading"]] % 360.0
+    onto waves from starboard: mu -> 360 - mu, V -> -V, r -> -r, Y -> -Y,
+    N -> -N."""
+    ih = head.index("heading")
+    mu = data[:, ih] % 360.0
     if np.any((mu > 1e-6) & (mu < 180.0 - 1e-6)) or not np.any(mu > 180.0 + 1e-6):
         return data
     d = data.copy()
-    d[:, col["heading"]] = (360.0 - mu) % 360.0
-    for name in ("V", "F2mean", "Mzmean"):
-        if name in col:
-            d[:, col[name]] *= -1.0
+    d[:, ih] = (360.0 - mu) % 360.0
+    for j in [ih + 2, ih + 3] + [head.index(n) for n in ("V", "r") if n in head[:ih]]:
+        d[:, j] *= -1.0
     return d
 
 
@@ -230,15 +235,19 @@ def write_results(path, rows, merge=False):
     """Write rows (dicts with RESULTS_COLS) to path in the MMG convention.
     merge: keep the other rows of an existing file (an existing file without
     the MMG marker is converted from the old convention first, after a backup
-    to <path>.oldConvention)."""
+    to <path>.oldConvention; one without the yaw-rate column r, whose rows'
+    yaw rate is unknown, is not merged but moved to <path>.noYawRate)."""
     def key(vals):
-        return tuple(round(float(x), 6) for x in vals[:4])
+        return tuple(round(float(x), 6) for x in vals[:N_KEYS])
 
     table = {}
     if merge and os.path.isfile(path):
         with open(path) as f:
             head = f.readline().strip().split(",")
-        if head == RESULTS_COLS:
+        if head != RESULTS_COLS and "r" not in head:
+            shutil.move(path, path + ".noYawRate")
+            print(f"  {path}: no yaw-rate column r, not merged (moved to {path}.noYawRate)")
+        elif head == RESULTS_COLS:
             data = np.atleast_2d(np.genfromtxt(path, delimiter=",", skip_header=1))
             if data.size:
                 if not is_mmg(path):
@@ -260,27 +269,29 @@ def write_results(path, rows, merge=False):
 
 
 def table_loads(path, U, mu):
-    """X, Y, N (MMG) from a straight-course table at speed U (the V closest
-    to 0) and encounter angle mu [deg, 0..360].  A half table (waves from
-    starboard, mu in [0, 180]) is mirrored for waves from port."""
+    """X, Y, N (MMG) from a straight-course table at speed U (the V and r
+    closest to 0) and encounter angle mu [deg, 0..360].  A half table (waves
+    from starboard, mu in [0, 180]) is mirrored for waves from port."""
     with open(path) as f:
         head = [s.strip() for s in f.readline().split(",")]
-    data = np.atleast_2d(np.genfromtxt(path, delimiter=",", skip_header=1))
+    data = np.atleast_2d(np.genfromtxt(path, delimiter=",", skip_header=1))[:, :len(head)]
     if not is_mmg(path):
         print(f"  table {path}: no MMG marker, read as the old OpenFOAM convention"
               " and converted")
         data = old_to_mmg(head, data)
     data = canonical_half(head, data)
-    col = {name: i for i, name in enumerate(head)}
+    ih = head.index("heading")                # lam/L, U, [V], [r], heading, X, Y, N
     sel = np.ones(len(data), bool)
-    if "V" in col:
-        vs = np.unique(data[:, col["V"]])
-        sel &= np.isclose(data[:, col["V"]], vs[np.argmin(np.abs(vs))])
-    speeds = np.unique(data[sel, col["U"]])
+    for name in ("V", "r"):
+        if name in head[:ih]:
+            j = head.index(name)
+            vals = np.unique(data[sel, j])
+            sel &= np.isclose(data[:, j], vals[np.argmin(np.abs(vals))])
+    speeds = np.unique(data[sel, 1])
     Us = speeds[np.argmin(np.abs(speeds - U))]
-    sel &= np.isclose(data[:, col["U"]], Us)
+    sel &= np.isclose(data[:, 1], Us)
     d = data[sel]
-    hh = d[:, col["heading"]]
+    hh = d[:, ih]
     o = np.argsort(hh)
     hh, d = hh[o], d[o]
     mu = np.asarray(mu) % 360.0
@@ -294,9 +305,9 @@ def table_loads(path, U, mu):
     else:                                     # half table: mirror waves from port
         q = np.where(mu > 180.0, 360.0 - mu, mu)
         sgn = np.where(mu > 180.0, -1.0, 1.0)
-    X = np.interp(q, hh, d[:, col["F1mean"]])
-    Y = sgn*np.interp(q, hh, d[:, col["F2mean"]])
-    N = sgn*np.interp(q, hh, d[:, col["Mzmean"]])
+    X = np.interp(q, hh, d[:, ih + 1])
+    Y = sgn*np.interp(q, hh, d[:, ih + 2])
+    N = sgn*np.interp(q, hh, d[:, ih + 3])
     return Us, X, Y, N
 
 
@@ -459,7 +470,7 @@ def main():
         res = []
         for mrep, tc in rows:
             i = int(np.argmin(np.abs(t - tc)))
-            row = {"lam/L": lam/L, "U": u, "V": v, "heading": mrep,
+            row = {"lam/L": lam/L, "U": u, "V": v, "r": r, "heading": mrep,
                    "F1mean": out[f"F1_{cv}"][i], "F2mean": out[f"F2_{cv}"][i],
                    "Mzmean": out[f"Mz_{cv}"][i]}
             for j in range(6):

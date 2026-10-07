@@ -27,5 +27,5 @@ usage, from a copy of `baseCase`:
     python3 runCMT.py --lam 5.9375 --u 0.3086 --v 0 --r 0.05
     python3 cmtPost.py --table ../waveData.dat      # SOBC straight-course table
 
-`cmtPost.py` writes `results.csv` (lam/L, U, V, heading, F1mean, F2mean,
+`cmtPost.py` writes `results.csv` (lam/L, U, V, r, heading, F1mean, F2mean,
 Mzmean, eta1..eta6; MMG) for every 10 deg of encounter angle along the turn.
