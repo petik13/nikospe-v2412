@@ -2,6 +2,27 @@
 """
 Post-processing of a circular motion test (manFlowPrescribed).
 
+EVERYTHING REPORTED IS IN MMG AXES (x forward, y starboard, z down, origin at
+midship = CofR), the convention of manModel:
+
+    heading  encounter angle mu [deg] = (waveDirection + 180 - psi) mod 360,
+             0 = head sea, 90 = waves from starboard, 180 = following,
+             270 = waves from port (manModel's waveLoads encounter angle;
+             waveDirection = propagation direction and psi = heading, both
+             clockwise from north).  A starboard turn (r > 0) from head seas
+             runs mu = 0, 350, 340, ...: the waves come from port first.
+    U, V     surge and sway speed at midship, V > 0 to starboard (= u, v of
+             constant/prescribedMotion)
+    F1 = X   > 0 forward          (added resistance is X < 0)
+    F2 = Y   > 0 to starboard
+    Mz = N   about z down through midship, > 0 turns the bow to starboard
+    F / (rho g A^2 B^2 / L),  N / (rho g A^2 B^2),  A the wave amplitude.
+
+The function objects write in mesh axes (x aft, y starboard, z up, bow at -x;
+the hull never rotates in the mesh), so
+
+    X = -F_x,mesh,   Y = F_y,mesh,   N = -M_z,mesh.
+
 Mean (second-order) wave loads during the turn.  In the rotating frame the
 local encounter frequency varies over the control volume,
 
@@ -20,7 +41,7 @@ is ~1e-6 at the lowest 2 omega_e and >= 0.95 at the harmonics of the turn rate
 one-period boxcar (the encounter frequency at midship is
 |dtheta/dt| = |-omega + k e(t).V0|).
 
-Loads (all non-dimensional, rho g A^2 B^2 / L and rho g A^2 B^2):
+Loads (all non-dimensional, MMG axes):
     rot      meanLoadsRot 'total': midfield for the rotating control volume
              (Chen + Coriolis + storage + centripetal).  THE result.
     rot2     the same on the larger control volume (must agree with rot)
@@ -30,56 +51,40 @@ Loads (all non-dimensional, rho g A^2 B^2 / L and rho g A^2 B^2):
     cen      the centripetal part of rot (waterline corner only; written by
              middleFieldFormRot with cornerTerm on, absent in older runs)
     near     near-field (not reliable, for comparison only)
-    table    the straight-course table at the same encounter heading
+    table    the straight-course table at the same encounter angle
 
-Axes: the hull is always aligned with the mesh (bow at -x, y starboard), so
-the function-object loads are already in the axes of the waveData tables
-(meanLoads.py rotates the fixed-heading runs into exactly these axes):
-F1 > 0 is added resistance, and F2, Mz are as in the table columns
-F1mean, F2mean, Mzmean.
+Plot: folded onto mu in [0, 180] (waves from starboard).  Waves from port
+(mu > 180) are plotted at 360 - mu with Y and N sign-flipped (the mirror
+image, exact for the port/starboard-symmetric hull), in a different colour.
+cmt_meanLoads.csv keeps the unfolded values and adds mu_fold and mirror.
 
-Equivalent table heading h (0 = head sea, table convention) at time t:
-    h = 180 - (chi - psi(t))      wrapped to (-180, 180]
-The table is tabulated for h in [0, 180]; for h < 0 the mirror image is used,
-F1(h) = F1(|h|), F2(h) = -F2(|h|), Mz(h) = -Mz(|h|).
-In the plot, the second half of a turn (h > 180, i.e. h < 0 in (-180, 180])
-is folded onto the table range: plotted at 360 - h = |h| (running 180 -> 0),
-with F2 and Mz sign-flipped, in a different colour.  The CSV keeps the
-unfolded values and adds h_fold = |h| and mirror = sign.
-
-Per-heading results (results.csv, same format as the meanLoads.py --csv
-collection, plus V): one row per heading 0, dh, 2 dh, ... (default dh = 10 deg)
-along the turn, from the yaw onset (heading 0 is always there) to 360 deg if
-the run gets that far:
+Per-heading results (results.csv, the manModel waveData format):
 
     lam/L,U,V,heading,F1mean,F2mean,Mzmean,eta1,eta2,eta3,eta4,eta5,eta6
+    # convention: MMG ...                       (marker line, see MMG_MARKER)
 
-    lam/L      wavelength / Lpp
-    U, V       prescribed surge and sway speed at midship [m/s] (MMG axes)
-    heading    table heading h [deg] (0 = head sea), unwrapped along the turn
-               and reported in [0, 360]; NOT folded, so F2 and Mz for
-               h > 180 have the signs of the actual heading
-    F1..Mz     filtered mean loads of the rotating midfield (meanLoadsRot,
-               --resultsCV rot2 for the large control volume), at the time
-               the heading is reached; F / (rho g A^2 B^2 / L), Mz / (rho g A^2 B^2)
-    eta1..6    first-order motion amplitudes at that time (harmonic fit at the
-               local midship encounter frequency over +-1 encounter period),
-               eta1..3 / A, eta4..6 / (k A), as meanLoads.py
+one row per dh (default 10 deg) of encounter angle along the turn, from the
+yaw onset (head seas, always there) to a full turn if the run gets that far.
+Head seas at the onset and after a full turn are written as 360 and 0 for a
+starboard turn (mu decreasing) and as 0 and 360 for a port turn, so that each
+keeps its neighbours in the table.  F1..Mz are the filtered
+loads of the rotating midfield (meanLoadsRot; --resultsCV rot2 for the large
+control volume) at the time the heading is reached; eta1..6 the first-order
+motion amplitudes there (harmonic fit at the local midship encounter
+frequency over +-1 encounter period), eta1..3 / A, eta4..6 / (k A).
 
-Load axes (the same for every hull): the hull is aligned with the mesh (bow at
--x, y starboard, z up), and the loads are
-    F1 = F_x,mesh   > 0 aft, i.e. added resistance
-    F2 = F_y,mesh   > 0 to starboard
-    Mz = M_z,mesh   about z up through CofR, > 0 turns the bow to port
-the convention of the waveData tables of both KVLCC2 and SOBC.
+--table: a straight-course table for comparison.  An MMG table (with the
+marker line) is used as it is; an older table without it is taken to be in
+the old OpenFOAM convention (heading h = 180 - (chi - psi), 90 = waves from
+port; F1 > 0 added resistance; F2 > 0 starboard; Mz about z up) and converted.
 
 usage:
     python3 cmtPost.py
     python3 cmtPost.py --table /path/to/waveData.dat --U 0.33
     python3 cmtPost.py --dh 5 --csv ../results_CMT.csv   # also merge into a collection
-Writes cmt_meanLoads.csv and cmt_meanLoads.png.  By default the output starts
-at the yaw onset (heading change 0); the function objects run from t = 0, so
-the centred filter has the straight run before the onset to work on.  The
+Writes cmt_meanLoads.csv, cmt_meanLoads.png and results.csv.  By default the
+output starts at the yaw onset; the function objects run from t = 0, so the
+centred filter has the straight run before the onset to work on.  The
 yaw-rate ramp is shaded in the plot: there dOmega/dt != 0 (Euler force,
 unsteady basis flow), which the midfield formula, derived for constant Omega,
 does not contain.
@@ -89,10 +94,17 @@ import argparse
 import glob
 import os
 import re
+import shutil
 import numpy as np
 
 RESULTS_COLS = (["lam/L", "U", "V", "heading", "F1mean", "F2mean", "Mzmean"]
                 + [f"eta{i}" for i in range(1, 7)])
+
+MMG_MARKER = ("# convention: MMG body axes (x forward, y starboard, z down, midship);"
+              " heading = encounter angle mu = (waveDirection + 180 - psi) mod 360 [deg],"
+              " 0 head sea, 90 waves from starboard;"
+              " F1mean = X > 0 forward, F2mean = Y > 0 starboard,"
+              " Mzmean = N > 0 bow to starboard; U, V surge and sway at midship (V > 0 starboard)")
 
 
 def read_dict(path):
@@ -174,56 +186,118 @@ def motion_amplitude(tm, ym, tc, wc, Tc):
     return float(np.hypot(coef[2], coef[3]))
 
 
-def write_results(path, rows):
-    """Write rows (dicts with RESULTS_COLS) to path.  If path exists, rows with
-    the same (lam/L, U, V, heading) are replaced and the rest kept."""
+# ------------------------------------------------- tables and conventions ----
+def is_mmg(path):
+    """True if the table carries the MMG marker line."""
+    with open(path) as f:
+        for line in f:
+            if line.startswith("#") and "convention: MMG" in line:
+                return True
+    return False
+
+
+def old_to_mmg(head, data):
+    """Rows of a table in the old OpenFOAM convention (heading h, 90 = waves
+    from port; F1 > 0 aft; F2 > 0 starboard; Mz about z up) -> MMG, physical
+    (no mirroring): mu = 360 - h, X = -F1, Y = F2, N = -Mz.  No modulo: in a
+    circular-motion table h = 0 (yaw onset) and h = 360 (end of the turn)
+    become 360 and 0 and keep their neighbours."""
+    col = {name: i for i, name in enumerate(head)}
+    d = data.copy()
+    h = d[:, col["heading"]]
+    d[:, col["heading"]] = (360.0 - h) if np.all((h >= 0.0) & (h <= 360.0)) else (360.0 - h) % 360.0
+    d[:, col["F1mean"]] *= -1.0
+    d[:, col["Mzmean"]] *= -1.0
+    return d
+
+
+def canonical_half(head, data):
+    """A table covering only waves from port (no mu in (0, 180)) is mirrored
+    onto waves from starboard: mu -> 360 - mu, V -> -V, Y -> -Y, N -> -N."""
+    col = {name: i for i, name in enumerate(head)}
+    mu = data[:, col["heading"]] % 360.0
+    if np.any((mu > 1e-6) & (mu < 180.0 - 1e-6)) or not np.any(mu > 180.0 + 1e-6):
+        return data
+    d = data.copy()
+    d[:, col["heading"]] = (360.0 - mu) % 360.0
+    for name in ("V", "F2mean", "Mzmean"):
+        if name in col:
+            d[:, col[name]] *= -1.0
+    return d
+
+
+def write_results(path, rows, merge=False):
+    """Write rows (dicts with RESULTS_COLS) to path in the MMG convention.
+    merge: keep the other rows of an existing file (an existing file without
+    the MMG marker is converted from the old convention first, after a backup
+    to <path>.oldConvention)."""
     def key(vals):
         return tuple(round(float(x), 6) for x in vals[:4])
 
     table = {}
-    if os.path.isfile(path):
+    if merge and os.path.isfile(path):
         with open(path) as f:
             head = f.readline().strip().split(",")
-            if head == RESULTS_COLS:
-                for line in f:
-                    vals = line.strip().split(",")
-                    if len(vals) == len(RESULTS_COLS):
-                        table[key(vals)] = vals
+        if head == RESULTS_COLS:
+            data = np.atleast_2d(np.genfromtxt(path, delimiter=",", skip_header=1))
+            if data.size:
+                if not is_mmg(path):
+                    shutil.copy2(path, path + ".oldConvention")
+                    data = old_to_mmg(head, data)
+                    print(f"  {path}: old convention, converted to MMG"
+                          f" (backup {path}.oldConvention)")
+                for r_ in data:
+                    vals = [f"{x:.6g}" for x in r_]
+                    table[key(vals)] = vals
     for row in rows:
         vals = [f"{row[c]:.6g}" for c in RESULTS_COLS]
         table[key(vals)] = vals
     with open(path, "w") as f:
         f.write(",".join(RESULTS_COLS) + "\n")
+        f.write(MMG_MARKER + "\n")
         for kk in sorted(table):
             f.write(",".join(table[kk]) + "\n")
 
 
-def wrap180(a):
-    return (a + 180.0) % 360.0 - 180.0
-
-
-def table_loads(path, U, h):
-    """F1, F2, Mz from a waveData table at speed U (V = 0), heading |h|,
-    mirrored for h < 0."""
+def table_loads(path, U, mu):
+    """X, Y, N (MMG) from a straight-course table at speed U (the V closest
+    to 0) and encounter angle mu [deg, 0..360].  A half table (waves from
+    starboard, mu in [0, 180]) is mirrored for waves from port."""
     with open(path) as f:
         head = [s.strip() for s in f.readline().split(",")]
-    data = np.genfromtxt(path, delimiter=",", skip_header=1)
+    data = np.atleast_2d(np.genfromtxt(path, delimiter=",", skip_header=1))
+    if not is_mmg(path):
+        print(f"  table {path}: no MMG marker, read as the old OpenFOAM convention"
+              " and converted")
+        data = old_to_mmg(head, data)
+    data = canonical_half(head, data)
     col = {name: i for i, name in enumerate(head)}
     sel = np.ones(len(data), bool)
     if "V" in col:
-        sel &= np.isclose(data[:, col["V"]], 0.0)
+        vs = np.unique(data[:, col["V"]])
+        sel &= np.isclose(data[:, col["V"]], vs[np.argmin(np.abs(vs))])
     speeds = np.unique(data[sel, col["U"]])
     Us = speeds[np.argmin(np.abs(speeds - U))]
     sel &= np.isclose(data[:, col["U"]], Us)
     d = data[sel]
-    d = d[np.argsort(d[:, col["heading"]])]
     hh = d[:, col["heading"]]
-    ah = np.abs(h)
-    sgn = np.where(h < 0, -1.0, 1.0)
-    F1 = np.interp(ah, hh, d[:, col["F1mean"]])
-    F2 = sgn*np.interp(ah, hh, d[:, col["F2mean"]])
-    Mz = sgn*np.interp(ah, hh, d[:, col["Mzmean"]])
-    return Us, F1, F2, Mz
+    o = np.argsort(hh)
+    hh, d = hh[o], d[o]
+    mu = np.asarray(mu) % 360.0
+    full = np.any(hh > 180.0 + 1e-6)
+    if full:                                  # periodic: close the circle
+        if hh[0] < 1e-6 and hh[-1] < 360.0 - 1e-6:
+            hh, d = np.append(hh, 360.0), np.vstack([d, d[:1]])
+        elif hh[0] > 1e-6 and hh[-1] > 360.0 - 1e-6:
+            hh, d = np.insert(hh, 0, 0.0), np.vstack([d[-1:], d])
+        q, sgn = mu, np.ones_like(mu)
+    else:                                     # half table: mirror waves from port
+        q = np.where(mu > 180.0, 360.0 - mu, mu)
+        sgn = np.where(mu > 180.0, -1.0, 1.0)
+    X = np.interp(q, hh, d[:, col["F1mean"]])
+    Y = sgn*np.interp(q, hh, d[:, col["F2mean"]])
+    N = sgn*np.interp(q, hh, d[:, col["Mzmean"]])
+    return Us, X, Y, N
 
 
 def main():
@@ -239,7 +313,7 @@ def main():
     ap.add_argument("--tag", default="",
                     help="suffix for the output files, cmt_meanLoads<tag>.csv/.png")
     ap.add_argument("--dh", type=float, default=10.0,
-                    help="heading step for results.csv [deg]")
+                    help="encounter-angle step for results.csv [deg]")
     ap.add_argument("--resultsCV", choices=("rot", "rot2"), default="rot",
                     help="control volume for results.csv")
     ap.add_argument("--csv", default=None, metavar="PATH",
@@ -269,18 +343,16 @@ def main():
     t, psi = tr[:, 0], tr[:, 1]
 
     # Local encounter frequency at midship, e = (-cos a, sin a), V0 = (-u, v)
+    # in mesh axes, a = chi - psi
     al = np.radians(chi - psi)
     eV0 = np.cos(al)*u + np.sin(al)*v
     we = np.abs(-w0 + k*eV0)
     Te = 2*np.pi/we
 
-    hdg = wrap180(180.0 - (chi - psi))
-
-    # Fold onto the table range [0, 180]: the hull is symmetric, so heading
-    # h > 180 (hdg < 0) is the mirror image of 360 - h = |hdg|, with F2 and Mz
-    # changing sign.  mirror = -1 marks those samples.
-    hfold = np.abs(hdg)
-    mirror = np.where(hdg < 0, -1.0, 1.0)
+    # MMG encounter angle, and its fold onto waves from starboard [0, 180]
+    mu = (180.0 + chi - psi) % 360.0
+    mu_fold = np.where(mu > 180.0, 360.0 - mu, mu)
+    mirror = np.where(mu > 180.0, -1.0, 1.0)            # -1: waves from port
 
     tskip = a.tskip
     if tskip is None:
@@ -289,7 +361,7 @@ def main():
         else:
             tskip = (num(wc, "rampPeriods", 3.0) + 3.0)*2*np.pi/w0
 
-    out = {"t": t, "psi": psi, "h_table": hdg, "h_fold": hfold, "mirror": mirror, "Te": Te}
+    out = {"t": t, "psi": psi, "mu": mu, "mu_fold": mu_fold, "mirror": mirror, "Te": Te}
 
     sigma = a.sigma*np.max(Te[t >= min(tskip, t[-1])])
     if a.smoother == "gauss":
@@ -300,11 +372,12 @@ def main():
         print("  smoother: boxcar over one midship encounter period")
 
     def add(name, F, M, cF, cM):
-        """F, M loaded arrays; cF: first column of the force vector, cM: column
-        of the moment z component"""
-        out[f"F1_{name}"] = smooth(np.interp(t, F[:, 0], F[:, cF]))/denF
+        """F, M loaded arrays (mesh axes); cF: first column of the force
+        vector, cM: column of the moment z component.  Stored in MMG axes:
+        X = -F_x, Y = F_y, N = -M_z."""
+        out[f"F1_{name}"] = -smooth(np.interp(t, F[:, 0], F[:, cF]))/denF
         out[f"F2_{name}"] = smooth(np.interp(t, F[:, 0], F[:, cF + 1]))/denF
-        out[f"Mz_{name}"] = smooth(np.interp(t, M[:, 0], M[:, cM]))/denM
+        out[f"Mz_{name}"] = -smooth(np.interp(t, M[:, 0], M[:, cM]))/denM
 
     # Rotating-frame midfield: Time total chen surface elevation strip coriolis
     # storage [centripetal]
@@ -334,7 +407,7 @@ def main():
 
     if a.table:
         Uq = u if a.U is None else a.U
-        Us, T1, T2, T6 = table_loads(a.table, Uq, hdg)
+        Us, T1, T2, T6 = table_loads(a.table, Uq, mu)
         out["F1_table"], out["F2_table"], out["Mz_table"] = T1, T2, T6
         print(f"  table {a.table} at U = {Us}")
 
@@ -345,43 +418,48 @@ def main():
     print(f"  u {u}  v {v}  r {r} (onset {tOn:.2f} s, ramp {tRamp:.2f} s)"
           f"   lam {lam}  A {A:.4g}   denF {denF:.4g} N  denM {denM:.4g} Nm")
     if keep.any():
-        print(f"  analysed t >= {tskip:.2f} s: heading {psi[keep][0]:.1f} -> {psi[keep][-1]:.1f} deg,"
-              f" table heading {hdg[keep][0]:.1f} -> {hdg[keep][-1]:.1f} deg")
+        print(f"  analysed t >= {tskip:.2f} s: heading psi {psi[keep][0]:.1f} -> {psi[keep][-1]:.1f} deg,"
+              f" encounter angle mu {mu[keep][0]:.1f} -> {mu[keep][-1]:.1f} deg")
     if "F1_rot" in out and "F1_rot2" in out and keep.any():
         for q in ("F1", "F2", "Mz"):
             d = out[f"{q}_rot"][keep] - out[f"{q}_rot2"][keep]
             print(f"  control-volume dependence {q}: max |rot - rot2| = {np.nanmax(np.abs(d)):.3f}")
-    print(f"  wrote cmt_meanLoads{a.tag}.csv")
+    print(f"  wrote cmt_meanLoads{a.tag}.csv  (MMG axes)")
 
-    # -- results.csv: one row per heading step along the turn ----------------
+    # -- results.csv: one row per dh of encounter angle along the turn -------
     cv = a.resultsCV
     if f"F1_{cv}" in out:
-        hu = np.degrees(np.unwrap(np.radians(180.0 - (chi - psi))))
+        mu_u = np.degrees(np.unwrap(np.radians(180.0 + chi - psi)))
         mot = load("postProcessing/bodyMotion/motion.dat")
         ok = keep & np.isfinite(out[f"F1_{cv}"])
         rows = []
         if r and ok.any():
-            sgn = 1.0 if r > 0 else -1.0
-            tt, hh = t[ok], sgn*hu[ok]                      # hh increases along the turn
-            hh = np.maximum.accumulate(hh)
+            tt, mm = t[ok], mu_u[ok]
+            sgn = 1.0 if mm[-1] >= mm[0] else -1.0           # mu decreases for r > 0
+            hh = np.maximum.accumulate(sgn*mm)               # increasing along the turn
             h0, h1 = hh[0], hh[-1]
             first = np.ceil(h0/a.dh - 1e-6)*a.dh
             targets = np.arange(first, h1 + 1e-9, a.dh)
-            # t at which each heading is reached (first sample at or beyond it)
+            # t at which each angle is reached (first sample at or beyond it)
             tk = np.array([tt[np.searchsorted(hh, ht - 1e-9)] for ht in targets])
             for ht, tc in zip(targets, tk):
-                hrep = (sgn*ht) % 360.0
-                if hrep < 1e-6 and abs(ht - h0) > 1.0:
-                    hrep = 360.0
-                rows.append((hrep, tc))
+                mrep = (sgn*ht) % 360.0
+                if mrep < 1e-6 or mrep > 360.0 - 1e-6:
+                    # head seas at the onset and after a full turn: label them
+                    # so that each keeps its neighbours in the table.  mu
+                    # decreasing (starboard turn): onset 360, end 0; mu
+                    # increasing (port turn): onset 0, end 360
+                    end = abs(ht - h0) > 1.0
+                    mrep = 360.0 if (end == (sgn > 0)) else 0.0
+                rows.append((mrep, tc))
         elif ok.any():
             tc = t[ok][-1]
-            rows.append((hu[ok][-1] % 360.0, tc))
+            rows.append((mu[ok][-1], tc))
 
         res = []
-        for hrep, tc in rows:
+        for mrep, tc in rows:
             i = int(np.argmin(np.abs(t - tc)))
-            row = {"lam/L": lam/L, "U": u, "V": v, "heading": hrep,
+            row = {"lam/L": lam/L, "U": u, "V": v, "heading": mrep,
                    "F1mean": out[f"F1_{cv}"][i], "F2mean": out[f"F2_{cv}"][i],
                    "Mzmean": out[f"Mz_{cv}"][i]}
             for j in range(6):
@@ -394,11 +472,11 @@ def main():
 
         if res:
             write_results("results.csv", res)
-            print(f"  wrote results.csv: {len(res)} headings"
+            print(f"  wrote results.csv (MMG): {len(res)} encounter angles"
                   f" ({res[0]['heading']:.0f} .. {res[-1]['heading']:.0f} deg, step {a.dh:g},"
                   f" control volume {cv})")
             if a.csv:
-                write_results(a.csv, res)
+                write_results(a.csv, res, merge=True)
                 print(f"  merged into {a.csv}")
 
     try:
@@ -408,7 +486,8 @@ def main():
     except ImportError:
         return
 
-    # name, line style, colour for h <= 180, colour for h > 180 (mirrored), label
+    # name, line style, colour for waves from starboard, colour for waves from
+    # port (mirrored), label
     styles = (("rot", "-", "tab:blue", "tab:orange", "midfield, rotating CV"),
               ("rot2", "--", "tab:cyan", "tab:brown", "same, large CV"),
               ("chen", ":", "tab:green", "tab:olive", "Chen only (uncorrected)"),
@@ -416,8 +495,8 @@ def main():
               ("near", ":", "tab:red", "tab:pink", "near-field"),
               ("cen", ":", "tab:purple", "tab:gray", "centripetal part (waterline corner)"))
 
-    # contiguous pieces with the same mirror sign, so the folded curve runs
-    # 0 -> 180 and then back 180 -> 0 without a jump
+    # contiguous pieces with the same side, so the folded curve runs without
+    # a jump where the waves change side
     idx = np.flatnonzero(keep)
     pieces = []
     if idx.size:
@@ -426,8 +505,9 @@ def main():
 
     fig, axs = plt.subplots(3, 1, figsize=(8, 9), sharex=True)
     for ax, q, lab in zip(axs, ("F1", "F2", "Mz"),
-                          (r"$F_1/(\rho g A^2 B^2/L)$", r"$F_2/(\rho g A^2 B^2/L)$",
-                           r"$M_z/(\rho g A^2 B^2)$")):
+                          (r"$X/(\rho g A^2 B^2/L)$  (F1, > 0 forward)",
+                           r"$Y/(\rho g A^2 B^2/L)$  (F2, > 0 starboard)",
+                           r"$N/(\rho g A^2 B^2)$  (Mz, > 0 bow to stbd)")):
         for name, ls, c1, c2, leg in styles:
             key = f"{q}_{name}"
             if key not in out:
@@ -440,23 +520,24 @@ def main():
                     col, lbl = c1, (leg if "table" not in labelled else None)
                     labelled.add("table")
                 elif m > 0:
-                    col, lbl = c1, (leg if "a" not in labelled else None)
+                    col, lbl = c1, (f"{leg}, waves from stbd" if "a" not in labelled else None)
                     labelled.add("a")
                 else:
-                    col, lbl = c2, (f"{leg}, h > 180 (mirrored)" if "b" not in labelled else None)
+                    col, lbl = c2, (f"{leg}, waves from port (mirrored)" if "b" not in labelled else None)
                     labelled.add("b")
-                ax.plot(hfold[pc], y, ls, color=col, label=lbl, lw=1.2)
+                ax.plot(mu_fold[pc], y, ls, color=col, label=lbl, lw=1.2)
         if r and tRamp > 0:
-            hr = np.interp([tOn, tOn + tRamp], t, hfold)
+            hr = np.interp([tOn, tOn + tRamp], t, mu_fold)
             ax.axvspan(min(hr), max(hr), color="0.85", zorder=0,
                        label="yaw-rate ramp" if q == "F1" else None)
-        ax.set_ylabel(lab)
+        ax.set_ylabel(lab, fontsize=9)
         ax.set_xlim(0, 180)
         ax.grid(True)
     axs[0].legend(fontsize=7)
-    axs[-1].set_xlabel("table heading h [deg] (0 = head sea); h > 180 folded to 360 - h,"
-                       " with F2 and Mz sign-flipped")
-    axs[0].set_title(f"CMT  u={u} v={v} r={r}   lam={lam} m")
+    axs[-1].set_xlabel("encounter angle mu [deg] (MMG: 0 head sea, 90 waves from starboard);"
+                       "\nwaves from port folded to 360 - mu with Y and N sign-flipped",
+                       fontsize=9)
+    axs[0].set_title(f"CMT  u={u} v={v} r={r}   lam={lam} m   (MMG axes)")
     fig.tight_layout()
     fig.savefig(f"cmt_meanLoads{a.tag}.png", dpi=150)
     print(f"  wrote cmt_meanLoads{a.tag}.png")

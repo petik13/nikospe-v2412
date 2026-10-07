@@ -15,11 +15,12 @@ refinement boxes as `SOBC/baseCase/runsim.py` (l3 = max(2.2 L/2, lambda);
 boxes 4-7 at 2.5, 1.4, 1.3, 1.2 L/2); control volumes +-1.2 L/2 and +-2 L/2;
 default 52 processors.
 
-`cmtPost.py` is the same as in `KVLCC2_CMT`: the mean loads are in the same
-axes for both hulls (F1 > 0 added resistance, F2 > 0 to starboard, Mz > 0 bow
-to port), the convention of the existing SOBC and KVLCC2 waveData tables.
-Note: `SOBC/baseCase/meanLoads.py` (and its copy here) currently divides the
-forces by -rho g A^2 B^2/L, which flips F1 and F2 relative to those tables.
+`cmtPost.py`, `plotSeries.py` and `meanLoads.py` are the same as in
+`KVLCC2_CMT`: everything is reported in MMG axes (x forward, y starboard,
+z down, midship): F1 = X > 0 forward (added resistance is X < 0), F2 = Y > 0
+starboard, Mz = N > 0 bow to starboard, against the encounter angle
+mu = (waveDirection + 180 - psi) mod 360 (0 head sea, 90 waves from
+starboard), as manModel. Tables carry a `# convention: MMG` marker line.
 
 usage, from a copy of `baseCase`:
 
@@ -27,4 +28,4 @@ usage, from a copy of `baseCase`:
     python3 cmtPost.py --table ../waveData.dat      # SOBC straight-course table
 
 `cmtPost.py` writes `results.csv` (lam/L, U, V, heading, F1mean, F2mean,
-Mzmean, eta1..eta6) for every 10 deg of heading along the turn.
+Mzmean, eta1..eta6; MMG) for every 10 deg of encounter angle along the turn.

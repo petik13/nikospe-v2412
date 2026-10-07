@@ -64,8 +64,10 @@ Per-heading results (results.csv, the manModel waveData format):
     # convention: MMG ...                       (marker line, see MMG_MARKER)
 
 one row per dh (default 10 deg) of encounter angle along the turn, from the
-yaw onset (mu = 0 in head seas, always there) to a full turn if the run gets
-that far (the end of a full turn is written as 360).  F1..Mz are the filtered
+yaw onset (head seas, always there) to a full turn if the run gets that far.
+Head seas at the onset and after a full turn are written as 360 and 0 for a
+starboard turn (mu decreasing) and as 0 and 360 for a port turn, so that each
+keeps its neighbours in the table.  F1..Mz are the filtered
 loads of the rotating midfield (meanLoadsRot; --resultsCV rot2 for the large
 control volume) at the time the heading is reached; eta1..6 the first-order
 motion amplitudes there (harmonic fit at the local midship encounter
@@ -197,10 +199,13 @@ def is_mmg(path):
 def old_to_mmg(head, data):
     """Rows of a table in the old OpenFOAM convention (heading h, 90 = waves
     from port; F1 > 0 aft; F2 > 0 starboard; Mz about z up) -> MMG, physical
-    (no mirroring): mu = (360 - h) mod 360, X = -F1, Y = F2, N = -Mz."""
+    (no mirroring): mu = 360 - h, X = -F1, Y = F2, N = -Mz.  No modulo: in a
+    circular-motion table h = 0 (yaw onset) and h = 360 (end of the turn)
+    become 360 and 0 and keep their neighbours."""
     col = {name: i for i, name in enumerate(head)}
     d = data.copy()
-    d[:, col["heading"]] = (360.0 - d[:, col["heading"]]) % 360.0
+    h = d[:, col["heading"]]
+    d[:, col["heading"]] = (360.0 - h) if np.all((h >= 0.0) & (h <= 360.0)) else (360.0 - h) % 360.0
     d[:, col["F1mean"]] *= -1.0
     d[:, col["Mzmean"]] *= -1.0
     return d
@@ -275,14 +280,16 @@ def table_loads(path, U, mu):
     Us = speeds[np.argmin(np.abs(speeds - U))]
     sel &= np.isclose(data[:, col["U"]], Us)
     d = data[sel]
-    hh = d[:, col["heading"]] % 360.0
+    hh = d[:, col["heading"]]
     o = np.argsort(hh)
     hh, d = hh[o], d[o]
     mu = np.asarray(mu) % 360.0
     full = np.any(hh > 180.0 + 1e-6)
     if full:                                  # periodic: close the circle
-        hh = np.concatenate([hh, [hh[0] + 360.0]])
-        d = np.vstack([d, d[:1]])
+        if hh[0] < 1e-6 and hh[-1] < 360.0 - 1e-6:
+            hh, d = np.append(hh, 360.0), np.vstack([d, d[:1]])
+        elif hh[0] > 1e-6 and hh[-1] > 360.0 - 1e-6:
+            hh, d = np.insert(hh, 0, 0.0), np.vstack([d[-1:], d])
         q, sgn = mu, np.ones_like(mu)
     else:                                     # half table: mirror waves from port
         q = np.where(mu > 180.0, 360.0 - mu, mu)
@@ -437,8 +444,13 @@ def main():
             tk = np.array([tt[np.searchsorted(hh, ht - 1e-9)] for ht in targets])
             for ht, tc in zip(targets, tk):
                 mrep = (sgn*ht) % 360.0
-                if mrep < 1e-6 and abs(ht - h0) > 1.0:       # end of a full turn
-                    mrep = 360.0
+                if mrep < 1e-6 or mrep > 360.0 - 1e-6:
+                    # head seas at the onset and after a full turn: label them
+                    # so that each keeps its neighbours in the table.  mu
+                    # decreasing (starboard turn): onset 360, end 0; mu
+                    # increasing (port turn): onset 0, end 360
+                    end = abs(ht - h0) > 1.0
+                    mrep = 360.0 if (end == (sgn > 0)) else 0.0
                 rows.append((mrep, tc))
         elif ok.any():
             tc = t[ok][-1]

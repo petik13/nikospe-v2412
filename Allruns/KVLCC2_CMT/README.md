@@ -86,15 +86,25 @@ hull. Default end time for r != 0: onset + ramp/2 + one full turn (2 pi/|r|)
 gives mean loads for a full turn, starting at the yaw onset (heading change 0).
 The yaw-rate ramp is shaded in the plot (dOmega/dt != 0 there, not in the
 midfield formula).
-`cmtPost.py` averages the loads over one local encounter period, from two
-periods after the yaw ramp, and writes them in the waveData table axes
-against the equivalent table heading, with the table if given. It also
-prints the control-volume dependence (max |rot - rot2|).
+`cmtPost.py` low-pass filters the loads (Gaussian, from the yaw onset) and
+reports everything in MMG axes (x forward, y starboard, z down, midship):
+F1 = X > 0 forward (added resistance is X < 0), F2 = Y > 0 starboard,
+Mz = N > 0 bow to starboard, against the encounter angle
+mu = (waveDirection + 180 - psi) mod 360 (0 head sea, 90 waves from
+starboard), as manModel. The function objects write in mesh axes (x aft,
+y starboard, z up): X = -F_x, Y = F_y, N = -M_z. `results.csv` (manModel
+waveData format, with the `# convention: MMG` marker line) has one row per
+10 deg of mu along the turn. A table given with `--table` is compared as it
+is if it has the marker, and converted from the old convention (heading 90 =
+waves from port, F1 > 0 added resistance) if not. It also prints the
+control-volume dependence (max |rot - rot2|). `plotSeries.py` and
+`meanLoads.py` report in the same axes.
 
 ## Verification sequence
 
 1. **r = 0, v = 0** (`--r 0 --v 0 --u 0.33`): reproduces the manFlow head-sea
-   run (done: F1 = 1.90 against the table's 1.95). `meanLoadsRot` total must
+   run (done: added resistance 1.90 against the table's 1.95, i.e.
+   X = -1.90 in MMG axes). `meanLoadsRot` total must
    equal `meanLoads` here.
 2. **r = 0, v != 0**: must reproduce the beta runs (manFlow with
    `swaySpeed = -v`).

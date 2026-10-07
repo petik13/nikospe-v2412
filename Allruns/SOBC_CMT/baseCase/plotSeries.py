@@ -9,6 +9,21 @@ The load means drawn here come from the same harmonic fits as meanLoads.py,
 so for a fixed-heading run the levels marked on these axes are exactly the
 numbers in the summary and in the sweep file.
 
+Everything is in MMG axes (x forward, y starboard, z down, midship):
+    loads    X > 0 forward (added resistance is X < 0), Y > 0 starboard,
+             Z > 0 down, N about z down (> 0 bow to starboard).  The function
+             objects write in mesh axes; with h = -headingAngle (0 for the
+             circular motion test, where the hull is aligned with the mesh,
+             bow at -x):
+                 X = -(F_x cos h - F_y sin h),  Y = F_x sin h + F_y cos h,
+                 Z = -F_z,  N = -M_z
+    motions  surge > 0 forward, sway > 0 starboard, heave > 0 down, roll,
+             pitch, yaw about x forward, y starboard, z down.  The solver
+             writes them in its body frame (x forward, y port, z up), so
+             sway, heave, pitch and yaw change sign.
+    angle    encounter angle mu = (waveDirection + 180 - psi) mod 360, 0 head
+             sea, 90 waves from starboard (manModel)
+
 Non-dimensional by default: loads / (rho g A^2 B^2 / L), moments
 / (rho g A^2 B^2); motions eta1..3 / A and eta4..6 (rad) / (k A), as the
 eta columns of results.csv.  --raw gives N, N m, m and deg.
@@ -25,8 +40,8 @@ over the averaging window.
 
 Circular motion test (constant/prescribedMotion present): the local
 encounter period follows the heading from the trajectory, the top axes give
-the table heading (0 = head sea, unwrapped along the turn, shown mod 360), and
-dotted lines mark the yaw-rate onset and the end of its ramp.
+the encounter angle mu (unwrapped along the turn, shown mod 360), and dotted
+lines mark the yaw-rate onset and the end of its ramp.
 
 usage:
     python3 plotSeries.py                     # opens a window
@@ -136,7 +151,7 @@ def envelope(t, y, T, npts=800):
 
 
 def heading_axis(ax, cmt, step=30.0):
-    """Top axis with the table heading at the times it is reached."""
+    """Top axis with the encounter angle mu at the times it is reached."""
     t, h = cmt["t"], cmt["h"]
     sel = t >= cmt["tOn"]
     if sel.sum() < 2:
@@ -152,7 +167,7 @@ def heading_axis(ax, cmt, step=30.0):
     keep = [(tk, x) for tk, x in zip(ticks, targets) if lo <= tk <= hi]
     top.set_xticks([tk for tk, _ in keep])
     top.set_xticklabels([f"{(sgn * x) % 360:.0f}" for _, x in keep], fontsize=8)
-    top.set_xlabel("table heading [deg]", fontsize=9)
+    top.set_xlabel("encounter angle mu [deg] (MMG)", fontsize=9)
 
 
 # ------------------------------------------------------------------ main ----
@@ -216,12 +231,15 @@ def main():
             return 2.0 * np.pi / np.abs(-w0 + k * (np.cos(al) * uu + np.sin(al) * vv))
 
         tOn, tYr = pm.get("yawOnsetTime", 0.0), pm.get("yawRampTime", 0.0)
-        cmt = {"t": tr[:, 0], "h": 180.0 - (chi - tr[:, 1]), "tOn": tOn}
+        cmt = {"t": tr[:, 0], "h": 180.0 + chi - tr[:, 1], "tOn": tOn}   # mu, unwrapped
         onset = (tOn, tOn + tYr) if tYr > 0 else (tOn,)
         Te = float(Te_at(tmax))
         we = 2.0 * np.pi / Te
-        h_end = (180.0 - (chi - np.interp(tmax, tr[:, 0], tr[:, 1])) + 180.0) % 360.0 - 180.0
-        head_lbl = f"CMT, at the end: table heading {h_end:+.1f} deg"
+        mu_end = (180.0 + chi - np.interp(tmax, tr[:, 0], tr[:, 1])) % 360.0
+        head_lbl = f"CMT, at the end: encounter angle mu {mu_end:.1f} deg"
+    else:
+        mu0 = (360.0 + np.degrees(head)) % 360.0     # straight run: h = -headingAngle
+        head_lbl = f"encounter angle mu {mu0:.4g} deg"
 
     nper = min(a.nper, max(int(np.floor((tmax - t_ramp) / Te)), 1))
     lo, hi = tmax - nper * Te, tmax
@@ -241,26 +259,34 @@ def main():
         f"motions: red = envelope,  black dashed = half peak-to-peak",
         fontsize=10)
 
-    # --- left column: drift loads ----------------------------------------
+    # --- left column: drift loads, MMG axes --------------------------------
+    # mesh -> MMG: h = -headingAngle (0 for the CMT, hull bow at -x)
+    hcos, hsin = np.cos(-head), np.sin(-head)
+    mmgX = lambda fx, fy: -(fx * hcos - fy * hsin)
+    mmgY = lambda fx, fy: fx * hsin + fy * hcos
+
     unit = " [N]" if a.raw else ""
     if F is not None:
         t = F[:, 0]
         m = (t >= lo) & (t <= hi)
-        rows = [("F1  surge (added R)", 1, den_F),
-                ("F2  sway", 2, den_F),
-                ("F3  heave", 3, den_F)]
-        for i, (lbl, col, den) in enumerate(rows):
-            panel(ax[i][0], t, F[:, col] / den, lbl + unit)
+        FX, FY, FZ = mmgX(F[:, 1], F[:, 2]), mmgY(F[:, 1], F[:, 2]), -F[:, 3]
+        rows = [("X  surge (> 0 fwd)", FX, den_F),
+                ("Y  sway (> 0 stbd)", FY, den_F),
+                ("Z  heave (> 0 down)", FZ, den_F)]
+        for i, (lbl, y, den) in enumerate(rows):
+            panel(ax[i][0], t, y / den, lbl + unit)
             mark(ax[i][0], t_ramp, lo, hi, onset)
-            level(ax[i][0], fit(t[m], F[m, col], 2 * we, a.nharm)[0] / den)
+            level(ax[i][0], fit(t[m], y[m], 2 * we, a.nharm)[0] / den)
 
+        NZ = None
         if M is not None:
             tm = M[:, 0]
             mm = (tm >= lo) & (tm <= hi)
-            panel(ax[3][0], tm, M[:, 3] / den_M,
-                  "F6  yaw" + (" [N m]" if a.raw else ""))
+            NZ = -M[:, 3]
+            panel(ax[3][0], tm, NZ / den_M,
+                  "N  yaw (> 0 bow stbd)" + (" [N m]" if a.raw else ""))
             mark(ax[3][0], t_ramp, lo, hi, onset)
-            level(ax[3][0], fit(tm[mm], M[mm, 3], 2 * we, a.nharm)[0] / den_M)
+            level(ax[3][0], fit(tm[mm], NZ[mm], 2 * we, a.nharm)[0] / den_M)
 
         # the total is a difference of larger terms -- show them, with their
         # means over the averaging window.  Columns from the header:
@@ -272,13 +298,13 @@ def main():
                  ("coriolis", "C5"), ("storage", "C8"), ("centripetal", "C6"))
         for name, c in terms + (("total", "k"),):
             col = hcols.get(name, 1 if name == "total" else None)
-            if col is None or col >= F.shape[1]:
+            if col is None or col + 1 >= F.shape[1]:
                 continue
-            y = F[:, col] / den_F
-            mean = fit(t[m], F[m, col], 2 * we, a.nharm)[0] / den_F if m.sum() >= 20 else np.nan
-            ax[4][0].plot(t, y, c, lw=1.2 if name == "total" else 0.8,
+            yx = mmgX(F[:, col], F[:, col + 1])
+            mean = fit(t[m], yx[m], 2 * we, a.nharm)[0] / den_F if m.sum() >= 20 else np.nan
+            ax[4][0].plot(t, yx / den_F, c, lw=1.2 if name == "total" else 0.8,
                           label=f"{name} {mean:+.3g}")
-        ax[4][0].set_ylabel("F1 contributions" + unit)
+        ax[4][0].set_ylabel("X contributions" + unit)
         ax[4][0].grid(alpha=0.3)
         ax[4][0].legend(fontsize=7, ncol=4, loc="best",
                         title="mean over the averaging window", title_fontsize=7)
@@ -288,17 +314,17 @@ def main():
         # are three orders down on F1, so they get their own axis or they plot
         # flat.
         tw = ax[5][0].twinx()
-        for axis, series in ((ax[5][0], ((1, F, den_F, "F1", "C0"),)),
-                             (tw, ((2, F, den_F, "F2", "C1"),
-                                   (3, M, den_M, "F6", "C4")))):
-            for col, d, den, lbl, c in series:
-                if d is None:
+        for axis, series in ((ax[5][0], ((t, FX, den_F, "X", "C0"),)),
+                             (tw, ((t, FY, den_F, "Y", "C1"),
+                                   (M[:, 0] if M is not None else None, NZ, den_M, "N", "C4")))):
+            for tt, y, den, lbl, c in series:
+                if y is None:
                     continue
-                tc, yc = running_mean(d[:, 0], d[:, col] / den, 2 * we, 2 * Te)
+                tc, yc = running_mean(tt, y / den, 2 * we, 2 * Te)
                 if tc is not None:
                     axis.plot(tc, yc, c, lw=1.2, label=lbl)
-        ax[5][0].set_ylabel("running mean (2 Te): F1" + unit, color="C0")
-        tw.set_ylabel("F2, F6", color="C1")
+        ax[5][0].set_ylabel("running mean (2 Te): X" + unit, color="C0")
+        tw.set_ylabel("Y, N", color="C1")
         ax[5][0].grid(alpha=0.3)
         ax[5][0].axhline(0, color="k", lw=0.5, alpha=0.4)
         h1, l1 = ax[5][0].get_legend_handles_labels()
@@ -311,20 +337,21 @@ def main():
             ax[i][0].text(0.5, 0.5, "no drift-load output", ha="center",
                           transform=ax[i][0].transAxes)
 
-    # --- right column: body motions with their envelope --------------------
-    # non-dimensional (eta1..3 / A, eta4..6 / kA, as results.csv) unless --raw
-    dofs = [("surge", 1, 1.0, "m", A, "A"), ("sway", 2, 1.0, "m", A, "A"),
-            ("heave", 3, 1.0, "m", A, "A"),
-            ("roll", 4, np.degrees(1), "deg", k * A, "kA"),
-            ("pitch", 5, np.degrees(1), "deg", k * A, "kA"),
-            ("yaw", 6, np.degrees(1), "deg", k * A, "kA")]
+    # --- right column: body motions (MMG) with their envelope --------------
+    # non-dimensional (eta1..3 / A, eta4..6 / kA, as results.csv) unless --raw.
+    # The solver's body frame is x forward, y port, z up: MMG sign per dof.
+    dofs = [("surge", 1, 1.0, "m", A, "A", 1.0), ("sway", 2, 1.0, "m", A, "A", -1.0),
+            ("heave", 3, 1.0, "m", A, "A", -1.0),
+            ("roll", 4, np.degrees(1), "deg", k * A, "kA", 1.0),
+            ("pitch", 5, np.degrees(1), "deg", k * A, "kA", -1.0),
+            ("yaw", 6, np.degrees(1), "deg", k * A, "kA", -1.0)]
 
     if mot is not None and mot.shape[1] >= 7:
         t = mot[:, 0]
         still = np.allclose(mot[:, 1:7], 0)
         T_loc = Te_at(t)
-        for i, (name, col, deg, u, norm, nlbl) in enumerate(dofs):
-            y = mot[:, col] * (deg if a.raw else 1.0 / norm)
+        for i, (name, col, deg, u, norm, nlbl, sgn) in enumerate(dofs):
+            y = sgn * mot[:, col] * (deg if a.raw else 1.0 / norm)
             ylab = f"{name} [{u}]" if a.raw else f"eta{col} = {name} / {nlbl}"
             panel(ax[i][1], t, y, ylab, colour="C1", lw=0.6)
             mark(ax[i][1], t_ramp, onset=onset)
