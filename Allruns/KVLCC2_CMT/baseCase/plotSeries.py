@@ -21,8 +21,12 @@ Everything is in MMG axes (x forward, y starboard, z down, midship):
              pitch, yaw about x forward, y starboard, z down.  The solver
              writes them in its body frame (x forward, y port, z up), so
              sway, heave, pitch and yaw change sign.
-    angle    encounter angle mu = (waveDirection + 180 - psi) mod 360, 0 head
-             sea, 90 waves from starboard (manModel)
+    angle    heading = psi - waveDirection + 180 = 360 - mu: 0 head seas,
+             increasing as the ship turns to starboard, 90 waves from port,
+             270 waves from starboard (the runsim --heading convention; with
+             the runCMT.py defaults psi0 = 0, waveDirection = 180 it is the
+             ship heading psi).  The tables (results.csv) use the encounter
+             angle mu = 360 - heading instead.
 
 Non-dimensional by default: loads / (rho g A^2 B^2 / L), moments
 / (rho g A^2 B^2); motions eta1..3 / A and eta4..6 (rad) / (k A), as the
@@ -40,7 +44,7 @@ over the averaging window.
 
 Circular motion test (constant/prescribedMotion present): the local
 encounter period follows the heading from the trajectory, the top axes give
-the encounter angle mu (unwrapped along the turn, shown mod 360), and dotted
+the heading (unwrapped along the turn, shown mod 360), and dotted
 lines mark the yaw-rate onset and the end of its ramp.
 
 usage:
@@ -151,7 +155,7 @@ def envelope(t, y, T, npts=800):
 
 
 def heading_axis(ax, cmt, step=30.0):
-    """Top axis with the encounter angle mu at the times it is reached."""
+    """Top axis with the heading at the times it is reached."""
     t, h = cmt["t"], cmt["h"]
     sel = t >= cmt["tOn"]
     if sel.sum() < 2:
@@ -167,7 +171,7 @@ def heading_axis(ax, cmt, step=30.0):
     keep = [(tk, x) for tk, x in zip(ticks, targets) if lo <= tk <= hi]
     top.set_xticks([tk for tk, _ in keep])
     top.set_xticklabels([f"{(sgn * x) % 360:.0f}" for _, x in keep], fontsize=8)
-    top.set_xlabel("encounter angle mu [deg] (MMG)", fontsize=9)
+    top.set_xlabel("heading [deg] (0 head seas, 90 waves from port)", fontsize=9)
 
 
 # ------------------------------------------------------------------ main ----
@@ -218,7 +222,6 @@ def main():
     # cmtPost.py: omega_e = |-omega + k e.V0|, e = (-cos a, sin a), a = chi - psi;
     # the load means are fitted at its value at the END of the run.
     Te_at = lambda tt: np.full_like(np.asarray(tt, dtype=float), Te)
-    head_lbl = f"heading {np.degrees(head)+0.0:+.4g} deg"
     cmt, onset = None, ()
     tr = load("postProcessing/shipTrajectory/trajectory.dat")
     if os.path.isfile("constant/prescribedMotion") and tr is not None:
@@ -231,15 +234,15 @@ def main():
             return 2.0 * np.pi / np.abs(-w0 + k * (np.cos(al) * uu + np.sin(al) * vv))
 
         tOn, tYr = pm.get("yawOnsetTime", 0.0), pm.get("yawRampTime", 0.0)
-        cmt = {"t": tr[:, 0], "h": 180.0 + chi - tr[:, 1], "tOn": tOn}   # mu, unwrapped
+        cmt = {"t": tr[:, 0], "h": tr[:, 1] - chi + 180.0, "tOn": tOn}   # heading, unwrapped
         onset = (tOn, tOn + tYr) if tYr > 0 else (tOn,)
         Te = float(Te_at(tmax))
         we = 2.0 * np.pi / Te
-        mu_end = (180.0 + chi - np.interp(tmax, tr[:, 0], tr[:, 1])) % 360.0
-        head_lbl = f"CMT, at the end: encounter angle mu {mu_end:.1f} deg"
+        hd_end = (np.interp(tmax, tr[:, 0], tr[:, 1]) - chi + 180.0) % 360.0
+        head_lbl = f"CMT, at the end: heading {hd_end:.1f} deg"
     else:
-        mu0 = (360.0 + np.degrees(head)) % 360.0     # straight run: h = -headingAngle
-        head_lbl = f"encounter angle mu {mu0:.4g} deg"
+        hd0 = (-np.degrees(head)) % 360.0 + 0.0      # straight run: heading = -headingAngle
+        head_lbl = f"heading {hd0:.4g} deg"
 
     nper = min(a.nper, max(int(np.floor((tmax - t_ramp) / Te)), 1))
     lo, hi = tmax - nper * Te, tmax
