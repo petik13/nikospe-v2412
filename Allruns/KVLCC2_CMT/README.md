@@ -113,3 +113,25 @@ control-volume dependence (max |rot - rot2|). `plotSeries.py` and
 4. **r != 0**: CMT. `meanLoadsRot` vs `meanLoadsRot2` (control-volume
    independence), then against the straight-course table along the heading
    history (`cmtPost.py --table`).
+
+## Sweeps (`runSweep.py`)
+
+`runSweep.py <sweep file>` runs one CMT (a copy of `baseCase` with
+`runCMT.py`) per `run u v r` line of the sweep file, in
+`<sweep file name>/u<u>_v<v>_r<r>/`, and collects every complete
+`results.csv` into one manModel table (`out`, default
+`<sweep file name>/waveData.dat`): the transitional head-sea row at the yaw
+onset replaced by the end of the turn, the straight-course table (`straight`,
+r = 0) completed to 0..360, mu = 360 = mu = 0 for every (U, V, r).
+Complete runs are skipped, so it resumes after an interruption.
+
+    python3 runSweep.py sweep_lam07.dat --dryRun                  # runs, lengths, status
+    python3 runSweep.py sweep_lam07.dat --nproc 56 --procD 8 6 1  # unknown options go to runCMT.py
+    python3 runSweep.py sweep_lam07.dat --only 3 4                # some runs (e.g. one job each)
+    python3 runSweep.py sweep_lam07.dat --collect                 # collect only
+
+`sweep_lam07.dat`: lambda/L = 0.7, 2 x 2 x 2 factorial u {0.25, 0.40},
+v {-0.15, -0.05}, r {0.05, 0.10}, bracketing the steady +35 deg turn of
+Kim et al. (2019) and of manModel; r = 0 from `waveData07.dat` (the
+manModel `KVLCC2_lam_L_07` table). In manModel: `waves: waveLoads360`,
+`swaySpeedInterp: true`.

@@ -1,0 +1,28 @@
+# Circular motion test sweep: KVLCC2 (1/100, Lpp 3.2 m), lambda/L = 0.7, H = 0.02 L
+# Run with runSweep.py (see its header).
+#
+# One CMT per 'run' line: u, v, r in MMG axes at midship, model scale:
+#   u [m/s] forward, v [m/s] > 0 to starboard, r [rad/s] > 0 starboard turn.
+# Anything after r on a run line is passed on to runCMT.py for that run only.
+# r = 0 (straight course) is not a circle: those loads come from 'straight'.
+#
+# Steady +35 deg turn at lambda/L = 0.7 (t > 30 s, model scale):
+#   Kim et al. (2019):        u 0.25   v -0.13 (-0.21 .. -0.01)   r 0.074
+#   manModel (07_360 table):  u 0.34   v -0.08 (-0.14 .. +0.06)   r 0.077 (0.054 .. 0.10)
+# Design: 2 x 2 x 2 full factorial bracketing both, so that every (U, V, r)
+# corner of manModel's interpolation grid is a run (r = 0 from the straight
+# course table, U 0.33 and 0.5).
+
+lam       2.24                        # wavelength [m]  (lambda/L = 0.7)
+straight  waveData07.dat              # r = 0 table (MMG); 'none' to leave it out
+out       sweep_lam07/waveData.dat    # collected table (manModel waveData format)
+
+#     u      v      r      [runCMT.py options]
+run  0.25  -0.15   0.05
+run  0.25  -0.15   0.10
+run  0.25  -0.05   0.05
+run  0.25  -0.05   0.10
+run  0.40  -0.15   0.05
+run  0.40  -0.15   0.10
+run  0.40  -0.05   0.05
+run  0.40  -0.05   0.10
