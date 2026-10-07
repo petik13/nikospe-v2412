@@ -51,7 +51,7 @@ parser.add_argument("--yawOnsetPeriods", type=float, default=10.0,
 parser.add_argument("--yawRampPeriods", type=float, default=2.0,
                     help="duration of the yaw-rate ramp [encounter periods]")
 parser.add_argument("--endTime", type=float, default=None)
-parser.add_argument("--nproc", type=int, default=56)
+parser.add_argument("--nproc", type=int, default=64)
 parser.add_argument("--procD", type=int, nargs=3, default=[8, 6, 1])
 parser.add_argument("--noMesh", action="store_true")
 parser.add_argument("--noRun", action="store_true")
