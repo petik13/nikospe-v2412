@@ -35,35 +35,9 @@ Description
           - 1/2 rho g * int_C <zeta^2> n dl                    (wave elevation)
           - rho * int_C <zeta [ (u.n) W + u (W.n) ]> dl        (strip flux, O(U))
 
-    which is Chen (2022) Eq.(43) with his inward normal flipped.  The O(Fr^2)
-    waterline group is omitted.  The second-order steady potential psi-bar is
-    omitted unless psiBar is on (below).
-
-    psiBar (optional, default off).  The psi-bar terms are the cross momentum
-    flux between W and grad(psibar),
-
-        F_psi = rho * int_Sc [ (W.grad psibar) n - (W.n) grad psibar
-                               - (grad psibar.n) W ] dS,     M_psi = r x (same)
-
-    (Chen's Eq.(43) lacks the (W.n) grad psibar term; it is needed for the
-    flux to be conserved).  Without a net source this gives no horizontal force
-    (Grue & Palm 1993, eq.15), but it does give a yaw moment, O(U): a Munk-type
-    moment of the mean second-order flow in the steady stream.  psibar is solved
-    at leading order in U from running means of its boundary forcing,
-
-        d(psibar)/dz = -<zeta d2phi/dz2>              on z = 0   (G&P 10/47)
-        d(psibar)/dn = -<[(X.grad)grad(phi)].n>
-                       - <(grad(phi) - Xdot).(theta x n)>         on the hull (G&P 12)
-
-    with X = xi + theta x (r - rRef) from the linBodyMotion body state
-    (bodyDisp, bodyRot, bodyVel, bodyOmega), psibar = 0 on the far field and
-    zero gradient elsewhere (G&P 46-49).  On a distant control surface the
-    moment is the psi(2) term of G&P (19); the near field misses only the
-    smaller part (92) of it, so SWAN-type pressure integration without
-    psibar is closer than the midfield without it.  The result goes to
-    psiBar.dat (force.dat and
-    moment.dat are unchanged).  Derivation: researchQuestions/psibarMidfield.ipynb.
-    Read the yaw moment only, as for the other terms.
+    which is Chen (2022) Eq.(43) with his inward normal flipped.  The
+    second-order steady potential psi-bar and the O(Fr^2) waterline group are
+    deliberately omitted.
 
     The time average is not taken here: instantaneous values are written every
     step and averaged in post-processing, which lets the mean be extracted by a
@@ -89,19 +63,7 @@ Usage
       zeta             | Total free-surface elevation       | no   | zeta
       rhoInf           | Reference density                  | yes  |
       CofR             | Moment reference point             | yes  |
-      psiBar           | Add the psi-bar terms (psiBar.dat) | no   | false
-      psiBarHullPatches | Hull patches                      | no   | (sphere)
-      psiBarFarFieldPatches | psibar = 0 here               | no   | (inlet outlet front back)
-      psiBarPeriods    | Average over the last N encounter periods before endTime | no | 6
-      psiBarStartTime  | Start of the average (overrides psiBarPeriods) | no |
-      psiBarRadius     | Free-surface forcing only within this horizontal distance of CofR (<= 0: all) | no | -1
-      psiBarRotationCentre | Rotation centre of the body motion | no | (xG 0 0) of bodyMotionProperties
-      psiBarSolver     | fvSolution solver entry            | no   | PhiS
-      psiBarCorrectors | Non-orthogonal correctors          | no   | 5
-      psiBarSplit      | Also solve free-surface and hull forcing apart | no | true
     \endtable
-
-    psibar is solved at every field-write time and at the end of the run.
 
 SourceFiles
     middleFieldForm.C
@@ -114,8 +76,6 @@ SourceFiles
 #include "fvMeshFunctionObject.H"
 #include "writeFile.H"
 #include "volFieldsFwd.H"
-#include "volFields.H"
-#include "wordRes.H"
 #include "surfaceFieldsFwd.H"
 #include "point.H"
 #include "OFstream.H"
@@ -194,32 +154,6 @@ protected:
         autoPtr<OFstream> forceFilePtr_;
         autoPtr<OFstream> momentFilePtr_;
 
-        //- psi-bar terms (psiBar on); see the class description
-        Switch psiBar_;
-        wordRes psiBarHullPatches_;
-        wordRes psiBarFarFieldPatches_;
-        labelList psiBarHullIDs_;
-        labelList psiBarFarFieldIDs_;
-        word psiBarSolver_;
-        label psiBarNCorr_;
-        scalar psiBarStartTime_;
-        scalar psiBarRadius_;
-        Switch psiBarSplit_;
-        point psiBarRotRef_;
-        scalar omegaE_;
-
-        //- Running time integrals of the boundary forcing: hull faces (all
-        //  hull patches in order) and free-surface faces
-        scalarField hullForcing_;
-        scalarField fsForcing_;
-        scalar psiTAcc_;
-        scalar psiTPrev_;
-        bool psiStarted_;
-        scalar psiLastSolved_;
-
-        autoPtr<volScalarField> psiBarPtr_;
-        autoPtr<OFstream> psiFilePtr_;
-
 
     // Protected Member Functions
 
@@ -240,22 +174,6 @@ protected:
         //- File handling
         void createFiles();
         void writeFiles();
-
-        //- psi-bar: read the options, add this step to the running means,
-        //  solve psibar (free-surface and/or hull forcing) and integrate the
-        //  cross flux over the control surface, write psiBar.dat
-        void readPsiBar(const dictionary& dict);
-        void accumulatePsiBar();
-        void solvePsiBar
-        (
-            const bool useFs,
-            const bool useHull,
-            vector& F,
-            vector& M,
-            scalar& qHull,
-            scalar& qFs
-        );
-        void psiBarOutput();
 
 
 public:
@@ -294,10 +212,6 @@ public:
 
         //- Write the loads
         virtual bool write();
-
-        //- End of the run: last psi-bar solve if the final time was not a
-        //  write time
-        virtual bool end();
 
         //- Total force and moment
         virtual vector force() const;

@@ -282,6 +282,11 @@ update_file('endTime', f'{endTime:.2f}', path=cdpath)
 update_file('writeInterval', f'{100.0:.2f}', path=cdpath)
 update_file('cvPoint', f'({xbody} 0 { -draft/2})', path=cdpath)
 update_file('CofR', f'({xbody} 0 0)', path=cdpath)
+# psiBar (middleFieldForm): free-surface forcing only within 2.5 lambda of the
+# hull.  The sponges start 5 lambda from it (inlet xsponge, outlet xdamp, sides
+# ydamp), where the damped disturbance would give spurious forcing.  No-op
+# unless the controlDict sets psiBarRadius.
+update_file('psiBarRadius', f'{2.5*lam:.4g}', path=cdpath)
 
 # -- Modify rigidBodyMotionProperties
 rgpath = os.path.join('constant', 'bodyMotionProperties')
