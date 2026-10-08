@@ -113,6 +113,8 @@ functions
         Us              Us;
         zeta            zeta;
         writeControl    timeStep;
+        psiBar          true;
+        psiBarRadius    8.0;
     }
 }
 
