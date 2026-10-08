@@ -49,9 +49,17 @@ Seo et al. plot the added resistance, which is -X.
 psi-bar.  When the drift-load function object ran with psiBar on
 (middleFieldForm), postProcessing/<fo>/*/psiBar.dat holds the contribution of
 the mean second-order potential (Grue & Palm 1993), averaged over the same
-last 6 encounter periods.  Its last row is added to X, Y and N: the printed
-totals, the sweep file and the csv include it (--noPsiBar leaves it out).  Z
-is not corrected -- the vertical psi-bar force needs psibar on the hull itself.
+last 6 encounter periods.  Its last row gives the psi-bar yaw moment, which is
+added to N: the printed total, the sweep file and the csv include it
+(--noPsiBar leaves it out).  The psi-bar forces X, Y are printed but NOT added
+(--psiBarForces adds them): X_psi comes out as -rho U Q, Q the net source of
+psibar, and Q should vanish for a body doing no net work (Grue & Palm 1993,
+section 3).  The Q of the runs so far is far too large for that, i.e. a
+mass-conservation error of the free-surface forcing (the dynamic form
+-<zeta phi_zz> instead of the kinematic div<zeta grad phi>, which differ at
+forward speed); to be revisited.  N is hardly affected: a source on the centre
+line in a stream along the ship axis gives no yaw moment.  Z is not corrected
+either -- the vertical psi-bar force needs psibar on the hull itself.
 The contribution is listed as a fourth part next to surface / elevation /
 strip, with its free-surface and hull parts.  Derivation:
 researchQuestions/psibarMidfield.ipynb.
@@ -183,8 +191,8 @@ def append_row(path, row, case, head, U0, L, B, steep, depth):
         f"#   ship      L {L:.4g} m   B {B:.4g} m"
         "   (water depth is per case, 0.5 lambda)",
         f"#   wave      H/lambda {steep:.5g}",
-        "#   psibar    F1, F2, F6 include the psi-bar terms of runs that computed them"
-        " (psiBar.dat; see summary.txt of each case)",
+        "#   psibar    F6 includes the psi-bar yaw moment of runs that computed it;"
+        " F1, F2 do not (psiBar.dat; see summary.txt of each case)",
         f"#   non-dim   F1,F2 / (rho g A^2 B^2 / L)   F6 / (rho g A^2 B^2)",
         "#             eta1..3 / A                   eta4..6 / (k A)",
         "#   axes      MMG: F1 = X > 0 forward (added resistance is -X), F2 = Y > 0"
@@ -334,6 +342,9 @@ def main():
     ap.add_argument("--fo", default="meanLoads", help="drift-load function object")
     ap.add_argument("--noPsiBar", action="store_true",
                     help="leave the psi-bar terms (psiBar.dat) out of the totals")
+    ap.add_argument("--psiBarForces", action="store_true",
+                    help="also add the psi-bar X, Y (off: suspected mass-conservation"
+                         " error, see the docstring)")
     ap.add_argument("--append", default=None,
                     help="append one summary row to this file, for a sweep")
     ap.add_argument("--csv", default=None, metavar="PATH",
@@ -450,9 +461,10 @@ def main():
                     "Nfs": -r_[10] if Pb.shape[1] > 13 else np.nan,
                     "Nhull": -r_[13] if Pb.shape[1] > 13 else np.nan,
                     "Q": (r_[14], r_[15]) if Pb.shape[1] > 15 else (np.nan, np.nan)}
-            for key in ("X", "Y"):
-                tots[key] += psiB[key]
-                parts[key].append(psiB[key])
+            if a.psiBarForces:
+                for key in ("X", "Y"):
+                    tots[key] += psiB[key]
+                    parts[key].append(psiB[key])
         tots["Z"] = -fit(F[m, 0], F[m, 3], 2 * we, a.nharm)[0]
         parts["Z"] = [-fit(F[m, 0], F[m, 3 + o], 2 * we, a.nharm)[0]
                       for o in (3, 6, 9)]
@@ -461,7 +473,8 @@ def main():
             tot = tots[key]
             print(f"  {name:<14s} {tot:+13.6g} {tot/den_F:+10.4f}     "
                   + " / ".join(f"{p/den_F:+7.4f}" for p in parts[key])
-                  + (" /       -" if psiB is not None and key == "Z" else "")
+                  + (" /       -" if psiB is not None and (key == "Z" or not a.psiBarForces)
+                     else "")
                   + "   [N]")
         print(f"  {'':<14s} added resistance -X/den = {-tots['X']/den_F:+.4f}")
         Nz = None
@@ -481,9 +494,15 @@ def main():
                   f" {psiB['per']:.2f} encounter periods; N = free surface"
                   f" {psiB['Nfs']/den_M:+.4f} + hull {psiB['Nhull']/den_M:+.4f}")
             print(f"                 net flux Q: hull {psiB['Q'][0]:+.3g}, free surface"
-                  f" {psiB['Q'][1]:+.3g} m^3/s;  without psibar: X {noPsi['X']/den_F:+.4f}"
-                  f"  Y {noPsi['Y']/den_F:+.4f}"
-                  + (f"  N {noPsi['N']/den_M:+.4f}" if 'N' in noPsi else ""))
+                  f" {psiB['Q'][1]:+.3g} m^3/s"
+                  + (f";  N without psibar {noPsi['N']/den_M:+.4f}" if 'N' in noPsi else ""))
+            if a.psiBarForces:
+                print(f"                 psibar forces ADDED: X {psiB['X']/den_F:+.4f}"
+                      f"  Y {psiB['Y']/den_F:+.4f};  without them X {noPsi['X']/den_F:+.4f}"
+                      f"  Y {noPsi['Y']/den_F:+.4f}")
+            else:
+                print(f"                 psibar forces NOT added: X {psiB['X']/den_F:+.4f}"
+                      f"  Y {psiB['Y']/den_F:+.4f}  (X ~ -rho U Q; --psiBarForces adds them)")
             if abs(psiB["t"] - hi) > 0.5 * Te:
                 print(f"  WARNING: psiBar.dat ends at t = {psiB['t']:.4g} s, the fit window"
                       f" at {hi:.4g} s")

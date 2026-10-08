@@ -27,8 +27,8 @@ theta0  = -np.pi / 2        # [rad] initial azimuth (measured from +x about the 
 
 focal   = np.array([11.2, 0.0, 0.0])   # [m] point the camera looks at
 axis    = np.array([0.0, 0.0, 1.0])    # orbit axis (also used as view-up)
-R       = 40.0                        # [m] orbit radius
-h       = 20.0                         # [m] camera height along axis above focal point
+R       = 20.0                        # [m] orbit radius
+h       = 25.0                         # [m] camera height along axis above focal point
 
 # Frame sampling:
 #   None  -> one frame per stored data time step
