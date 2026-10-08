@@ -23,15 +23,18 @@ writes results.csv (cmtPost.py) and timeSeries.png (plotSeries.py).  Its
 output goes to runSweep.log in the run directory.
 
 A run is complete when its results.csv covers a full turn: head seas at the
-yaw onset and again at the end (360 and 0 for a starboard turn).  Complete
-runs are skipped, so the script resumes after an interruption; incomplete
-ones are run again in place.  --force reruns the complete ones too.
+yaw onset and again at the end (360 and 0 for a starboard turn), or every
+10 deg row but the end one (runs whose endTime had no margin stop a hair
+short of it).  Complete runs are skipped, so the script resumes after an
+interruption; incomplete ones are run again in place.  --force reruns the
+complete ones too.
 
 Collection (after the runs, or alone with --collect):
   * every complete run's results.csv (MMG).  Its head-sea row at the yaw onset
     is transitional (the filtered loads there mix the straight run and the
     yaw-rate ramp, but carry the r of the steady turn), so it is replaced by
-    the head-sea row after the full turn (--keepOnset keeps it).
+    the head-sea row after the full turn (--keepOnset keeps it).  Without an
+    end-of-turn row the onset row is used for both (same heading).
   * the straight-course table, if given: its rows at the sweep's lam/L, with
     V = 0 and r = 0 where it has no such columns.  A half table (0..180,
     waves from starboard) is completed to 0..360 by the mirror image
@@ -119,7 +122,7 @@ def estimate(lam, u, v, r, onset=10.0, ramp=2.0, Co=0.2, discX=7):
     al = np.linspace(0.0, 2*np.pi, 721)
     we = np.abs(-omega_h + k*(np.cos(al)*u + np.sin(al)*v))
     Te_max = 2*np.pi/max(we.min(), 0.05*omega_h)
-    end = (onset + 0.5*ramp)*Te0 + 2*np.pi/abs(r) + 2*Te_max
+    end = (onset + 0.5*ramp)*Te0 + 2*np.pi/abs(r) + 3*Te_max
     xbody = 7*lam
     VS = lambda x, y: np.hypot(-u + r*y, v - r*(x - xbody))
     Nref = 2 + (lam >= 1.5) + (lam >= 3.0) + (lam >= 4.5)
@@ -172,6 +175,12 @@ def run_status(case, run):
     mus = R[:, IH]
     if np.isclose(mus, 0.0).any() and np.isclose(mus, 360.0).any():
         return "complete", R
+    # The turn stops a hair short of the end row (head seas again) when
+    # endTime has no margin: complete if every other 10 deg row is there
+    end = 0.0 if run["r"] > 0 else 360.0
+    rest = [m for m in np.arange(0.0, 361.0, 10.0) if not np.isclose(m, end)]
+    if all(np.isclose(mus, m).any() for m in rest):
+        return "complete, no end-of-turn row", R
     return (f"partial ({len(np.unique(np.round(mus)))} headings, "
             f"{mus.min():g}..{mus.max():g} deg)"), R
 
@@ -252,7 +261,7 @@ def collect(cfg, runs, sweep_dir, root, keep_onset):
     for i, run in enumerate(runs, 1):
         case = sweep_dir / run["name"]
         st, R = run_status(case, run)
-        if st != "complete":
+        if not st.startswith("complete"):
             print(f"  [{i}] {run['name']}: {st} -- left out")
             continue
         head, mk, _ = read_table(case / "results.csv")
@@ -267,7 +276,12 @@ def collect(cfg, runs, sweep_dir, root, keep_onset):
             sys.exit(f"{case}/results.csv: lam/L {R[0, 0]:g}, the others {lamL:g}")
         onset, end = (360.0, 0.0) if run["r"] > 0 else (0.0, 360.0)
         io, ie = np.isclose(R[:, IH], onset), np.isclose(R[:, IH], end)
-        if not keep_onset:
+        if not ie.any():
+            # same heading: the end row is the onset row (close_circle copies it)
+            print(f"  [{i}] {run['name']}: {len(R)} headings; no end-of-turn row, "
+                  f"head seas mu {end:g} = the onset row (mu {onset:g})")
+            run["onsetOnly"] = True
+        elif not keep_onset:
             d = R[io][0, IH + 1:] - R[ie][0, IH + 1:]
             R[io, IH + 1:] = R[ie][0, IH + 1:]
             print(f"  [{i}] {run['name']}: {len(R)} headings; onset row (mu {onset:g}) replaced "
@@ -282,9 +296,14 @@ def collect(cfg, runs, sweep_dir, root, keep_onset):
 
     contents = (f"# contents: circular motion tests at lam/L {lamL:g} (runSweep.py "
                 f"{cfg['file']}), (u, v, r) = "
-                + ", ".join(f"({r['u']:g}, {r['v']:g}, {r['r']:g})" for r in used)
-                + ("" if keep_onset else "; head seas at the yaw onset replaced by the "
-                   "end of the turn"))
+                + ", ".join(f"({r['u']:g}, {r['v']:g}, {r['r']:g})" for r in used))
+    full = [r for r in used if not r.get("onsetOnly")]
+    part = [r for r in used if r.get("onsetOnly")]
+    if full and not keep_onset:
+        contents += "; head seas at the yaw onset replaced by the end of the turn"
+    if part:
+        contents += ("; head seas = the yaw onset (no end-of-turn row) for "
+                     + ", ".join(f"({r['u']:g}, {r['v']:g}, {r['r']:g})" for r in part))
     if cfg["straight"] and cfg["straight"].lower() != "none":
         sp = (root / cfg["straight"]).resolve()
         S, half, filled = straight_rows(sp, lamL)
@@ -383,7 +402,7 @@ def main():
         for i, run in pick:
             case = sweep_dir / run["name"]
             st, _ = run_status(case, run)
-            if st == "complete" and not a.force:
+            if st.startswith("complete") and not a.force:
                 print(f"[{i}] {run['name']}: complete, skipped")
                 continue
             if case.exists():

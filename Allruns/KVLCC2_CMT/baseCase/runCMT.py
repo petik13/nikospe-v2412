@@ -17,7 +17,8 @@ options:
     --yawRampPeriods 2  duration of the (half-cosine) yaw-rate ramp, same units
     --endTime           default: r != 0: one full turn of mean loads from the onset,
                         onset + ramp/2 + 2 pi/|r|, plus the half-width of the
-                        mean-load filter in cmtPost.py (2 Te_max);
+                        mean-load filter in cmtPost.py (2 Te_max) and a margin
+                        of Te_max, so that results.csv reaches the end-of-turn row;
                         r = 0: wave ramp + 0.6*(2 xbody)/c_g, as runsim.py
     --nproc 56 --procD 8 6 1
     --noMesh --noRun --noPost
@@ -159,7 +160,7 @@ if args.endTime is not None:
 elif r != 0:
     # After the half-cosine ramp the heading is psi0 + r (t - tOn - tRamp/2):
     # one full turn of mean loads from the onset, plus the filter half-width
-    endTime = tOn + 0.5*tRamp + 2*np.pi/abs(r) + tFilter
+    endTime = tOn + 0.5*tRamp + 2*np.pi/abs(r) + tFilter + Te_max   # + Te_max margin: the end row
 else:
     endTime = rampperiod*T + 0.6*(xbody + xbody)/Cgroup
 
