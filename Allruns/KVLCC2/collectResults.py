@@ -12,9 +12,10 @@ too large to be physical.)
 
 A case is a subdirectory with constant/waveConditions and
 postProcessing/<fo>/*/force.dat; baseCase and cases that have not run are
-skipped.  Each case is processed by meanLoads.py -- by default the current
-baseCase/meanLoads.py next to this script, not the case's own (possibly older)
-copy -- run in the case directory:
+skipped.  Each case is processed by meanLoads.py, run in the case directory:
+the current baseCase/meanLoads.py if there is one next to this script, in DIR
+or in its parent (so not a case's own, possibly older, copy), else each case's
+own meanLoads.py (copied from baseCase when the case was set up):
 
     meanLoads.py --fo <fo> --csv <tmp>                        -> results.csv
     meanLoads.py --fo <fo> --psiBarForces X --csv <tmp_psi>   -> results_psi.csv
@@ -25,9 +26,10 @@ psi-bar term at all; they are listed in a comment line of the files.  Rows are
 keyed on (lam/L, U, heading): if two cases share a key, the later one
 (alphabetically) wins and a warning names both.
 
-usage (from Allruns/KVLCC2):
-    python3 collectResults.py                  # cases in the current directory
-    python3 collectResults.py runs/sweep90     # cases in another directory
+usage: run it in (or point it at) a directory of cases; the two tables are
+written there:
+    cd Allruns/KVLCC2/<sweep> && python3 ../collectResults.py
+    python3 collectResults.py <sweep>          # the same, from Allruns/KVLCC2
     python3 collectResults.py --fo meanLoads2  # another load function object
 """
 import argparse
@@ -102,16 +104,22 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("dir", nargs="?", default=".", help="directory with the cases")
     ap.add_argument("--fo", default="meanLoads", help="drift-load function object")
-    ap.add_argument("--meanLoads", default=os.path.join(HERE, "baseCase", "meanLoads.py"),
-                    help="meanLoads.py to use (default: baseCase/meanLoads.py)")
+    ap.add_argument("--meanLoads", default=None,
+                    help="meanLoads.py to use (default: baseCase/meanLoads.py next to this"
+                         " script or in DIR or its parent, else each case's own copy)")
     ap.add_argument("--out", default="results.csv")
     ap.add_argument("--outPsi", default="results_psi.csv")
     a = ap.parse_args()
 
     root = os.path.abspath(a.dir)
-    ml = os.path.abspath(a.meanLoads)
-    if not os.path.isfile(ml):
-        sys.exit(f"no {ml}")
+    if a.meanLoads:
+        ml = os.path.abspath(a.meanLoads)
+        if not os.path.isfile(ml):
+            sys.exit(f"no {ml}")
+    else:
+        cand = [os.path.join(d, "baseCase", "meanLoads.py")
+                for d in (HERE, root, os.path.dirname(root))]
+        ml = next((p for p in cand if os.path.isfile(p)), None)   # None: per case
     out, outPsi = os.path.join(root, a.out), os.path.join(root, a.outPsi)
     tmp, tmpPsi = out + ".tmp", outPsi + ".tmp"
     for p in (tmp, tmpPsi):
@@ -134,7 +142,8 @@ def main():
     if not cases:
         sys.exit(f"no cases with postProcessing/{a.fo} in {root}")
 
-    print(f"collecting {len(cases)} cases from {root} with {ml}")
+    print(f"collecting {len(cases)} cases from {root} with "
+          + (ml if ml else "each case's own meanLoads.py"))
     print(f"  {'case':38s} {'lam/L':>6s} {'U':>7s} {'mu':>5s} | {'X':>8s} {'X_psi':>8s} {'Y':>8s} {'N':>8s}  notes")
     seen, noPsi = {}, []
     for name, c in cases:
@@ -144,8 +153,12 @@ def main():
                   f" {name} wins")
         seen[key] = name
         notes = []
+        mlc = ml or os.path.join(c, "meanLoads.py")
+        if not os.path.isfile(mlc) or "psiBarForces" not in open(mlc, errors="ignore").read():
+            print(f"  skip {name}: {mlc} missing or too old (no --psiBarForces); give --meanLoads")
+            continue
         for extra, dst in (([], tmp), (["--psiBarForces", "X"], tmpPsi)):
-            r = subprocess.run([sys.executable, ml, "--fo", a.fo, "--csv", dst] + extra,
+            r = subprocess.run([sys.executable, mlc, "--fo", a.fo, "--csv", dst] + extra,
                                cwd=c, capture_output=True, text=True)
             if r.returncode != 0:
                 notes.append("meanLoads.py failed: " + (r.stderr or r.stdout).strip().splitlines()[-1])
