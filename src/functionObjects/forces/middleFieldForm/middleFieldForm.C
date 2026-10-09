@@ -35,6 +35,9 @@ License
 #include "zeroGradientFvPatchFields.H"
 #include "fixedValueFvPatchFields.H"
 #include "fixedGradientFvPatchFields.H"
+#include "calculatedFvPatchFields.H"
+#include "symmetryPlanePolyPatch.H"
+#include "symmetryPolyPatch.H"
 
 // * * * * * * * * * * * * * * Static Data Members * * * * * * * * * * * * * //
 
@@ -136,7 +139,14 @@ Foam::functionObjects::middleFieldForm::middleFieldForm
     psiTAcc_(0),
     psiTPrev_(0),
     psiStarted_(false),
-    psiLastSolved_(-GREAT)
+    psiLastSolved_(-GREAT),
+    psiBarForcing_("dynamic"),
+    stokesInst_(0),
+    stokesForceInst_(Zero),
+    stokesMomentInst_(Zero),
+    stokesSum_(0),
+    stokesForceSum_(Zero),
+    stokesMomentSum_(Zero)
 {
     read(dict);
 }
@@ -149,6 +159,8 @@ void Foam::functionObjects::middleFieldForm::reset()
     surfaceForce_ = Zero;    surfaceMoment_ = Zero;
     elevationForce_ = Zero;  elevationMoment_ = Zero;
     stripForce_ = Zero;      stripMoment_ = Zero;
+    stokesInst_ = 0;
+    stokesForceInst_ = Zero; stokesMomentInst_ = Zero;
 }
 
 
@@ -308,6 +320,13 @@ void Foam::functionObjects::middleFieldForm::waterlineIntegral()
 
                 elevationMoment_ += (mid - CofR_) ^ fElev;
                 stripMoment_ += (mid - CofR_) ^ fStrip;
+
+                // Mass-balance diagnostics: Stokes transport through the strip
+                // and the part of fStrip it carries
+                const vector fStokes(-rhoRef_*z*(u & n)*W*(0.5*L));
+                stokesInst_ += z*(u & n)*(0.5*L);
+                stokesForceInst_ += fStokes;
+                stokesMomentInst_ += (mid - CofR_) ^ fStokes;
             }
         }
     }
@@ -382,6 +401,13 @@ void Foam::functionObjects::middleFieldForm::readPsiBar(const dictionary& dict)
     psiBarNCorr_ = dict.getOrDefault<label>("psiBarCorrectors", 5);
     psiBarRadius_ = dict.getOrDefault<scalar>("psiBarRadius", -1);
     psiBarSplit_ = dict.getOrDefault<Switch>("psiBarSplit", Switch(true));
+    psiBarForcing_ = dict.getOrDefault<word>("psiBarForcing", "dynamic");
+    if (psiBarForcing_ != "dynamic" && psiBarForcing_ != "kinematic")
+    {
+        FatalIOErrorInFunction(dict)
+            << "psiBarForcing " << psiBarForcing_
+            << ": dynamic or kinematic" << exit(FatalIOError);
+    }
 
     // Rotation centre of the body motion: linBodyMotion takes the rotations
     // about (xG, 0, 0) of bodyMotionProperties
@@ -447,9 +473,13 @@ void Foam::functionObjects::middleFieldForm::readPsiBar(const dictionary& dict)
     for (const label patchi : psiBarHullIDs_) nHull += pbm[patchi].size();
     hullForcing_.setSize(nHull, Zero);
     fsForcing_.setSize(pbm[freeSurfacePatchID_].size(), Zero);
+    fsQ_.setSize(pbm[freeSurfacePatchID_].size(), Zero);
     psiTAcc_ = 0;
     psiStarted_ = false;
     psiLastSolved_ = -GREAT;
+    stokesSum_ = 0;
+    stokesForceSum_ = Zero;
+    stokesMomentSum_ = Zero;
 
     Info<< "    psiBar          : on" << nl
         << "      hull patches  " << psiBarHullPatches_ << nl
@@ -457,7 +487,8 @@ void Foam::functionObjects::middleFieldForm::readPsiBar(const dictionary& dict)
         << "      rotation ref  " << psiBarRotRef_ << nl
         << "      omega_e       " << omegaE_ << nl
         << "      average from  t = " << psiBarStartTime_ << nl
-        << "      fs radius     " << psiBarRadius_ << endl;
+        << "      fs radius     " << psiBarRadius_ << nl
+        << "      fs forcing    " << psiBarForcing_ << endl;
 }
 
 
@@ -524,13 +555,18 @@ void Foam::functionObjects::middleFieldForm::accumulatePsiBar()
     }
 
     // Free surface: d(psibar)/dz = -zeta d2phi/dz2, d2phi/dz2 = -(du/dx + dv/dy)
+    // (dynamic), and the Stokes transport zeta u_h for the kinematic form and
+    // the mass balance (all faces: the radius cut goes on its divergence)
     {
         const scalarField& zP = zeta.boundaryField()[freeSurfacePatchID_];
         const tensorField& gUf = gradU.boundaryField()[freeSurfacePatchID_];
+        const vectorField& Uf = U.boundaryField()[freeSurfacePatchID_];
         const vectorField& Cf = mesh_.boundary()[freeSurfacePatchID_].Cf();
 
         forAll(zP, i)
         {
+            fsQ_[i] += zP[i]*vector(Uf[i].x(), Uf[i].y(), 0)*dt;
+
             if (psiBarRadius_ > 0)
             {
                 vector d(Cf[i] - CofR_);
@@ -543,18 +579,147 @@ void Foam::functionObjects::middleFieldForm::accumulatePsiBar()
         }
     }
 
+    // Strip Stokes transport, reduced in execute()
+    stokesSum_ += stokesInst_*dt;
+    stokesForceSum_ += stokesForceInst_*dt;
+    stokesMomentSum_ += stokesMomentInst_*dt;
+
     psiTAcc_ += dt;
+}
+
+
+Foam::tmp<Foam::scalarField>
+Foam::functionObjects::middleFieldForm::fsKinematicForcing(scalar& sWL) const
+{
+    const polyBoundaryMesh& pbm = mesh_.boundaryMesh();
+    const polyPatch& fsPatch = pbm[freeSurfacePatchID_];
+    const label fsStart = fsPatch.start();
+    const labelList& fc = fsPatch.faceCells();
+
+    const faceList& faces = mesh_.faces();
+    const pointField& pts = mesh_.points();
+    const cellList& cells = mesh_.cells();
+    const vectorField& faceAreas = mesh_.faceAreas();
+    const vectorField& faceCentres = mesh_.faceCentres();
+
+    // Mean Stokes transport <zeta u_h> per free-surface face
+    const vectorField q(fsQ_/max(psiTAcc_, SMALL));
+
+    // ... put in the top-layer cells and interpolated to their side faces,
+    // which gives one value per edge, the same seen from either side, and
+    // across processor boundaries
+    volVectorField Qv
+    (
+        IOobject
+        (
+            "psiBarStokesTransport",
+            mesh_.time().timeName(),
+            mesh_.thisDb(),
+            IOobject::NO_READ,
+            IOobject::NO_WRITE,
+            IOobject::NO_REGISTER
+        ),
+        mesh_,
+        dimensionedVector(dimArea/dimTime, Zero),
+        calculatedFvPatchVectorField::typeName
+    );
+    forAll(fc, i)
+    {
+        Qv.primitiveFieldRef()[fc[i]] = q[i];
+    }
+    Qv.correctBoundaryConditions();
+    const tmp<surfaceVectorField> tQf(linearInterpolate(Qv));
+    const surfaceVectorField& Qf = tQf();
+
+    boolList isHull(pbm.size(), false);
+    for (const label patchi : psiBarHullIDs_) isHull[patchi] = true;
+
+    auto tdiv = tmp<scalarField>::New(fsPatch.size(), Zero);
+    scalarField& div = tdiv.ref();
+    sWL = 0;
+
+    forAll(fc, i)
+    {
+        const label fsFacei = fsStart + i;
+        const face& fsFace = faces[fsFacei];
+        const point& c = faceCentres[fsFacei];
+        scalar flux = 0;
+
+        // The edges of the face are the segments it shares with the other
+        // faces of its cell (as in waterlineIntegral)
+        for (const label facej : cells[fc[i]])
+        {
+            if (facej == fsFacei) continue;
+
+            point p0(Zero), p1(Zero);
+            if (!sharedSegment(faces[facej], fsFace, pts, p0, p1)) continue;
+
+            // In-plane edge normal, out of the face, times the edge length
+            vector m(p1.y() - p0.y(), p0.x() - p1.x(), 0);
+            if ((m & (0.5*(p0 + p1) - c)) < 0) m = -m;
+            if (mag(m) < SMALL) continue;
+
+            vector qe(q[i]);
+            bool onHull = false;
+            if (facej < mesh_.nInternalFaces())
+            {
+                qe = Qf[facej];
+            }
+            else
+            {
+                const label patchi = pbm.whichPatch(facej);
+                const polyPatch& pp = pbm[patchi];
+                if (pp.coupled())
+                {
+                    qe = Qf.boundaryField()[patchi][pp.whichFace(facej)];
+                }
+                else if
+                (
+                    isA<symmetryPlanePolyPatch>(pp)
+                 || isA<symmetryPolyPatch>(pp)
+                )
+                {
+                    continue;   // no transport through a symmetry plane
+                }
+                else if (isHull[patchi])
+                {
+                    onHull = true;
+                }
+            }
+
+            const scalar fe = (qe & m);
+            flux += fe;
+            if (onHull) sWL += fe;
+        }
+
+        div[i] = flux/max(mag(faceAreas[fsFacei]), VSMALL);
+
+        if (psiBarRadius_ > 0)
+        {
+            vector d(c - CofR_);
+            d.z() = 0;
+            if (mag(d) > psiBarRadius_) div[i] = 0;
+        }
+    }
+
+    reduce(sWL, sumOp<scalar>());
+
+    return tdiv;
 }
 
 
 void Foam::functionObjects::middleFieldForm::solvePsiBar
 (
+    const scalarField& fsGrad,
     const bool useFs,
     const bool useHull,
     vector& F,
     vector& M,
     scalar& qHull,
-    scalar& qFs
+    scalar& qFs,
+    scalar& phiC,
+    vector& Fmass,
+    vector& Mmass
 )
 {
     const polyBoundaryMesh& pbm = mesh_.boundaryMesh();
@@ -622,7 +787,7 @@ void Foam::functionObjects::middleFieldForm::solvePsiBar
         const scalarField magSf(mag(mesh_.boundary()[freeSurfacePatchID_].Sf()));
         forAll(pf, i)
         {
-            pf.gradient()[i] = useFs ? norm*fsForcing_[i] : 0;
+            pf.gradient()[i] = useFs ? fsGrad[i] : 0;
             qFs += pf.gradient()[i]*magSf[i];
         }
     }
@@ -673,6 +838,9 @@ void Foam::functionObjects::middleFieldForm::solvePsiBar
 
     F = Zero;
     M = Zero;
+    phiC = 0;
+    Fmass = Zero;
+    Mmass = Zero;
 
     for (const label facei : fz)
     {
@@ -703,10 +871,20 @@ void Foam::functionObjects::middleFieldForm::solvePsiBar
 
         F += f;
         M += (faceCentres[facei] - CofR_) ^ f;
+
+        // Mass flux of psibar out of the control volume, and the part of f
+        // it carries
+        const vector fm(-rhoRef_*(g & Sf)*W);
+        phiC += (g & Sf);
+        Fmass += fm;
+        Mmass += (faceCentres[facei] - CofR_) ^ fm;
     }
 
     reduce(F, sumOp<vector>());
     reduce(M, sumOp<vector>());
+    reduce(phiC, sumOp<scalar>());
+    reduce(Fmass, sumOp<vector>());
+    reduce(Mmass, sumOp<vector>());
 
     Info<< "    psiBar solve (" << (useFs ? "fs" : "") << (useFs && useHull ? "+" : "")
         << (useHull ? "hull" : "") << "): residual " << res
@@ -718,15 +896,36 @@ void Foam::functionObjects::middleFieldForm::psiBarOutput()
 {
     if (psiTAcc_ <= SMALL) return;
 
+    const scalar norm = 1.0/psiTAcc_;
+
+    // Free-surface forcing, both forms (the other one for the diagnostics)
+    const scalarField fsDyn(norm*fsForcing_);
+    scalar sWL = 0;
+    const tmp<scalarField> tfsKin(fsKinematicForcing(sWL));
+    const scalarField& fsKin = tfsKin();
+    const bool kinematic = (psiBarForcing_ == "kinematic");
+    const scalarField& fsGrad = kinematic ? fsKin : fsDyn;
+
+    const scalarField magSfFs(mag(mesh_.boundary()[freeSurfacePatchID_].Sf()));
+    const scalar qFsDyn = gSum(fsDyn*magSfFs);
+    const scalar qFsKin = gSum(fsKin*magSfFs);
+
+    // Strip Stokes transport through the control surface and its momentum
+    const scalar sC = norm*stokesSum_;
+    const vector Fst(norm*stokesForceSum_);
+    const vector Mst(norm*stokesMomentSum_);
+
     vector Ffs(Zero), Mfs(Zero), Fh(Zero), Mh(Zero), F(Zero), M(Zero);
-    scalar qH = 0, qF = 0;
+    scalar qH = 0, qF = 0, phiC = 0;
+    vector Fm(Zero), Mm(Zero);
 
     if (psiBarSplit_)
     {
-        solvePsiBar(true, false, Ffs, Mfs, qH, qF);
-        solvePsiBar(false, true, Fh, Mh, qH, qF);
+        solvePsiBar(fsGrad, true, false, Ffs, Mfs, qH, qF, phiC, Fm, Mm);
+        solvePsiBar(fsGrad, false, true, Fh, Mh, qH, qF, phiC, Fm, Mm);
     }
-    solvePsiBar(true, true, F, M, qH, qF);      // last: the field kept is the total
+    // last: the field kept, and phiC, Fm, Mm, are those of the total
+    solvePsiBar(fsGrad, true, true, F, M, qH, qF, phiC, Fm, Mm);
 
     psiLastSolved_ = mesh_.time().value();
 
@@ -749,12 +948,22 @@ void Foam::functionObjects::middleFieldForm::psiBarOutput()
             writeHeader(*psiFilePtr_, "psi-bar terms of the mean loads (add to force/moment)");
             writeHeaderValue(*psiFilePtr_, "CofR", CofR_);
             writeHeaderValue(*psiFilePtr_, "averaged from", psiBarStartTime_);
+            writeHeaderValue(*psiFilePtr_, "free-surface forcing", psiBarForcing_);
+            writeHeader
+            (
+                *psiFilePtr_,
+                "mass balance: Phi_C + S_C = 0 (control volume),"
+                " Q_hull + S_WL = 0 (hull)"
+            );
             writeCommented(*psiFilePtr_, "Time");
             writeTabbed(*psiFilePtr_, "periods");
             writeTabbed(*psiFilePtr_, "Fpsi_x\tFpsi_y\tFpsi_z\tMpsi_x\tMpsi_y\tMpsi_z");
             writeTabbed(*psiFilePtr_, "Fpsi_fs_x\tFpsi_fs_y\tMpsi_fs_z");
             writeTabbed(*psiFilePtr_, "Fpsi_hull_x\tFpsi_hull_y\tMpsi_hull_z");
             writeTabbed(*psiFilePtr_, "Q_hull\tQ_fs");
+            writeTabbed(*psiFilePtr_, "Q_fs_dynamic\tQ_fs_kinematic\tS_WL\tS_C\tPhi_C");
+            writeTabbed(*psiFilePtr_, "Fstokes_x\tFstokes_y\tMstokes_z");
+            writeTabbed(*psiFilePtr_, "Fmass_x\tFmass_y\tMmass_z");
             *psiFilePtr_ << endl;
         }
         writeCurrentTime(*psiFilePtr_);
@@ -764,14 +973,26 @@ void Foam::functionObjects::middleFieldForm::psiBarOutput()
             << tab << M.x() << tab << M.y() << tab << M.z()
             << tab << Ffs.x() << tab << Ffs.y() << tab << Mfs.z()
             << tab << Fh.x() << tab << Fh.y() << tab << Mh.z()
-            << tab << qH << tab << qF << endl;
+            << tab << qH << tab << qF
+            << tab << qFsDyn << tab << qFsKin << tab << sWL
+            << tab << sC << tab << phiC
+            << tab << Fst.x() << tab << Fst.y() << tab << Mst.z()
+            << tab << Fm.x() << tab << Fm.y() << tab << Mm.z() << endl;
     }
 
-    Log << type() << ' ' << name() << " psiBar (" << nPer << " periods):" << nl
+    Log << type() << ' ' << name() << " psiBar (" << nPer << " periods, "
+        << psiBarForcing_ << " free-surface forcing):" << nl
         << "    F_psi " << F << "  (should be small: G&P eq.15)" << nl
         << "    Mz_psi " << M.z() << "  (free surface " << Mfs.z()
         << ", hull " << Mh.z() << ")" << nl
-        << "    net flux Q: hull " << qH << ", free surface " << qF << endl;
+        << "    net flux Q: hull " << qH << ", free surface " << qF
+        << "  (dynamic " << qFsDyn << ", kinematic " << qFsKin << ")" << nl
+        << "    mass, control volume: Phi_C + S_C = " << phiC << " + " << sC
+        << " = " << phiC + sC << nl
+        << "    mass, hull:          Q_hull + S_WL = " << qH << " + " << sWL
+        << " = " << qH + sWL << nl
+        << "    momentum: Fstokes + Fmass = " << Fst << " + " << Fm
+        << " = " << Fst + Fm << endl;
 
     setResult("psiBarForce", F);
     setResult("psiBarMoment", M);
@@ -863,7 +1084,13 @@ bool Foam::functionObjects::middleFieldForm::execute()
     setResult("force", force());
     setResult("moment", moment());
 
-    if (psiBar_) accumulatePsiBar();
+    if (psiBar_)
+    {
+        reduce(stokesInst_, sumOp<scalar>());
+        reduce(stokesForceInst_, sumOp<vector>());
+        reduce(stokesMomentInst_, sumOp<vector>());
+        accumulatePsiBar();
+    }
 
     return true;
 }

@@ -511,6 +511,18 @@ def main():
                             for c in "XY")
                   + (f";  without them X {noPsi['X']/den_F:+.4f}  Y {noPsi['Y']/den_F:+.4f}"
                      if a.psiBarForces else "  (X ~ -rho U Q; --psiBarForces adds them)"))
+            if Pb.shape[1] > 26:
+                # mass balance: 16 Q_fs_dynamic, 17 Q_fs_kinematic, 18 S_WL, 19 S_C,
+                # 20 Phi_C, 21-23 Fstokes x y, Mstokes z, 24-26 Fmass x y, Mmass z
+                qFd, qFk, sWL, sC, phiC = r_[16:21]
+                Xst = -(r_[21] * cps - r_[22] * sps)
+                Xm = -(r_[24] * cps - r_[25] * sps)
+                print(f"                 mass balance: control volume Phi_C + S_C = {phiC:+.3g}"
+                      f" {sC:+.3g} = {phiC + sC:+.3g};  hull Q_hull + S_WL ="
+                      f" {psiB['Q'][0]:+.3g} {sWL:+.3g} = {psiB['Q'][0] + sWL:+.3g} m^3/s")
+                print(f"                 Q_fs dynamic {qFd:+.3g}, kinematic {qFk:+.3g} m^3/s;"
+                      f"  X: strip Stokes {Xst/den_F:+.4f} + psibar mass flux"
+                      f" {Xm/den_F:+.4f} = {(Xst + Xm)/den_F:+.4f}")
             if abs(psiB["t"] - hi) > 0.5 * Te:
                 print(f"  WARNING: psiBar.dat ends at t = {psiB['t']:.4g} s, the fit window"
                       f" at {hi:.4g} s")

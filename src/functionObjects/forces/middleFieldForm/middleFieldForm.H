@@ -65,6 +65,32 @@ Description
     moment.dat are unchanged).  Derivation: researchQuestions/psibarMidfield.ipynb.
     Read the yaw moment only, as for the other terms.
 
+    psiBarForcing picks the free-surface forcing: dynamic (above, the
+    default) or kinematic,
+
+        d(psibar)/dz = div_h <zeta grad_h(phi)>                on z = 0
+
+    the mean of the second-order kinematic condition without the mean
+    elevation terms.  At zero speed the two are equal (<grad zeta.grad phi>
+    = -d/dt <|grad phi|^2>/2g = 0); at forward speed they differ by a
+    divergence of O(U).  The kinematic form conserves mass by construction:
+    its integral over a free-surface region is the Stokes transport through
+    the edge of that region.  It is computed as the conservative surface
+    divergence of the running mean of zeta u_h on the free-surface faces.
+
+    Mass-balance diagnostics (psiBar.dat, the columns after Q_fs).  With
+    S_C = int_C <zeta u.n> dl the Stokes transport out through the control
+    surface (its strip), S_WL the same out of the free surface into the hull
+    across the waterline and Phi_C = int_Sc d(psibar)/dn dS,
+
+        Phi_C + S_C = 0       no net mean mass flux out of the control volume
+        Q_hull + S_WL = 0     no net mean mass flux into the hull
+
+    With the kinematic forcing the first reduces to the second.  The
+    Stokes-transport part of the strip term, Fstokes = -rho int_C <zeta u.n> W dl,
+    cancels the matching psi-bar part, Fmass = -rho int_Sc (grad psibar.n) W dS,
+    when the first balance holds; otherwise their sum is ~ -rho W (Phi_C + S_C).
+
     The time average is not taken here: instantaneous values are written every
     step and averaged in post-processing, which lets the mean be extracted by a
     harmonic fit rather than by averaging between zero crossings.
@@ -99,6 +125,7 @@ Usage
       psiBarSolver     | fvSolution solver entry            | no   | PhiS
       psiBarCorrectors | Non-orthogonal correctors          | no   | 5
       psiBarSplit      | Also solve free-surface and hull forcing apart | no | true
+      psiBarForcing    | Free-surface forcing: dynamic or kinematic | no | dynamic
     \endtable
 
     psibar is solved at every field-write time and at the end of the run.
@@ -217,6 +244,23 @@ protected:
         bool psiStarted_;
         scalar psiLastSolved_;
 
+        //- Free-surface forcing: dynamic (-<zeta phi_zz>, G&P 47) or
+        //  kinematic (div_h <zeta grad_h phi>, mass conserving)
+        word psiBarForcing_;
+
+        //- Mass-balance diagnostics: running time integral of the Stokes
+        //  transport zeta u_h on each free-surface face (all faces, no radius
+        //  cut), and the Stokes transport through the control surface (the
+        //  strip) with its momentum -rho zeta (u.n) W: instantaneous (this
+        //  step, reduced) and running time integral
+        vectorField fsQ_;
+        scalar stokesInst_;
+        vector stokesForceInst_;
+        vector stokesMomentInst_;
+        scalar stokesSum_;
+        vector stokesForceSum_;
+        vector stokesMomentSum_;
+
         autoPtr<volScalarField> psiBarPtr_;
         autoPtr<OFstream> psiFilePtr_;
 
@@ -246,14 +290,27 @@ protected:
         //  cross flux over the control surface, write psiBar.dat
         void readPsiBar(const dictionary& dict);
         void accumulatePsiBar();
+
+        //- Kinematic free-surface forcing div_h <zeta u_h> per free-surface
+        //  face (radius cut applied); sWL returns the Stokes transport across
+        //  the waterline into the hull (reduced)
+        tmp<scalarField> fsKinematicForcing(scalar& sWL) const;
+
+        //- fsGrad: free-surface d(psibar)/dz per face (used if useFs).
+        //  phiC, Fmass, Mmass: flux of psibar out through the control surface
+        //  and its momentum -rho (grad psibar.n) W
         void solvePsiBar
         (
+            const scalarField& fsGrad,
             const bool useFs,
             const bool useHull,
             vector& F,
             vector& M,
             scalar& qHull,
-            scalar& qFs
+            scalar& qFs,
+            scalar& phiC,
+            vector& Fmass,
+            vector& Mmass
         );
         void psiBarOutput();
 
