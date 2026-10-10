@@ -91,6 +91,20 @@ Description
     cancels the matching psi-bar part, Fmass = -rho int_Sc (grad psibar.n) W dS,
     when the first balance holds; otherwise their sum is ~ -rho W (Phi_C + S_C).
 
+    psiBarHullForcing picks the form of the hull condition: gradient (G&P 12
+    as above, the default) or divergence,
+
+        d(psibar)/dn = div_S <X_n v> - <X.(n x omega)>,   v = grad(phi) - Xdot
+
+    with X_n = X.n, v tangential (first-order body condition) and omega the
+    body angular velocity.  The two are equal pointwise for rigid-body motion
+    and an exact first-order solution (Laplace and the first-order body
+    condition remove the second derivatives; checked on a translating and
+    rotating sphere), but the divergence form needs no second derivatives at
+    the wall.  It is computed as the conservative edge divergence over the
+    hull faces, so its net flux is exactly that through the waterline plus
+    the rotation term (Q_hull_waterline, Q_hull_rotation in psiBar.dat).
+
     The time average is not taken here: instantaneous values are written every
     step and averaged in post-processing, which lets the mean be extracted by a
     harmonic fit rather than by averaging between zero crossings.
@@ -126,6 +140,7 @@ Usage
       psiBarCorrectors | Non-orthogonal correctors          | no   | 5
       psiBarSplit      | Also solve free-surface and hull forcing apart | no | true
       psiBarForcing    | Free-surface forcing: dynamic or kinematic | no | dynamic
+      psiBarHullForcing | Hull forcing: gradient or divergence | no | gradient
     \endtable
 
     psibar is solved at every field-write time and at the end of the run.
@@ -261,6 +276,16 @@ protected:
         vector stokesForceSum_;
         vector stokesMomentSum_;
 
+        //- Hull forcing: gradient (G&P 12 as written) or divergence
+        //  (div_S <X_n v> - <X.(n x omega)>, the same condition without
+        //  second derivatives)
+        word psiBarHullForcing_;
+
+        //- Running time integrals for the divergence form, per hull face (all
+        //  hull patches in order): X_n v_t and -X.(n x omega)
+        vectorField hullP_;
+        scalarField hullR_;
+
         autoPtr<volScalarField> psiBarPtr_;
         autoPtr<OFstream> psiFilePtr_;
 
@@ -296,12 +321,18 @@ protected:
         //  the waterline into the hull (reduced)
         tmp<scalarField> fsKinematicForcing(scalar& sWL) const;
 
-        //- fsGrad: free-surface d(psibar)/dz per face (used if useFs).
-        //  phiC, Fmass, Mmass: flux of psibar out through the control surface
-        //  and its momentum -rho (grad psibar.n) W
+        //- Divergence-form hull forcing per hull face (all hull patches in
+        //  order); qWL, qRot return its flux out through the waterline and
+        //  the integral of the rotation term (reduced)
+        tmp<scalarField> hullDivergenceForcing(scalar& qWL, scalar& qRot) const;
+
+        //- fsGrad, hullGrad: d(psibar)/dn per free-surface / hull face (used
+        //  if useFs / useHull).  phiC, Fmass, Mmass: flux of psibar out
+        //  through the control surface and its momentum -rho (grad psibar.n) W
         void solvePsiBar
         (
             const scalarField& fsGrad,
+            const scalarField& hullGrad,
             const bool useFs,
             const bool useHull,
             vector& F,

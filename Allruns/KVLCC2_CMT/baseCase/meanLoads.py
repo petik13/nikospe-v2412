@@ -523,6 +523,13 @@ def main():
                 print(f"                 Q_fs dynamic {qFd:+.3g}, kinematic {qFk:+.3g} m^3/s;"
                       f"  X: strip Stokes {Xst/den_F:+.4f} + psibar mass flux"
                       f" {Xm/den_F:+.4f} = {(Xst + Xm)/den_F:+.4f}")
+                print(f"                 X with a mass-consistent psibar (X - Fstokes_X):"
+                      f" {(noPsi['X'] - Xst)/den_F:+.4f}  (information only)")
+            if Pb.shape[1] > 30:
+                # 27 Q_hull gradient form, 28 divergence form = 29 waterline + 30 rotation
+                qHg, qHd, qHw, qHr = r_[27:31]
+                print(f"                 Q_hull: gradient form {qHg:+.3g}, divergence form"
+                      f" {qHd:+.3g} (waterline {qHw:+.3g} + rotation {qHr:+.3g}) m^3/s")
             if abs(psiB["t"] - hi) > 0.5 * Te:
                 print(f"  WARNING: psiBar.dat ends at t = {psiB['t']:.4g} s, the fit window"
                       f" at {hi:.4g} s")
