@@ -6,9 +6,12 @@ tables (MMG axes, the format of meanLoads.py --csv):
     results.csv      X, Y without the psi-bar terms; N with the psi-bar yaw moment
     results_psi.csv  the same, except that X includes the psi-bar surge force
 
-(Why X is kept apart: see the docstring of meanLoads.py -- the psi-bar surge
-force comes out as -rho U Q, and the net psibar source Q of the runs so far is
-too large to be physical.)
+(Why X is kept apart: in a stream along the ship axis the psi-bar surge force
+is the momentum -rho W Phi_C of the net psibar flux through the control
+surface, so it carries any residual of the mean mass balance -- see
+meanLoads.py, which also prints the mass-consistent surge force X - Fstokes_X.
+With the gradient-form hull forcing of the first psiBar runs that residual was
+large and X_psi spurious, about -0.55 at 60 deg, lam/L 1.)
 
 A case is a subdirectory with constant/waveConditions and
 postProcessing/<fo>/*/force.dat; baseCase and cases that have not run are

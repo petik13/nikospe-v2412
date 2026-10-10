@@ -142,14 +142,12 @@ Foam::functionObjects::middleFieldForm::middleFieldForm
     psiTPrev_(0),
     psiStarted_(false),
     psiLastSolved_(-GREAT),
-    psiBarForcing_("dynamic"),
     stokesInst_(0),
     stokesForceInst_(Zero),
     stokesMomentInst_(Zero),
     stokesSum_(0),
     stokesForceSum_(Zero),
-    stokesMomentSum_(Zero),
-    psiBarHullForcing_("gradient")
+    stokesMomentSum_(Zero)
 {
     read(dict);
 }
@@ -404,19 +402,18 @@ void Foam::functionObjects::middleFieldForm::readPsiBar(const dictionary& dict)
     psiBarNCorr_ = dict.getOrDefault<label>("psiBarCorrectors", 5);
     psiBarRadius_ = dict.getOrDefault<scalar>("psiBarRadius", -1);
     psiBarSplit_ = dict.getOrDefault<Switch>("psiBarSplit", Switch(true));
-    psiBarForcing_ = dict.getOrDefault<word>("psiBarForcing", "dynamic");
-    if (psiBarForcing_ != "dynamic" && psiBarForcing_ != "kinematic")
+
+    // The dynamic free-surface and gradient-form hull forcing have been
+    // removed (see the class description)
+    for (const word key : {"psiBarForcing", "psiBarHullForcing"})
     {
-        FatalIOErrorInFunction(dict)
-            << "psiBarForcing " << psiBarForcing_
-            << ": dynamic or kinematic" << exit(FatalIOError);
-    }
-    psiBarHullForcing_ = dict.getOrDefault<word>("psiBarHullForcing", "gradient");
-    if (psiBarHullForcing_ != "gradient" && psiBarHullForcing_ != "divergence")
-    {
-        FatalIOErrorInFunction(dict)
-            << "psiBarHullForcing " << psiBarHullForcing_
-            << ": gradient or divergence" << exit(FatalIOError);
+        if (dict.found(key))
+        {
+            WarningInFunction
+                << key << " is obsolete and ignored: the forcing is always"
+                << " kinematic on the free surface and in divergence form on"
+                << " the hull" << endl;
+        }
     }
 
     // Rotation centre of the body motion: linBodyMotion takes the rotations
@@ -481,10 +478,8 @@ void Foam::functionObjects::middleFieldForm::readPsiBar(const dictionary& dict)
 
     label nHull = 0;
     for (const label patchi : psiBarHullIDs_) nHull += pbm[patchi].size();
-    hullForcing_.setSize(nHull, Zero);
     hullP_.setSize(nHull, Zero);
     hullR_.setSize(nHull, Zero);
-    fsForcing_.setSize(pbm[freeSurfacePatchID_].size(), Zero);
     fsQ_.setSize(pbm[freeSurfacePatchID_].size(), Zero);
     psiTAcc_ = 0;
     psiStarted_ = false;
@@ -499,9 +494,7 @@ void Foam::functionObjects::middleFieldForm::readPsiBar(const dictionary& dict)
         << "      rotation ref  " << psiBarRotRef_ << nl
         << "      omega_e       " << omegaE_ << nl
         << "      average from  t = " << psiBarStartTime_ << nl
-        << "      fs radius     " << psiBarRadius_ << nl
-        << "      fs forcing    " << psiBarForcing_ << nl
-        << "      hull forcing  " << psiBarHullForcing_ << endl;
+        << "      fs radius     " << psiBarRadius_ << endl;
 }
 
 
@@ -523,8 +516,6 @@ void Foam::functionObjects::middleFieldForm::accumulatePsiBar()
 
     const auto& U = mesh_.lookupObject<volVectorField>(UName_);
     const auto& zeta = mesh_.lookupObject<volScalarField>(zetaName_);
-    const tmp<volTensorField> tgradU(fvc::grad(U));
-    const volTensorField& gradU = tgradU();
 
     // Body state published by linBodyMotion (global axes); absent for a
     // restrained body, where zero is the right value
@@ -538,10 +529,12 @@ void Foam::functionObjects::middleFieldForm::accumulatePsiBar()
     const vector xiDot(bodyVec("bodyVel"));
     const vector omega(bodyVec("bodyOmega"));
 
-    // Hull: d(psibar)/dn = -[(X.grad)grad(phi)].n - (grad(phi) - Xdot).(theta x n)
-    // with n the patch normal (out of the fluid); the condition holds for
-    // either orientation used consistently, and fixedGradient takes the
-    // derivative along this same normal.
+    // Hull: X_n v_t and -X.(n x omega) for the divergence form, with
+    // X = xi + theta x r, v = u - Xdot and n the patch normal (out of the
+    // fluid; the condition holds for either orientation used consistently,
+    // and fixedGradient takes the derivative along this same normal).
+    // v.n = 0 by the first-order body condition; it is projected so that
+    // only the tangential part enters.
     label off = 0;
     for (const label patchi : psiBarHullIDs_)
     {
@@ -549,54 +542,30 @@ void Foam::functionObjects::middleFieldForm::accumulatePsiBar()
         const vectorField nf(fp.nf());
         const vectorField& Cf = fp.Cf();
         const vectorField& Ub = U.boundaryField()[patchi];
-        const tensorField& gUb = gradU.boundaryField()[patchi];
 
         forAll(nf, i)
         {
             const vector r(Cf[i] - psiBarRotRef_);
             const vector X(xi + (theta ^ r));
             const vector Xdot(xiDot + (omega ^ r));
-
-            // (X & gradU) = (X.grad)u, since gradU_ji = d_j u_i
-            const scalar h =
-              - ((X & gUb[i]) & nf[i])
-              - ((Ub[i] - Xdot) & (theta ^ nf[i]));
-
-            hullForcing_[off + i] += h*dt;
-
-            // Divergence form: X_n v_t (v.n = 0 by the first-order body
-            // condition; projected so that only the tangential part enters)
-            // and the rotation term -X.(n x omega)
             const vector v(Ub[i] - Xdot);
             const vector vt(v - (v & nf[i])*nf[i]);
+
             hullP_[off + i] += (X & nf[i])*vt*dt;
             hullR_[off + i] += -(X & (nf[i] ^ omega))*dt;
         }
         off += nf.size();
     }
 
-    // Free surface: d(psibar)/dz = -zeta d2phi/dz2, d2phi/dz2 = -(du/dx + dv/dy)
-    // (dynamic), and the Stokes transport zeta u_h for the kinematic form and
-    // the mass balance (all faces: the radius cut goes on its divergence)
+    // Free surface: the Stokes transport zeta u_h, on all faces (the radius
+    // cut goes on its divergence)
     {
         const scalarField& zP = zeta.boundaryField()[freeSurfacePatchID_];
-        const tensorField& gUf = gradU.boundaryField()[freeSurfacePatchID_];
         const vectorField& Uf = U.boundaryField()[freeSurfacePatchID_];
-        const vectorField& Cf = mesh_.boundary()[freeSurfacePatchID_].Cf();
 
         forAll(zP, i)
         {
             fsQ_[i] += zP[i]*vector(Uf[i].x(), Uf[i].y(), 0)*dt;
-
-            if (psiBarRadius_ > 0)
-            {
-                vector d(Cf[i] - CofR_);
-                d.z() = 0;
-                if (mag(d) > psiBarRadius_) continue;
-            }
-
-            const scalar phizz = -(gUf[i].xx() + gUf[i].yy());
-            fsForcing_[i] += -zP[i]*phizz*dt;
         }
     }
 
@@ -730,11 +699,7 @@ Foam::functionObjects::middleFieldForm::fsKinematicForcing(scalar& sWL) const
 
 
 Foam::tmp<Foam::scalarField>
-Foam::functionObjects::middleFieldForm::hullDivergenceForcing
-(
-    scalar& qWL,
-    scalar& qRot
-) const
+Foam::functionObjects::middleFieldForm::hullDivergenceForcing() const
 {
     const polyBoundaryMesh& pbm = mesh_.boundaryMesh();
     const vectorField& faceAreas = mesh_.faceAreas();
@@ -765,7 +730,8 @@ Foam::functionObjects::middleFieldForm::hullDivergenceForcing
     // across processors: an edge takes the mean of its two end points, so the
     // two faces either side of it (on any processor) see exactly the same
     // value, normal and length -- the fluxes cancel to round-off and the net
-    // flux is that through the waterline plus the rotation term.
+    // flux is that through the waterline plus the rotation term (checked:
+    // equal to 6 digits on the KVLCC2 mesh).
     vectorField pPoint(hp.nPoints(), Zero);
     vectorField nPoint(hp.nPoints(), Zero);
     scalarField wPoint(hp.nPoints(), Zero);
@@ -789,25 +755,8 @@ Foam::functionObjects::middleFieldForm::hullDivergenceForcing
         nPoint[pi] /= max(mag(nPoint[pi]), VSMALL);
     }
 
-    // Waterline: hull points that are free-surface points
-    labelList isFs(hp.nPoints(), 0);
-    {
-        boolList fsMesh(mesh_.nPoints(), false);
-        for (const label pi : pbm[freeSurfacePatchID_].meshPoints())
-        {
-            fsMesh[pi] = true;
-        }
-        forAll(mp, pi)
-        {
-            if (fsMesh[mp[pi]]) isFs[pi] = 1;
-        }
-        syncTools::syncPointList(mesh_, mp, isFs, maxEqOp<label>(), label(0));
-    }
-
     auto tdiv = tmp<scalarField>::New(hullP_.size(), Zero);
     scalarField& div = tdiv.ref();
-    qWL = 0;
-    qRot = 0;
 
     forAll(lf, fi)
     {
@@ -834,18 +783,11 @@ Foam::functionObjects::middleFieldForm::hullDivergenceForcing
             if (magM < VSMALL) continue;
             m *= mag(e)/magM;
 
-            const scalar fe = (pe & m);
-            flux += fe;
-            if (isFs[a] && isFs[b]) qWL += fe;
+            flux += (pe & m);
         }
 
-        const scalar rot = norm*hullR_[fi];
-        div[fi] = flux/magS + rot;
-        qRot += rot*magS;
+        div[fi] = flux/magS + norm*hullR_[fi];
     }
-
-    reduce(qWL, sumOp<scalar>());
-    reduce(qRot, sumOp<scalar>());
 
     return tdiv;
 }
@@ -1041,42 +983,12 @@ void Foam::functionObjects::middleFieldForm::psiBarOutput()
 
     const scalar norm = 1.0/psiTAcc_;
 
-    // Free-surface forcing, both forms (the other one for the diagnostics)
-    const scalarField fsDyn(norm*fsForcing_);
+    // Boundary forcing; sWL: Stokes transport into the hull at the waterline
     scalar sWL = 0;
-    const tmp<scalarField> tfsKin(fsKinematicForcing(sWL));
-    const scalarField& fsKin = tfsKin();
-    const bool kinematic = (psiBarForcing_ == "kinematic");
-    const scalarField& fsGrad = kinematic ? fsKin : fsDyn;
-
-    const scalarField magSfFs(mag(mesh_.boundary()[freeSurfacePatchID_].Sf()));
-    const scalar qFsDyn = gSum(fsDyn*magSfFs);
-    const scalar qFsKin = gSum(fsKin*magSfFs);
-
-    // Hull forcing, both forms
-    const scalarField hullGradForm(norm*hullForcing_);
-    scalar qHWL = 0, qHRot = 0;
-    const tmp<scalarField> thullDiv(hullDivergenceForcing(qHWL, qHRot));
-    const scalarField& hullDivForm = thullDiv();
-    const bool hullDiv = (psiBarHullForcing_ == "divergence");
-    const scalarField& hullGrad = hullDiv ? hullDivForm : hullGradForm;
-
-    scalar qHGrad = 0, qHDiv = 0;
-    {
-        label off = 0;
-        for (const label patchi : psiBarHullIDs_)
-        {
-            const scalarField magSf(mag(mesh_.boundary()[patchi].Sf()));
-            forAll(magSf, i)
-            {
-                qHGrad += hullGradForm[off + i]*magSf[i];
-                qHDiv += hullDivForm[off + i]*magSf[i];
-            }
-            off += magSf.size();
-        }
-        reduce(qHGrad, sumOp<scalar>());
-        reduce(qHDiv, sumOp<scalar>());
-    }
+    const tmp<scalarField> tfsGrad(fsKinematicForcing(sWL));
+    const tmp<scalarField> thullGrad(hullDivergenceForcing());
+    const scalarField& fsGrad = tfsGrad();
+    const scalarField& hullGrad = thullGrad();
 
     // Strip Stokes transport through the control surface and its momentum
     const scalar sC = norm*stokesSum_;
@@ -1116,8 +1028,6 @@ void Foam::functionObjects::middleFieldForm::psiBarOutput()
             writeHeader(*psiFilePtr_, "psi-bar terms of the mean loads (add to force/moment)");
             writeHeaderValue(*psiFilePtr_, "CofR", CofR_);
             writeHeaderValue(*psiFilePtr_, "averaged from", psiBarStartTime_);
-            writeHeaderValue(*psiFilePtr_, "free-surface forcing", psiBarForcing_);
-            writeHeaderValue(*psiFilePtr_, "hull forcing", psiBarHullForcing_);
             writeHeader
             (
                 *psiFilePtr_,
@@ -1129,15 +1039,9 @@ void Foam::functionObjects::middleFieldForm::psiBarOutput()
             writeTabbed(*psiFilePtr_, "Fpsi_x\tFpsi_y\tFpsi_z\tMpsi_x\tMpsi_y\tMpsi_z");
             writeTabbed(*psiFilePtr_, "Fpsi_fs_x\tFpsi_fs_y\tMpsi_fs_z");
             writeTabbed(*psiFilePtr_, "Fpsi_hull_x\tFpsi_hull_y\tMpsi_hull_z");
-            writeTabbed(*psiFilePtr_, "Q_hull\tQ_fs");
-            writeTabbed(*psiFilePtr_, "Q_fs_dynamic\tQ_fs_kinematic\tS_WL\tS_C\tPhi_C");
+            writeTabbed(*psiFilePtr_, "Q_hull\tQ_fs\tS_WL\tS_C\tPhi_C");
             writeTabbed(*psiFilePtr_, "Fstokes_x\tFstokes_y\tMstokes_z");
             writeTabbed(*psiFilePtr_, "Fmass_x\tFmass_y\tMmass_z");
-            writeTabbed
-            (
-                *psiFilePtr_,
-                "Q_hull_gradient\tQ_hull_divergence\tQ_hull_waterline\tQ_hull_rotation"
-            );
             *psiFilePtr_ << endl;
         }
         writeCurrentTime(*psiFilePtr_);
@@ -1147,25 +1051,16 @@ void Foam::functionObjects::middleFieldForm::psiBarOutput()
             << tab << M.x() << tab << M.y() << tab << M.z()
             << tab << Ffs.x() << tab << Ffs.y() << tab << Mfs.z()
             << tab << Fh.x() << tab << Fh.y() << tab << Mh.z()
-            << tab << qH << tab << qF
-            << tab << qFsDyn << tab << qFsKin << tab << sWL
-            << tab << sC << tab << phiC
+            << tab << qH << tab << qF << tab << sWL << tab << sC << tab << phiC
             << tab << Fst.x() << tab << Fst.y() << tab << Mst.z()
-            << tab << Fm.x() << tab << Fm.y() << tab << Mm.z()
-            << tab << qHGrad << tab << qHDiv << tab << qHWL << tab << qHRot
-            << endl;
+            << tab << Fm.x() << tab << Fm.y() << tab << Mm.z() << endl;
     }
 
-    Log << type() << ' ' << name() << " psiBar (" << nPer << " periods, "
-        << psiBarForcing_ << " free-surface forcing, "
-        << psiBarHullForcing_ << " hull forcing):" << nl
-        << "    Q_hull: gradient form " << qHGrad << ", divergence form " << qHDiv
-        << " = waterline " << qHWL << " + rotation " << qHRot << nl
+    Log << type() << ' ' << name() << " psiBar (" << nPer << " periods):" << nl
         << "    F_psi " << F << "  (should be small: G&P eq.15)" << nl
         << "    Mz_psi " << M.z() << "  (free surface " << Mfs.z()
         << ", hull " << Mh.z() << ")" << nl
-        << "    net flux Q: hull " << qH << ", free surface " << qF
-        << "  (dynamic " << qFsDyn << ", kinematic " << qFsKin << ")" << nl
+        << "    net flux Q: hull " << qH << ", free surface " << qF << nl
         << "    mass, control volume: Phi_C + S_C = " << phiC << " + " << sC
         << " = " << phiC + sC << nl
         << "    mass, hull:          Q_hull + S_WL = " << qH << " + " << sWL

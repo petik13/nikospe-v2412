@@ -49,20 +49,17 @@ Seo et al. plot the added resistance, which is -X.
 psi-bar.  When the drift-load function object ran with psiBar on
 (middleFieldForm), postProcessing/<fo>/*/psiBar.dat holds the contribution of
 the mean second-order potential (Grue & Palm 1993), averaged over the same
-last 6 encounter periods.  Its last row gives the psi-bar yaw moment, which is
-added to N: the printed total, the sweep file and the csv include it
-(--noPsiBar leaves it out).  The psi-bar forces X, Y are printed but NOT added
-(--psiBarForces adds both, --psiBarForces X only X): X_psi comes out as
--rho U Q, Q the net source of
-psibar, and Q should vanish for a body doing no net work (Grue & Palm 1993,
-section 3).  The Q of the runs so far is far too large for that, i.e. a
-mass-conservation error of the free-surface forcing (the dynamic form
--<zeta phi_zz> instead of the kinematic div<zeta grad phi>, which differ at
-forward speed); to be revisited.  N is hardly affected: a source on the centre
-line in a stream along the ship axis gives no yaw moment.  Z is not corrected
-either -- the vertical psi-bar force needs psibar on the hull itself.
-The contribution is listed as a fourth part next to surface / elevation /
-strip, with its free-surface and hull parts.  Derivation:
+last 6 encounter periods; its columns are read by name, so every version of
+the file works.  Its last row gives the psi-bar yaw moment, which is added to
+N: the printed total, the sweep file and the csv include it (--noPsiBar leaves
+it out).  It is listed as a fourth part next to surface / elevation / strip,
+with its free-surface and hull parts.  The psi-bar forces X, Y are printed but
+not added.  In a stream along the ship axis X_psi is the momentum
+-rho W Phi_C of the net psibar flux through the control surface, so it carries
+any residual of the mean mass balance; the mass-consistent surge force is
+X - Fstokes_X (printed, from the strip only, for runs whose psiBar.dat has the
+mass-balance columns).  Z is not corrected -- the vertical psi-bar force needs
+psibar on the hull itself.  Derivation and checks:
 researchQuestions/psibarMidfield.ipynb.
 
 The motion RAOs are amplitudes and do not depend on the axes.
@@ -150,6 +147,28 @@ def load(pattern):
     d = d[np.argsort(d[:, 0])]
     _, keep = np.unique(d[:, 0], return_index=True)
     return d[keep]
+
+
+def load_psibar(pattern):
+    """Last row of psiBar.dat as (row, {column name: index}), the names from
+    the file's own header, so every version of the file works."""
+    best = None
+    for f in sorted(glob.glob(pattern)):
+        names, last = None, None
+        for line in open(f, errors="ignore"):
+            if line.startswith("# Time"):
+                names = line[1:].split()
+            elif line.strip() and not line.startswith("#"):
+                last = line
+        if names is None or last is None:
+            continue
+        try:
+            row = np.array([float(v) for v in last.split()])
+        except ValueError:
+            continue
+        if best is None or row[0] > best[0][0]:
+            best = (row, {n: i for i, n in enumerate(names) if i < len(row)})
+    return best
 
 
 # ------------------------------------------------------------- harmonics ----
@@ -344,22 +363,12 @@ def main():
     ap.add_argument("--fo", default="meanLoads", help="drift-load function object")
     ap.add_argument("--noPsiBar", action="store_true",
                     help="leave the psi-bar terms (psiBar.dat) out of the totals")
-    ap.add_argument("--psiBarForces", nargs="?", const="XY", default="", metavar="XY",
-                    help="also add the psi-bar forces: X, Y or XY (no value: XY; off by"
-                         " default -- suspected mass-conservation error, see the docstring)")
     ap.add_argument("--append", default=None,
                     help="append one summary row to this file, for a sweep")
     ap.add_argument("--csv", default=None, metavar="PATH",
                     help="also collect lam/L,U,heading,F1,F2,Mz into one csv "
                          "(a directory gets meanLoads.csv inside it)")
     a = ap.parse_args()
-    a.psiBarForces = a.psiBarForces.upper()
-    if set(a.psiBarForces) - set("XY"):
-        sys.exit(f"--psiBarForces: X, Y or XY, not {a.psiBarForces}")
-    global PSI_NOTE
-    PSI_NOTE = ("F6 includes the psi-bar yaw moment of runs that computed it;"
-                + (" F1, F2 do not" if not a.psiBarForces else
-                   " so do " + ", ".join({"X": "F1", "Y": "F2"}[c] for c in a.psiBarForces)))
 
     wc = read_dict("constant/waveConditions")
     bd = read_dict("constant/bodyMotionProperties")
@@ -411,7 +420,7 @@ def main():
     M = load(f"postProcessing/{a.fo}/*/moment.dat")
     mot = load("postProcessing/bodyMotion/motion.dat")
     # psi-bar terms: one row per field write and one at the end of the run
-    Pb = None if a.noPsiBar else load(f"postProcessing/{a.fo}/*/psiBar.dat")
+    Pb = None if a.noPsiBar else load_psibar(f"postProcessing/{a.fo}/*/psiBar.dat")
 
     avail = [d for d in (F, M, mot) if d is not None]
     if not avail:
@@ -437,7 +446,7 @@ def main():
         rule(f"MEAN WAVE DRIFT LOAD, MMG axes, encounter angle mu {mu_run:.4g} deg")
         print(f"  {'':<14s} {'value':>13s} {'non-dim':>10s}     contributions"
               f" (surface / elevation / strip"
-              + (" / psibar)" if Pb is not None and Pb.shape[1] >= 8 else ")"))
+              + (" / psibar)" if Pb is not None else ")"))
         m = (F[:, 0] >= lo) & (F[:, 0] <= hi)
 
         # The function object integrates in mesh axes, where +x is the wave
@@ -460,20 +469,25 @@ def main():
         parts["X"], parts["Y"] = list(parts["X"]), list(parts["Y"])
         noPsi = {"X": tots["X"], "Y": tots["Y"]}
 
-        # psi-bar terms (last row of psiBar.dat), mesh axes -> MMG as above
+        # psi-bar terms (last row of psiBar.dat, columns by name), mesh axes ->
+        # MMG as above; the forces are reported, not added
         psiB = None
-        if Pb is not None and Pb.shape[1] >= 8:
-            r_ = Pb[-1]
-            psiB = {"t": r_[0], "per": r_[1],
-                    "X": -(r_[2] * cps - r_[3] * sps), "Y": r_[2] * sps + r_[3] * cps,
-                    "N": -r_[7],
-                    "Nfs": -r_[10] if Pb.shape[1] > 13 else np.nan,
-                    "Nhull": -r_[13] if Pb.shape[1] > 13 else np.nan,
-                    "Q": (r_[14], r_[15]) if Pb.shape[1] > 15 else (np.nan, np.nan)}
-            for key in ("X", "Y"):
-                if key in a.psiBarForces:
-                    tots[key] += psiB[key]
-                    parts[key].append(psiB[key])
+        if Pb is not None:
+            r_, col = Pb
+
+            def val(name):
+                return r_[col[name]] if name in col else np.nan
+
+            def mmg(cx, cy):
+                fx, fy = val(cx), val(cy)
+                return -(fx * cps - fy * sps), fx * sps + fy * cps
+
+            psiB = {"t": r_[0], "per": val("periods"), "N": -val("Mpsi_z"),
+                    "Nfs": -val("Mpsi_fs_z"), "Nhull": -val("Mpsi_hull_z"),
+                    "Qhull": val("Q_hull"), "Qfs": val("Q_fs"),
+                    "SWL": val("S_WL"), "SC": val("S_C"), "PhiC": val("Phi_C"),
+                    "Xstokes": mmg("Fstokes_x", "Fstokes_y")[0]}
+            psiB["X"], psiB["Y"] = mmg("Fpsi_x", "Fpsi_y")
         tots["Z"] = -fit(F[m, 0], F[m, 3], 2 * we, a.nharm)[0]
         parts["Z"] = [-fit(F[m, 0], F[m, 3 + o], 2 * we, a.nharm)[0]
                       for o in (3, 6, 9)]
@@ -482,8 +496,7 @@ def main():
             tot = tots[key]
             print(f"  {name:<14s} {tot:+13.6g} {tot/den_F:+10.4f}     "
                   + " / ".join(f"{p/den_F:+7.4f}" for p in parts[key])
-                  + (" /       -" if psiB is not None and (key == "Z" or key not in a.psiBarForces)
-                     else "")
+                  + (" /       -" if psiB is not None else "")
                   + "   [N]")
         print(f"  {'':<14s} added resistance -X/den = {-tots['X']/den_F:+.4f}")
         Nz = None
@@ -502,34 +515,19 @@ def main():
             print(f"  psibar         psiBar.dat at t = {psiB['t']:.4g} s, averaged over"
                   f" {psiB['per']:.2f} encounter periods; N = free surface"
                   f" {psiB['Nfs']/den_M:+.4f} + hull {psiB['Nhull']/den_M:+.4f}")
-            print(f"                 net flux Q: hull {psiB['Q'][0]:+.3g}, free surface"
-                  f" {psiB['Q'][1]:+.3g} m^3/s"
-                  + (f";  N without psibar {noPsi['N']/den_M:+.4f}" if 'N' in noPsi else ""))
-            print("                 psibar forces:"
-                  + "".join(f"  {c} {psiB[c]/den_F:+.4f} ("
-                            + ("added" if c in a.psiBarForces else "not added") + ")"
-                            for c in "XY")
-                  + (f";  without them X {noPsi['X']/den_F:+.4f}  Y {noPsi['Y']/den_F:+.4f}"
-                     if a.psiBarForces else "  (X ~ -rho U Q; --psiBarForces adds them)"))
-            if Pb.shape[1] > 26:
-                # mass balance: 16 Q_fs_dynamic, 17 Q_fs_kinematic, 18 S_WL, 19 S_C,
-                # 20 Phi_C, 21-23 Fstokes x y, Mstokes z, 24-26 Fmass x y, Mmass z
-                qFd, qFk, sWL, sC, phiC = r_[16:21]
-                Xst = -(r_[21] * cps - r_[22] * sps)
-                Xm = -(r_[24] * cps - r_[25] * sps)
-                print(f"                 mass balance: control volume Phi_C + S_C = {phiC:+.3g}"
-                      f" {sC:+.3g} = {phiC + sC:+.3g};  hull Q_hull + S_WL ="
-                      f" {psiB['Q'][0]:+.3g} {sWL:+.3g} = {psiB['Q'][0] + sWL:+.3g} m^3/s")
-                print(f"                 Q_fs dynamic {qFd:+.3g}, kinematic {qFk:+.3g} m^3/s;"
-                      f"  X: strip Stokes {Xst/den_F:+.4f} + psibar mass flux"
-                      f" {Xm/den_F:+.4f} = {(Xst + Xm)/den_F:+.4f}")
-                print(f"                 X with a mass-consistent psibar (X - Fstokes_X):"
-                      f" {(noPsi['X'] - Xst)/den_F:+.4f}  (information only)")
-            if Pb.shape[1] > 30:
-                # 27 Q_hull gradient form, 28 divergence form = 29 waterline + 30 rotation
-                qHg, qHd, qHw, qHr = r_[27:31]
-                print(f"                 Q_hull: gradient form {qHg:+.3g}, divergence form"
-                      f" {qHd:+.3g} (waterline {qHw:+.3g} + rotation {qHr:+.3g}) m^3/s")
+            if 'N' in noPsi:
+                print(f"                 N without psibar {noPsi['N']/den_M:+.4f}")
+            print(f"                 psibar forces (not added): X {psiB['X']/den_F:+.4f}"
+                  f"  Y {psiB['Y']/den_F:+.4f}")
+            if np.isfinite(psiB["SWL"]):
+                print(f"                 mass balance [m^3/s]: control volume Phi_C + S_C ="
+                      f" {psiB['PhiC'] + psiB['SC']:+.3g};  hull Q_hull + S_WL ="
+                      f" {psiB['Qhull'] + psiB['SWL']:+.3g}  (S_WL {psiB['SWL']:+.3g})")
+                print(f"                 mass-consistent surge force X - Fstokes_X ="
+                      f" {(noPsi['X'] - psiB['Xstokes'])/den_F:+.4f}")
+            else:
+                print(f"                 net flux Q: hull {psiB['Qhull']:+.3g}, free surface"
+                      f" {psiB['Qfs']:+.3g} m^3/s (older psiBar.dat: no mass balance)")
             if abs(psiB["t"] - hi) > 0.5 * Te:
                 print(f"  WARNING: psiBar.dat ends at t = {psiB['t']:.4g} s, the fit window"
                       f" at {hi:.4g} s")

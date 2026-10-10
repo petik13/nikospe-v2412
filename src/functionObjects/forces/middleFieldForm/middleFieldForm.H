@@ -48,62 +48,57 @@ Description
     (Chen's Eq.(43) lacks the (W.n) grad psibar term; it is needed for the
     flux to be conserved).  Without a net source this gives no horizontal force
     (Grue & Palm 1993, eq.15), but it does give a yaw moment, O(U): a Munk-type
-    moment of the mean second-order flow in the steady stream.  psibar is solved
-    at leading order in U from running means of its boundary forcing,
+    moment of the mean second-order flow in the steady stream.  On a distant
+    control surface the moment is the psi(2) term of G&P (19); the near field
+    misses only the smaller part (92) of it, so SWAN-type pressure integration
+    without psibar is closer than the midfield without it.  The result goes to
+    psiBar.dat (force.dat and moment.dat are unchanged).  Read the yaw moment
+    only, as for the other terms.  Derivation and checks:
+    researchQuestions/psibarMidfield.ipynb.
 
-        d(psibar)/dz = -<zeta d2phi/dz2>              on z = 0   (G&P 10/47)
-        d(psibar)/dn = -<[(X.grad)grad(phi)].n>
-                       - <(grad(phi) - Xdot).(theta x n)>         on the hull (G&P 12)
+    psibar is solved at leading order in U from running means of its boundary
+    forcing, psibar = 0 on the far field and zero gradient elsewhere
+    (G&P 46-49):
 
-    with X = xi + theta x (r - rRef) from the linBodyMotion body state
-    (bodyDisp, bodyRot, bodyVel, bodyOmega), psibar = 0 on the far field and
-    zero gradient elsewhere (G&P 46-49).  On a distant control surface the
-    moment is the psi(2) term of G&P (19); the near field misses only the
-    smaller part (92) of it, so SWAN-type pressure integration without
-    psibar is closer than the midfield without it.  The result goes to
-    psiBar.dat (force.dat and
-    moment.dat are unchanged).  Derivation: researchQuestions/psibarMidfield.ipynb.
-    Read the yaw moment only, as for the other terms.
+        d(psibar)/dz = div_h <zeta u_h>                         on z = 0
+        d(psibar)/dn = div_S <X_n v> - <X.(n x omega)>          on the hull
 
-    psiBarForcing picks the free-surface forcing: dynamic (above, the
-    default) or kinematic,
+    with X = xi + theta x (r - rRef), Xdot and omega from the linBodyMotion
+    body state (bodyDisp, bodyRot, bodyVel, bodyOmega), X_n = X.n and
+    v = u - Xdot, tangential by the first-order body condition.
 
-        d(psibar)/dz = div_h <zeta grad_h(phi)>                on z = 0
+    - Free surface: the mean of the second-order kinematic condition without
+      the mean-elevation terms.  At zero speed it equals G&P (10/47),
+      -<zeta d2phi/dz2>; at forward speed the two differ by a divergence of
+      O(U).  This form conserves mass by construction: its integral over a
+      free-surface region is the Stokes transport through the edge.
+    - Hull: G&P (12), -<[(X.grad)grad(phi)].n> - <(grad(phi) - Xdot).(theta x n)>,
+      rewritten with Laplace, the first-order body condition and rigid-body
+      motion; the two are equal pointwise.  This form needs no second
+      derivatives at the wall.  G&P (12) as written did: on the coarse KVLCC2
+      hull (2044 faces) its net flux broke the hull mass balance by 127% of
+      the waterline Stokes transport, against 21% for this form, and gave a
+      spurious surge force -rho W Q of half the drift force.
 
-    the mean of the second-order kinematic condition without the mean
-    elevation terms.  At zero speed the two are equal (<grad zeta.grad phi>
-    = -d/dt <|grad phi|^2>/2g = 0); at forward speed they differ by a
-    divergence of O(U).  The kinematic form conserves mass by construction:
-    its integral over a free-surface region is the Stokes transport through
-    the edge of that region.  It is computed as the conservative surface
-    divergence of the running mean of zeta u_h on the free-surface faces.
+    Both are conservative surface divergences of the running means (zeta u_h
+    on the free-surface faces; X_n v_t on the hull faces, through point values
+    so the edge fluxes cancel exactly across faces and processors).
 
-    Mass-balance diagnostics (psiBar.dat, the columns after Q_fs).  With
-    S_C = int_C <zeta u.n> dl the Stokes transport out through the control
-    surface (its strip), S_WL the same out of the free surface into the hull
-    across the waterline and Phi_C = int_Sc d(psibar)/dn dS,
+    Mass balance (psiBar.dat).  With S_C = int_C <zeta u.n> dl the Stokes
+    transport out through the control surface (its strip), S_WL the same out
+    of the free surface into the hull across the waterline and
+    Phi_C = int_Sc d(psibar)/dn dS,
 
         Phi_C + S_C = 0       no net mean mass flux out of the control volume
         Q_hull + S_WL = 0     no net mean mass flux into the hull
 
-    With the kinematic forcing the first reduces to the second.  The
-    Stokes-transport part of the strip term, Fstokes = -rho int_C <zeta u.n> W dl,
-    cancels the matching psi-bar part, Fmass = -rho int_Sc (grad psibar.n) W dS,
-    when the first balance holds; otherwise their sum is ~ -rho W (Phi_C + S_C).
-
-    psiBarHullForcing picks the form of the hull condition: gradient (G&P 12
-    as above, the default) or divergence,
-
-        d(psibar)/dn = div_S <X_n v> - <X.(n x omega)>,   v = grad(phi) - Xdot
-
-    with X_n = X.n, v tangential (first-order body condition) and omega the
-    body angular velocity.  The two are equal pointwise for rigid-body motion
-    and an exact first-order solution (Laplace and the first-order body
-    condition remove the second derivatives; checked on a translating and
-    rotating sphere), but the divergence form needs no second derivatives at
-    the wall.  It is computed as the conservative edge divergence over the
-    hull faces, so its net flux is exactly that through the waterline plus
-    the rotation term (Q_hull_waterline, Q_hull_rotation in psiBar.dat).
+    (the first reduces to the second here).  The Stokes-transport part of the
+    strip term, Fstokes = -rho int_C <zeta u.n> W dl, cancels the matching
+    psi-bar part, Fmass = -rho int_Sc (grad psibar.n) W dS, when they hold;
+    otherwise their sum is ~ -rho W (Phi_C + S_C).  In a stream along the ship
+    axis the psi-bar surge force IS Fmass (the other terms have no component
+    along W), so it carries any residual of the balance; the mass-consistent
+    surge force is X - Fstokes_X, which needs only the strip.
 
     The time average is not taken here: instantaneous values are written every
     step and averaged in post-processing, which lets the mean be extracted by a
@@ -139,8 +134,6 @@ Usage
       psiBarSolver     | fvSolution solver entry            | no   | PhiS
       psiBarCorrectors | Non-orthogonal correctors          | no   | 5
       psiBarSplit      | Also solve free-surface and hull forcing apart | no | true
-      psiBarForcing    | Free-surface forcing: dynamic or kinematic | no | dynamic
-      psiBarHullForcing | Hull forcing: gradient or divergence | no | gradient
     \endtable
 
     psibar is solved at every field-write time and at the end of the run.
@@ -250,24 +243,17 @@ protected:
         point psiBarRotRef_;
         scalar omegaE_;
 
-        //- Running time integrals of the boundary forcing: hull faces (all
-        //  hull patches in order) and free-surface faces
-        scalarField hullForcing_;
-        scalarField fsForcing_;
+        //- Length of the running time integrals below
         scalar psiTAcc_;
         scalar psiTPrev_;
         bool psiStarted_;
         scalar psiLastSolved_;
 
-        //- Free-surface forcing: dynamic (-<zeta phi_zz>, G&P 47) or
-        //  kinematic (div_h <zeta grad_h phi>, mass conserving)
-        word psiBarForcing_;
-
-        //- Mass-balance diagnostics: running time integral of the Stokes
-        //  transport zeta u_h on each free-surface face (all faces, no radius
-        //  cut), and the Stokes transport through the control surface (the
-        //  strip) with its momentum -rho zeta (u.n) W: instantaneous (this
-        //  step, reduced) and running time integral
+        //- Running time integral of the Stokes transport zeta u_h on each
+        //  free-surface face (all faces; the radius cut goes on its
+        //  divergence), and the Stokes transport through the control surface
+        //  (the strip) with its momentum -rho zeta (u.n) W: instantaneous
+        //  (this step, reduced) and running time integral
         vectorField fsQ_;
         scalar stokesInst_;
         vector stokesForceInst_;
@@ -276,12 +262,7 @@ protected:
         vector stokesForceSum_;
         vector stokesMomentSum_;
 
-        //- Hull forcing: gradient (G&P 12 as written) or divergence
-        //  (div_S <X_n v> - <X.(n x omega)>, the same condition without
-        //  second derivatives)
-        word psiBarHullForcing_;
-
-        //- Running time integrals for the divergence form, per hull face (all
+        //- Running time integrals of the hull forcing, per hull face (all
         //  hull patches in order): X_n v_t and -X.(n x omega)
         vectorField hullP_;
         scalarField hullR_;
@@ -316,15 +297,14 @@ protected:
         void readPsiBar(const dictionary& dict);
         void accumulatePsiBar();
 
-        //- Kinematic free-surface forcing div_h <zeta u_h> per free-surface
-        //  face (radius cut applied); sWL returns the Stokes transport across
-        //  the waterline into the hull (reduced)
+        //- Free-surface forcing div_h <zeta u_h> per free-surface face
+        //  (radius cut applied); sWL returns the Stokes transport across the
+        //  waterline into the hull (reduced)
         tmp<scalarField> fsKinematicForcing(scalar& sWL) const;
 
-        //- Divergence-form hull forcing per hull face (all hull patches in
-        //  order); qWL, qRot return its flux out through the waterline and
-        //  the integral of the rotation term (reduced)
-        tmp<scalarField> hullDivergenceForcing(scalar& qWL, scalar& qRot) const;
+        //- Hull forcing div_S <X_n v> - <X.(n x omega)> per hull face (all
+        //  hull patches in order)
+        tmp<scalarField> hullDivergenceForcing() const;
 
         //- fsGrad, hullGrad: d(psibar)/dn per free-surface / hull face (used
         //  if useFs / useHull).  phiC, Fmass, Mmass: flux of psibar out
