@@ -50,7 +50,8 @@ Loads (all non-dimensional, MMG axes):
              waterline corner through P)
     cen      the centripetal part of rot (waterline corner only; written by
              middleFieldFormRot with cornerTerm on, absent in older runs)
-    near     near-field (not reliable, for comparison only)
+    near     near-field pressure integration (csv only, not plotted: not
+             reliable)
     table    the straight-course table at the same encounter angle
 
 Plot: folded onto mu in [0, 180] (waves from starboard).  Waves from port
@@ -503,7 +504,6 @@ def main():
               ("rot2", "--", "tab:cyan", "tab:brown", "same, large CV"),
               ("chen", ":", "tab:green", "tab:olive", "Chen only (uncorrected)"),
               ("table", "-", "k", "k", "straight-course table"),
-              ("near", ":", "tab:red", "tab:pink", "near-field"),
               ("cen", ":", "tab:purple", "tab:gray", "centripetal part (waterline corner)"))
 
     # contiguous pieces with the same side, so the folded curve runs without
@@ -544,13 +544,18 @@ def main():
         ax.set_ylabel(lab, fontsize=9)
         ax.set_xlim(0, 180)
         ax.grid(True)
-    axs[0].legend(fontsize=7)
     axs[-1].set_xlabel("encounter angle mu [deg] (MMG: 0 head sea, 90 waves from starboard);"
                        "\nwaves from port folded to 360 - mu with Y and N sign-flipped",
                        fontsize=9)
     axs[0].set_title(f"CMT  u={u} v={v} r={r}   lam={lam} m   (MMG axes)")
     fig.tight_layout()
-    fig.savefig(f"cmt_meanLoads{a.tag}.png", dpi=150)
+    # One legend for all panels, below them, clear of the curves (every curve
+    # is in every panel; the yaw-rate ramp is labelled in the first)
+    handles, labels = axs[0].get_legend_handles_labels()
+    if handles:
+        fig.legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, 0.0),
+                   ncol=2, fontsize=8, frameon=False)
+    fig.savefig(f"cmt_meanLoads{a.tag}.png", dpi=150, bbox_inches="tight")
     print(f"  wrote cmt_meanLoads{a.tag}.png")
 
 
