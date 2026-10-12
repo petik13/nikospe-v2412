@@ -292,7 +292,7 @@ cdpath = os.path.join('system', 'controlDict')
 hf.console("Modifying controlDict")
 update_file('deltaT', f'{deltaT:.5f}', path=cdpath)
 update_file('endTime', f'{endTime:.2f}', path=cdpath)
-update_file('writeInterval', f'{25.0:.2f}', path=cdpath)
+update_file('writeInterval', f'{100.0:.2f}', path=cdpath)
 update_file('cvPoint', f'({xbody} 0 { -draft/2})', path=cdpath)
 update_file('CofR', f'({xbody} 0 0)', path=cdpath)
 # psiBar (middleFieldForm): free-surface forcing only within 2.5 lambda of the
