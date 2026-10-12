@@ -165,11 +165,17 @@ update_file('Ucur', f' = {Ucur}', path=mvpath, endl='')
 # -- Modify topoSetDict
 tsdpath = os.path.join('system', 'topoSetDict')
 hf.console("Modifying topoSetDict")
-l1 = 1.2
-update_file('xmin', xbody - l1*L_2, path=tsdpath)
-update_file('xmax', xbody + l1*L_2, path=tsdpath)
-update_file('ymin', -l1*L_2, path=tsdpath)
-update_file('ymax', l1*L_2, path=tsdpath)
+# Box with its sides along the mesh axes, around the rotated hull: the L x B
+# waterplane rectangle about midship (bow along (-cos h, sin h)), plus a
+# clearance of cv_clear*L on each side
+cv_clear = 0.2
+cv_hx = L_2*abs(np.cos(head_ang)) + 0.5*B*abs(np.sin(head_ang)) + cv_clear*2*L_2
+cv_hy = L_2*abs(np.sin(head_ang)) + 0.5*B*abs(np.cos(head_ang)) + cv_clear*2*L_2
+hf.console(f"Control volume: x +-{cv_hx:.3f} m, y +-{cv_hy:.3f} m about the hull")
+update_file('xmin', xbody - cv_hx, path=tsdpath)
+update_file('xmax', xbody + cv_hx, path=tsdpath)
+update_file('ymin', -cv_hy, path=tsdpath)
+update_file('ymax', cv_hy, path=tsdpath)
 update_file('zmin', -1.5*draft, path=tsdpath)
 update_file('zmax', zmax, path=tsdpath)
 
