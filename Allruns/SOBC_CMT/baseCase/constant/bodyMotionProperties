@@ -78,7 +78,10 @@ addedMass           (0.1 0.5 1.4 0.3 1.3 0.5);
 // Drive A from the previous TIME STEP (true) or the previous CORRECTOR
 // (false).  Keep addedMassFromTimeStep false to enable subiterations with the non-orthogonal correctors.
 addedMassFromTimeStep   false;
-steadyRestoring         true;
+// Off: with it on, the SOBC heave RAO near resonance came out ~20% above the
+// Steen et al. (2025) model tests (lam/L 1, 1.364 m/s: 0.61 -> 0.58 without it,
+// measured ~0.58); the steady-pressure restoring is untested.
+steadyRestoring         false;
 
 // m-terms.  mTermsFromSurface picks the in-surface least-squares evaluation of
 // (n.grad)W over the legacy volume-gradient one.  The legacy route is
