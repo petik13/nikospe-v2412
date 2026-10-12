@@ -80,10 +80,10 @@ addedMass           (0.01 1 1 0.3 0.5 0.5);
 // Drive A from the previous TIME STEP (true) or the previous CORRECTOR
 // (false).  Keep addedMassFromTimeStep false to enable subiterations with the non-orthogonal correctors.
 addedMassFromTimeStep   false;
-// Off: with it on, the SOBC heave RAO near resonance came out ~20% above the
-// Steen et al. (2025) model tests (lam/L 1, 1.364 m/s: 0.61 -> 0.58 without it,
-// measured ~0.58); the steady-pressure restoring is untested.
-steadyRestoring         false;
+// Keep on: it is the force-side partner of the m-terms.  Switched off (test
+// 2026-10-12) the SOBC sway/yaw/roll grew without bound from U ~ 0.6 m/s
+// (Series_4000_T11.16_Hs3.24).
+steadyRestoring         true;
 
 // m-terms.  mTermsFromSurface picks the in-surface least-squares evaluation of
 // (n.grad)W over the legacy volume-gradient one.  The legacy route is
