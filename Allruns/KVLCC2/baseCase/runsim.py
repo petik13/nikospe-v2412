@@ -223,19 +223,26 @@ update_file('boxstart', xbody - l4*L_2, path='system/topoSetDict.4')
 update_file('boxend', xbody + l4*L_2, path='system/topoSetDict.4')
 update_file('zbox', max(1.8*draft, 0.18*lam), path='system/topoSetDict.4')
 
+# -- Modify topoSetDict.5 and .6: like the control volume, rectangles with their
+# sides along the mesh axes around the rotated hull, with a clearance of
+# ref_clear*L on each side (.6 keeps the control volume 0.2 L inside it)
 # -- Modify topoSetDict.5
-l4 = 2.0
-update_file('ybox', l4*L_2, path='system/topoSetDict.5')
-update_file('boxstart', xbody - l4*L_2, path='system/topoSetDict.5')
-update_file('boxend', xbody + l4*L_2, path='system/topoSetDict.5')
+ref_clear = 0.5
+ref_hx = L_2*abs(np.cos(head_ang)) + 0.5*B*abs(np.sin(head_ang)) + ref_clear*2*L_2
+ref_hy = L_2*abs(np.sin(head_ang)) + 0.5*B*abs(np.cos(head_ang)) + ref_clear*2*L_2
+update_file('ybox', ref_hy, path='system/topoSetDict.5')
+update_file('boxstart', xbody - ref_hx, path='system/topoSetDict.5')
+update_file('boxend', xbody + ref_hx, path='system/topoSetDict.5')
 update_file('zbox', max(1.6*draft, 0.16*lam), path='system/topoSetDict.5')
 
 
 # -- Modify topoSetDict.6
-l4 = 1.6
-update_file('ybox', l4*L_2, path='system/topoSetDict.6')
-update_file('boxstart', xbody - l4*L_2, path='system/topoSetDict.6')
-update_file('boxend', xbody + l4*L_2, path='system/topoSetDict.6')
+ref_clear = 0.3
+ref_hx = L_2*abs(np.cos(head_ang)) + 0.5*B*abs(np.sin(head_ang)) + ref_clear*2*L_2
+ref_hy = L_2*abs(np.sin(head_ang)) + 0.5*B*abs(np.cos(head_ang)) + ref_clear*2*L_2
+update_file('ybox', ref_hy, path='system/topoSetDict.6')
+update_file('boxstart', xbody - ref_hx, path='system/topoSetDict.6')
+update_file('boxend', xbody + ref_hx, path='system/topoSetDict.6')
 update_file('zbox', max(1.4*draft, 0.12*lam), path='system/topoSetDict.6')
 
 # -- Modify topoSetDict.7

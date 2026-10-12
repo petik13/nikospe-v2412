@@ -1,38 +1,29 @@
 #!/usr/bin/env python3
 """
-Collect the mean wave loads of all cases in a directory into two manModel
-tables (MMG axes, the format of meanLoads.py --csv):
+Collect the mean wave loads of all cases in a directory into one manModel
+table, results.csv (MMG axes, the format of meanLoads.py --csv).
 
-    results.csv      X, Y without the psi-bar terms; N with the psi-bar yaw moment
-    results_psi.csv  the same, except that X includes the psi-bar surge force
-
-(Why X is kept apart: in a stream along the ship axis the psi-bar surge force
-is the momentum -rho W Phi_C of the net psibar flux through the control
-surface, so it carries any residual of the mean mass balance -- see
-meanLoads.py, which also prints the mass-consistent surge force X - Fstokes_X.
-With the gradient-form hull forcing of the first psiBar runs that residual was
-large and X_psi spurious, about -0.55 at 60 deg, lam/L 1.)
+The rows are exactly what meanLoads.py writes: X, Y and N include the psi-bar
+terms of runs whose psiBar.dat was written with the divergence-form hull
+forcing (middleFieldForm since 2026-10-10).  Older psiBar runs (gradient-form
+hull forcing, spurious psi-bar surge force) have the psi-bar yaw moment in N
+only; runs without psiBar.dat have no psi-bar term at all.  Both groups are
+listed in comment lines of the file, since at forward speed their X lacks the
+return-flow term (see meanLoads.py).
 
 A case is a subdirectory with constant/waveConditions and
 postProcessing/<fo>/*/force.dat; baseCase and cases that have not run are
 skipped.  Each case is processed once by meanLoads.py --fo <fo> --csv, run in
 the case directory: the current baseCase/meanLoads.py if there is one next to
 this script, in DIR or in its parent (so not a case's own, possibly older,
-copy), else each case's own meanLoads.py.  That gives results.csv.
+copy), else each case's own meanLoads.py.
 
-results_psi.csv is results.csv with the psi-bar surge force added to F1mean.
-It is read here from the last row of postProcessing/<fo>/*/psiBar.dat and
-converted exactly as meanLoads.py does (mesh axes -> MMG X, divided by
-rho g A^2 B^2 / L), so any meanLoads.py version that handles psiBar.dat works.
-
-Both files are written fresh; existing ones are kept as <name>.bak.  A case
-without psiBar.dat (psiBar off) gives the same row in both files and no
-psi-bar term at all; they are listed in a comment line of the files.  Rows are
-keyed on (lam/L, U, heading): if two cases share a key, the later one
+The file is written fresh; an existing one is kept as results.csv.bak.  Rows
+are keyed on (lam/L, U, heading): if two cases share a key, the later one
 (alphabetically) wins and a warning names both.
 
-usage: run it in (or point it at) a directory of cases; the two tables are
-written there:
+usage: run it in (or point it at) a directory of cases; the table is written
+there:
     cd <directory of cases> && python3 collectResults.py      # a copy of it, or ../collectResults.py
     python3 collectResults.py <directory of cases>
     python3 collectResults.py --fo meanLoads2                  # another load function object
@@ -47,7 +38,6 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-RHO, G = 1000.0, 9.81
 
 
 def read_dict(path):
@@ -74,32 +64,8 @@ def table_key(wc, bd):
     mu = (360.0 - h) % 360.0
     if mu > 180.0 + 1e-9:
         mu = 360.0 - mu
-    return (round(wc["waveLength"] / bd.get("Lpp", 1.0), 6),
-            round(wc["currentSpeed"], 6), round(mu, 6))
-
-
-def psi_surge(case, fo, wc, bd):
-    """psi-bar surge force X_psi / (rho g A^2 B^2 / L) from the last row of
-    psiBar.dat, as meanLoads.py: X = -(Fx cos psi - Fy sin psi), psi = -heading.
-    None without psiBar.dat."""
-    rows = []
-    for p in glob.glob(os.path.join(case, "postProcessing", fo, "*", "psiBar.dat")):
-        for line in open(p, errors="ignore"):
-            if line.startswith("#") or not line.strip():
-                continue
-            try:
-                rows.append([float(v) for v in line.split()])
-            except ValueError:
-                pass
-    rows = [r for r in rows if len(r) >= 8]
-    if not rows:
-        return None
-    r = max(rows, key=lambda r: r[0])
-    psi = -wc["headingAngle"]
-    X = -(r[2] * math.cos(psi) - r[3] * math.sin(psi))
-    A = 0.5 * wc["steepness"] * wc["waveLength"]
-    L, B = bd.get("Lpp", 1.0), bd.get("beam", 1.0)
-    return X / (RHO * G * A**2 * B**2 / L)
+    return (round(wc["waveLength"] / bd.get("Lpp", 1.0), 4),
+            round(wc["currentSpeed"], 4), round(mu, 4))
 
 
 def read_rows(path):
@@ -110,7 +76,7 @@ def read_rows(path):
     for line in open(path):
         f = line.strip().split(",")
         try:
-            k = tuple(round(float(v), 6) for v in f[:3])
+            k = tuple(round(float(v), 4) for v in f[:3])   # as table_key; the csv has 6 digits
         except ValueError:
             continue
         rows[k] = f
@@ -138,7 +104,6 @@ def main():
                     help="meanLoads.py to use (default: baseCase/meanLoads.py next to this"
                          " script or in DIR or its parent, else each case's own copy)")
     ap.add_argument("--out", default="results.csv")
-    ap.add_argument("--outPsi", default="results_psi.csv")
     a = ap.parse_args()
 
     root = os.path.abspath(a.dir)
@@ -150,7 +115,7 @@ def main():
         cand = [os.path.join(d, "baseCase", "meanLoads.py")
                 for d in (HERE, root, os.path.dirname(root))]
         ml = next((p for p in cand if os.path.isfile(p)), None)   # None: per case
-    out, outPsi = os.path.join(root, a.out), os.path.join(root, a.outPsi)
+    out = os.path.join(root, a.out)
     tmp = out + ".tmp"
     if os.path.exists(tmp):
         os.remove(tmp)
@@ -171,9 +136,9 @@ def main():
 
     print(f"collecting {len(cases)} cases from {root} with "
           + (ml if ml else "each case's own meanLoads.py"))
-    print(f"  {'case':38s} {'lam/L':>6s} {'U':>7s} {'mu':>5s} | {'X':>8s} {'X_psi':>8s}"
-          f" {'Y':>8s} {'N':>8s}  notes")
-    seen, noPsi, xpsi = {}, [], {}
+    print(f"  {'case':38s} {'lam/L':>6s} {'U':>7s} {'mu':>5s} | {'X':>8s} {'Y':>8s}"
+          f" {'N':>8s}  psibar / notes")
+    seen, noPsi, oldPsi = {}, [], []
     for name, c in cases:
         wc, bd = case_dicts(c)
         key = table_key(wc, bd)
@@ -181,32 +146,30 @@ def main():
             print(f"  WARNING: {name} and {seen[key]} are the same table row {key};"
                   f" {name} wins")
         seen[key] = name
-        notes = []
         mlc = ml or os.path.join(c, "meanLoads.py")
         if not os.path.isfile(mlc):
             print(f"  skip {name}: no {mlc}; give --meanLoads")
             continue
-        if "psiBar.dat" not in open(mlc, errors="ignore").read():
-            notes.append("meanLoads.py too old: N without psibar")
         r = subprocess.run([sys.executable, mlc, "--fo", a.fo, "--csv", tmp],
                            cwd=c, capture_output=True, text=True)
         if r.returncode != 0:
             print(f"  {name:38s} meanLoads.py failed: "
                   + (r.stderr or r.stdout).strip().splitlines()[-1])
             continue
-        notes += [l.strip() for l in r.stdout.splitlines() if "WARNING" in l]
-        xp = psi_surge(c, a.fo, wc, bd)
-        if xp is None:
+        if "psiBar.dat at t" not in r.stdout:
+            psi = "none"
             noPsi.append(name)
-            notes.append("no psiBar.dat")
-            xpsi.pop(key, None)
+        elif "psibar forces NOT added" in r.stdout:
+            psi = "N only (old psiBar.dat)"
+            oldPsi.append(name)
         else:
-            xpsi[key] = xp
+            psi = "X, Y, N"
+        notes = [psi] + [l.strip() for l in r.stdout.splitlines() if "WARNING" in l]
         row = read_rows(tmp).get(key)
         if row:
             X, Y, N = float(row[3]), float(row[4]), float(row[5])
             print(f"  {name:38s} {key[0]:6.3f} {key[1]:7.4f} {key[2]:5.0f} |"
-                  f" {X:+8.3f} {X + (xp or 0.0):+8.3f} {Y:+8.3f} {N:+8.3f}  " + "; ".join(notes))
+                  f" {X:+8.3f} {Y:+8.3f} {N:+8.3f}  " + "; ".join(notes))
         else:
             print(f"  {name:38s} {key[0]:6.3f} {key[1]:7.4f} {key[2]:5.0f} |  no row  "
                   + "; ".join(notes))
@@ -216,29 +179,15 @@ def main():
     lines = open(tmp).read().splitlines()
     os.remove(tmp)
 
-    # results_psi.csv: F1mean (X) + X_psi on the rows of cases with psiBar.dat
-    linesPsi = []
-    for line in lines:
-        f = line.split(",")
-        try:
-            k = tuple(round(float(v), 6) for v in f[:3])
-        except ValueError:
-            linesPsi.append(line)
-            continue
-        if k in xpsi:
-            f[3] = f"{float(f[3]) + xpsi[k]:.6g}"
-        linesPsi.append(",".join(f))
-
-    common = ([f"# cases without psiBar.dat (no psi-bar term at all): {', '.join(noPsi)}"]
-              if noPsi else [])
-    write_table(lines, out, [
-        "# psibar: F1mean (X), F2mean (Y) without the psi-bar terms; Mzmean (N) includes"
-        " the psi-bar yaw moment (collectResults.py)"] + common)
-    write_table(linesPsi, outPsi, [
-        "# psibar: F1mean (X) includes the psi-bar surge force; F2mean (Y) does not;"
-        " Mzmean (N) includes the psi-bar yaw moment (collectResults.py)"] + common)
+    note = ["# psibar: F1mean (X), F2mean (Y), Mzmean (N) include the psi-bar terms"
+            " (divergence-form psiBar.dat; collectResults.py)"]
+    if oldPsi:
+        note.append("# old psiBar.dat (gradient-form hull forcing): N includes psi-bar,"
+                    f" X, Y do not: {', '.join(oldPsi)}")
+    if noPsi:
+        note.append(f"# no psiBar.dat (no psi-bar term at all): {', '.join(noPsi)}")
+    write_table(lines, out, note)
     print(f"wrote {out}")
-    print(f"wrote {outPsi}")
 
 
 if __name__ == "__main__":

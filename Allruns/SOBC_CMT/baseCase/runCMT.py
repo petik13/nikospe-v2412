@@ -27,8 +27,9 @@ u, v, r are MMG quantities at midship (x forward, y starboard, r > 0 to
 starboard).  The r = 0 run is equivalent to the manFlow run with
 --Ucur u and sway speed -v (see constant/prescribedMotion).
 
-Mean loads: meanLoadsRot (control volume +-1.2 L/2) and meanLoadsRot2
-(+-2 L/2, topoSetDict_2) are the rotating-frame midfield; they must agree.
+Mean loads: meanLoadsRot (control volume 0.1 L clear of the hull) and
+meanLoadsRot2 (0.5 L, topoSetDict_2) are the rotating-frame midfield; they
+must agree.
 """
 
 import glob
@@ -244,25 +245,29 @@ update_file('rotationCentre', f'({xbody} 0 0)', path=pmpath)
 update_file('yawOnsetTime', f'{tOn:.6g}', path=pmpath)
 update_file('yawRampTime', f'{tRamp:.6g}', path=pmpath)
 
-####### CONTROL VOLUMES: controlZone (+-1.2 L/2), controlZone2 (+-2 L/2) ########
-# controlZone2 is kept close to the hull, inside the refined region (refinement
-# box 4 is +-2.5 L/2): further out the cells are coarser and the numerical
-# errors of the wave field larger, which would spoil the comparison.
+####### CONTROL VOLUMES: controlZone, controlZone2 ########
+# Boxes with their sides along the mesh axes around the hull (heading 0, bow at
+# -x: the L x B waterplane rectangle about midship), with a clearance of
+# clear*L on each side.  controlZone (0.1 L) stays inside refinement box 6;
+# controlZone2 (0.5 L) keeps the old length +-L for the control-volume check.
+def hull_box(clear):
+    return L_2 + clear*2*L_2, 0.5*B + clear*2*L_2
+
 tsdpath = os.path.join('system', 'topoSetDict')
-l1 = 1.2
-update_file('xmin', xbody - l1*L_2, path=tsdpath)
-update_file('xmax', xbody + l1*L_2, path=tsdpath)
-update_file('ymin', -l1*L_2, path=tsdpath)
-update_file('ymax', l1*L_2, path=tsdpath)
+cv_hx, cv_hy = hull_box(0.1)
+update_file('xmin', xbody - cv_hx, path=tsdpath)
+update_file('xmax', xbody + cv_hx, path=tsdpath)
+update_file('ymin', -cv_hy, path=tsdpath)
+update_file('ymax', cv_hy, path=tsdpath)
 update_file('zmin', -1.5*draft, path=tsdpath)
 update_file('zmax', zmax, path=tsdpath)
 
 tsdpath = os.path.join('system', 'topoSetDict_2')
-l1 = 2.0
-update_file('xmin', xbody - l1*L_2, path=tsdpath)
-update_file('xmax', xbody + l1*L_2, path=tsdpath)
-update_file('ymin', -l1*L_2, path=tsdpath)
-update_file('ymax', l1*L_2, path=tsdpath)
+cv_hx, cv_hy = hull_box(0.5)
+update_file('xmin', xbody - cv_hx, path=tsdpath)
+update_file('xmax', xbody + cv_hx, path=tsdpath)
+update_file('ymin', -cv_hy, path=tsdpath)
+update_file('ymax', cv_hy, path=tsdpath)
 update_file('zmin', -2.0*draft, path=tsdpath)
 update_file('zmax', zmax, path=tsdpath)
 
@@ -282,11 +287,21 @@ update_file('boxstart', xbody - l3, path='system/topoSetDict.3')
 update_file('boxend', xbody + l3, path='system/topoSetDict.3')
 update_file('zbox', max(2.0*draft, 0.2*lam), path='system/topoSetDict.3')
 
-for i, l4, zf, zl in ((4, 2.5, 1.8, 0.18), (5, 1.4, 1.6, 0.16), (6, 1.3, 1.4, 0.12), (7, 1.2, 1.2, 0.1)):
+# Boxes 5 and 6 (the finest used): rectangles around the hull as above, with
+# their old clearance along the hull on every side; 4 and 7 (not used by
+# helpers.mesh) stay square
+for i, l4, zf, zl in ((4, 2.5, 1.8, 0.18), (7, 1.2, 1.2, 0.1)):
     p = f'system/topoSetDict.{i}'
     update_file('ybox', l4*L_2, path=p)
     update_file('boxstart', xbody - l4*L_2, path=p)
     update_file('boxend', xbody + l4*L_2, path=p)
+    update_file('zbox', max(zf*draft, zl*lam), path=p)
+for i, clear, zf, zl in ((5, 0.2, 1.6, 0.16), (6, 0.15, 1.4, 0.12)):
+    p = f'system/topoSetDict.{i}'
+    ref_hx, ref_hy = hull_box(clear)
+    update_file('ybox', ref_hy, path=p)
+    update_file('boxstart', xbody - ref_hx, path=p)
+    update_file('boxend', xbody + ref_hx, path=p)
     update_file('zbox', max(zf*draft, zl*lam), path=p)
 
 # -- decomposeParDict

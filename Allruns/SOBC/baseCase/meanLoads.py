@@ -53,13 +53,17 @@ last 6 encounter periods; its columns are read by name, so every version of
 the file works.  Its last row gives the psi-bar yaw moment, which is added to
 N: the printed total, the sweep file and the csv include it (--noPsiBar leaves
 it out).  It is listed as a fourth part next to surface / elevation / strip,
-with its free-surface and hull parts.  The psi-bar forces X, Y are printed but
-not added.  In a stream along the ship axis X_psi is the momentum
--rho W Phi_C of the net psibar flux through the control surface, so it carries
-any residual of the mean mass balance; the mass-consistent surge force is
-X - Fstokes_X (printed, from the strip only, for runs whose psiBar.dat has the
-mass-balance columns).  Z is not corrected -- the vertical psi-bar force needs
-psibar on the hull itself.  Derivation and checks:
+with its free-surface and hull parts.  The psi-bar forces X, Y are added too,
+for files written with the divergence-form hull forcing (middleFieldForm since
+2026-10-10).  X_psi is essential at forward speed: in a stream along the ship
+axis it is the momentum -rho W Phi_C of the mean return flow, which cancels the
+Stokes-transport part of the strip term (without it the SOBC added resistance
+even turns into a thrust at Fn 0.18).  Older, gradient-form files gave a
+spurious X_psi; theirs is printed but not added.  As a check, the
+mass-consistent surge force X - Fstokes_X (strip only, no psibar solution) is
+printed; the two differ by the residual mass balance of the numerical psibar.
+Z is not corrected -- the vertical psi-bar force needs psibar on the hull
+itself.  Derivation and checks:
 researchQuestions/psibarMidfield.ipynb.
 
 The motion RAOs are amplitudes and do not depend on the axes.
@@ -82,7 +86,8 @@ import numpy as np
 RHO = 1000.0
 G = 9.81
 
-PSI_NOTE = "F6 includes the psi-bar yaw moment of runs that computed it; F1, F2 do not"
+PSI_NOTE = ("F1, F2, F6 include the psi-bar terms of runs that computed them with the"
+            " divergence-form hull forcing; older psiBar runs: F6 only")
 
 MMG_MARKER = ("# convention: MMG body axes (x forward, y starboard, z down, midship);"
               " heading = encounter angle mu = (waveDirection + 180 - psi) mod 360 [deg],"
@@ -150,14 +155,19 @@ def load(pattern):
 
 
 def load_psibar(pattern):
-    """Last row of psiBar.dat as (row, {column name: index}), the names from
-    the file's own header, so every version of the file works."""
+    """Last row of psiBar.dat as (row, {column name: index}, hull forcing),
+    the names from the file's own header, so every version of the file works.
+    Hull forcing "divergence" or "gradient": from the header line where there
+    is one; else the cleaned file (S_WL without Q_fs_dynamic) is divergence and
+    anything older gradient."""
     best = None
     for f in sorted(glob.glob(pattern)):
-        names, last = None, None
+        names, last, hull = None, None, None
         for line in open(f, errors="ignore"):
             if line.startswith("# Time"):
                 names = line[1:].split()
+            elif line.startswith("#") and "hull forcing" in line:
+                hull = line.split(":", 1)[1].strip()
             elif line.strip() and not line.startswith("#"):
                 last = line
         if names is None or last is None:
@@ -166,8 +176,11 @@ def load_psibar(pattern):
             row = np.array([float(v) for v in last.split()])
         except ValueError:
             continue
+        if hull is None:
+            hull = ("divergence" if "S_WL" in names and "Q_fs_dynamic" not in names
+                    else "gradient")
         if best is None or row[0] > best[0][0]:
-            best = (row, {n: i for i, n in enumerate(names) if i < len(row)})
+            best = (row, {n: i for i, n in enumerate(names) if i < len(row)}, hull)
     return best
 
 
@@ -470,10 +483,10 @@ def main():
         noPsi = {"X": tots["X"], "Y": tots["Y"]}
 
         # psi-bar terms (last row of psiBar.dat, columns by name), mesh axes ->
-        # MMG as above; the forces are reported, not added
+        # MMG as above; the forces are added for divergence-form files only
         psiB = None
         if Pb is not None:
-            r_, col = Pb
+            r_, col, hullForcing = Pb
 
             def val(name):
                 return r_[col[name]] if name in col else np.nan
@@ -488,6 +501,11 @@ def main():
                     "SWL": val("S_WL"), "SC": val("S_C"), "PhiC": val("Phi_C"),
                     "Xstokes": mmg("Fstokes_x", "Fstokes_y")[0]}
             psiB["X"], psiB["Y"] = mmg("Fpsi_x", "Fpsi_y")
+            psiB["addXY"] = hullForcing == "divergence"
+            if psiB["addXY"]:
+                for key in ("X", "Y"):
+                    tots[key] += psiB[key]
+                    parts[key].append(psiB[key])
         tots["Z"] = -fit(F[m, 0], F[m, 3], 2 * we, a.nharm)[0]
         parts["Z"] = [-fit(F[m, 0], F[m, 3 + o], 2 * we, a.nharm)[0]
                       for o in (3, 6, 9)]
@@ -496,7 +514,8 @@ def main():
             tot = tots[key]
             print(f"  {name:<14s} {tot:+13.6g} {tot/den_F:+10.4f}     "
                   + " / ".join(f"{p/den_F:+7.4f}" for p in parts[key])
-                  + (" /       -" if psiB is not None else "")
+                  + (" /       -" if psiB is not None and (key == "Z" or not psiB["addXY"])
+                     else "")
                   + "   [N]")
         print(f"  {'':<14s} added resistance -X/den = {-tots['X']/den_F:+.4f}")
         Nz = None
@@ -515,16 +534,19 @@ def main():
             print(f"  psibar         psiBar.dat at t = {psiB['t']:.4g} s, averaged over"
                   f" {psiB['per']:.2f} encounter periods; N = free surface"
                   f" {psiB['Nfs']/den_M:+.4f} + hull {psiB['Nhull']/den_M:+.4f}")
-            if 'N' in noPsi:
-                print(f"                 N without psibar {noPsi['N']/den_M:+.4f}")
-            print(f"                 psibar forces (not added): X {psiB['X']/den_F:+.4f}"
-                  f"  Y {psiB['Y']/den_F:+.4f}")
+            print("                 without psibar:"
+                  f" X {noPsi['X']/den_F:+.4f}  Y {noPsi['Y']/den_F:+.4f}"
+                  + (f"  N {noPsi['N']/den_M:+.4f}" if 'N' in noPsi else ""))
+            if not psiB["addXY"]:
+                print(f"                 psibar forces NOT added (gradient-form hull forcing,"
+                      f" spurious): X {psiB['X']/den_F:+.4f}  Y {psiB['Y']/den_F:+.4f}")
             if np.isfinite(psiB["SWL"]):
                 print(f"                 mass balance [m^3/s]: control volume Phi_C + S_C ="
                       f" {psiB['PhiC'] + psiB['SC']:+.3g};  hull Q_hull + S_WL ="
                       f" {psiB['Qhull'] + psiB['SWL']:+.3g}  (S_WL {psiB['SWL']:+.3g})")
-                print(f"                 mass-consistent surge force X - Fstokes_X ="
-                      f" {(noPsi['X'] - psiB['Xstokes'])/den_F:+.4f}")
+                print(f"                 check: mass-consistent X - Fstokes_X ="
+                      f" {(noPsi['X'] - psiB['Xstokes'])/den_F:+.4f}  (X with psibar"
+                      f" {(noPsi['X'] + psiB['X'])/den_F:+.4f})")
             else:
                 print(f"                 net flux Q: hull {psiB['Qhull']:+.3g}, free surface"
                       f" {psiB['Qfs']:+.3g} m^3/s (older psiBar.dat: no mass balance)")
@@ -576,7 +598,7 @@ def main():
 
     # --- convergence ------------------------------------------------------
     if F is not None:
-        rule("STABILITY  (X non-dim, MMG, over successive 2-Te windows)")
+        rule("STABILITY  (X without psibar, non-dim, MMG, over successive 2-Te windows)")
         line = []
         for j in range(2, min(n_avail, 10) + 1):
             a1, b1 = hi - j * Te, hi - (j - 2) * Te
