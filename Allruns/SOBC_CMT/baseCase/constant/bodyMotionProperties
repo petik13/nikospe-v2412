@@ -32,17 +32,17 @@ zG                  0.02472;
 Lpp                 5.9375;        // length between perpendiculars [m]
 beam                1.00625;       // moulded breadth [m]
 
-mass                1531.35;
+mass                1492.32;   // rho V of the STL, rho = 1000 (rhoInf); C.. and I.. consistent with it
 
-I44                 180.9;
-I55                 3278.255;
-I66                 3337.86;
-I46                 88.215;
+I44                 176.29;
+I55                 3194.71;
+I66                 3252.79;
+I46                 85.9668;
 
-C33                 51533.16;   // rho g Awp
-C44                 897.128;
-C55                 124687.1;
-C35                 16851.34;
+C33                 50277.8;   // rho g Awp
+C44                 863.032;
+C55                 120833;
+C35                 16489.5;
 
 rollDampingFraction 0.05;       // fraction of critical, roll only
 
