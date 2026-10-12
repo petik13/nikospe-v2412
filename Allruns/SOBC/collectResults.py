@@ -5,7 +5,9 @@ table, results.csv (MMG axes, the format of meanLoads.py --csv).
 
 The rows are exactly what meanLoads.py writes: X, Y and N include the psi-bar
 terms of runs whose psiBar.dat was written with the divergence-form hull
-forcing (middleFieldForm since 2026-10-10).  Older psiBar runs (gradient-form
+forcing (middleFieldForm since 2026-10-10), X and Y with the mass correction
+rho Uinf (Phi_C + S_C) that takes the momentum of the residual of the
+numerical psibar's mass balance back out.  Older psiBar runs (gradient-form
 hull forcing, spurious psi-bar surge force) have the psi-bar yaw moment in N
 only; runs without psiBar.dat have no psi-bar term at all.  Both groups are
 listed in comment lines of the file, since at forward speed their X lacks the
@@ -180,7 +182,8 @@ def main():
     os.remove(tmp)
 
     note = ["# psibar: F1mean (X), F2mean (Y), Mzmean (N) include the psi-bar terms"
-            " (divergence-form psiBar.dat; collectResults.py)"]
+            " (divergence-form psiBar.dat; collectResults.py), X and Y with the mass"
+            " correction rho Uinf (Phi_C + S_C)"]
     if oldPsi:
         note.append("# old psiBar.dat (gradient-form hull forcing): N includes psi-bar,"
                     f" X, Y do not: {', '.join(oldPsi)}")

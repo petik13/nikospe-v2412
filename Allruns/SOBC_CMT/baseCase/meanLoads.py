@@ -59,9 +59,17 @@ for files written with the divergence-form hull forcing (middleFieldForm since
 axis it is the momentum -rho W Phi_C of the mean return flow, which cancels the
 Stokes-transport part of the strip term (without it the SOBC added resistance
 even turns into a thrust at Fn 0.18).  Older, gradient-form files gave a
-spurious X_psi; theirs is printed but not added.  As a check, the
-mass-consistent surge force X - Fstokes_X (strip only, no psibar solution) is
-printed; the two differ by the residual mass balance of the numerical psibar.
+spurious X_psi; theirs is printed but not added.
+
+Mass correction.  The numerical psibar does not close the mass balance
+exactly: R = Phi_C + S_C (control volume, = -(Q_hull + S_WL)) is left over, and
+acts as a spurious source in the stream, adding -rho Uinf R to the force.  The
+totals X, Y take it back out, + rho Uinf R (MMG axes); the uncorrected
+X + X_psi is printed next to them.  As a check, the formula that removes the
+whole momentum of both mass fluxes through the control surface,
+X + X_psi - (Fmass + Fstokes)_X, is printed too; it differs from the total by
+the two fluxes weighted with the double-body disturbance W - Uinf at the
+control surface, a physical term (<= 0.06 non-dim on the SOBC runs).
 Z is not corrected -- the vertical psi-bar force needs psibar on the hull
 itself.  Derivation and checks:
 researchQuestions/psibarMidfield.ipynb.
@@ -87,7 +95,8 @@ RHO = 1000.0
 G = 9.81
 
 PSI_NOTE = ("F1, F2, F6 include the psi-bar terms of runs that computed them with the"
-            " divergence-form hull forcing; older psiBar runs: F6 only")
+            " divergence-form hull forcing, F1, F2 with the mass correction"
+            " rho Uinf (Phi_C + S_C); older psiBar runs: F6 only")
 
 MMG_MARKER = ("# convention: MMG body axes (x forward, y starboard, z down, midship);"
               " heading = encounter angle mu = (waveDirection + 180 - psi) mod 360 [deg],"
@@ -244,7 +253,7 @@ def append_row(path, row, case, head, U0, L, B, steep, depth):
 
     # Rows are keyed on lambda/L -- one heading and speed per file, so it
     # identifies the case on its own now that the name is not carried.
-    lam_L = row["lam/L"]
+    lam_L = float(f"{row['lam/L']:.5g}")        # as written below (11.5g)
     old = []
     if os.path.exists(path) and not has_marker(path):
         # written by an older meanLoads.py: convert its rows to MMG table form
@@ -310,7 +319,9 @@ def write_csv(path, lam_L, U0, heading, row):
     if parent:
         os.makedirs(parent, exist_ok=True)
 
-    me = (lam_L, U0, heading)
+    # the key as written (.6g): a full-precision key never matched the rows
+    # read back, so a rerun added a duplicate instead of replacing its row
+    me = tuple(float(f"{v:.6g}") for v in (lam_L, U0, heading))
 
     def key(fields):
         return tuple(float(v) for v in fields[:CSV_KEY])
@@ -491,9 +502,11 @@ def main():
             def val(name):
                 return r_[col[name]] if name in col else np.nan
 
-            def mmg(cx, cy):
-                fx, fy = val(cx), val(cy)
+            def mmg_v(fx, fy):
                 return -(fx * cps - fy * sps), fx * sps + fy * cps
+
+            def mmg(cx, cy):
+                return mmg_v(val(cx), val(cy))
 
             psiB = {"t": r_[0], "per": val("periods"), "N": -val("Mpsi_z"),
                     "Nfs": -val("Mpsi_fs_z"), "Nhull": -val("Mpsi_hull_z"),
@@ -502,10 +515,20 @@ def main():
                     "Xstokes": mmg("Fstokes_x", "Fstokes_y")[0]}
             psiB["X"], psiB["Y"] = mmg("Fpsi_x", "Fpsi_y")
             psiB["addXY"] = hullForcing == "divergence"
+            # mass residual R = Phi_C + S_C: a spurious source in the stream,
+            # force -rho Uinf R (mesh axes), taken back out
+            res = val("Phi_C") + val("S_C")
+            psiB["res"] = res
+            psiB["Xres"], psiB["Yres"] = (mmg_v(RHO * Ux * res, RHO * Uy * res)
+                                          if np.isfinite(res) else (0.0, 0.0))
+            # check: the whole momentum of both mass fluxes removed
+            psiB["Xall"], psiB["Yall"] = mmg_v(
+                -(val("Fmass_x") + val("Fstokes_x")),
+                -(val("Fmass_y") + val("Fstokes_y")))
             if psiB["addXY"]:
                 for key in ("X", "Y"):
-                    tots[key] += psiB[key]
-                    parts[key].append(psiB[key])
+                    tots[key] += psiB[key] + psiB[key + "res"]
+                    parts[key].append(psiB[key] + psiB[key + "res"])
         tots["Z"] = -fit(F[m, 0], F[m, 3], 2 * we, a.nharm)[0]
         parts["Z"] = [-fit(F[m, 0], F[m, 3 + o], 2 * we, a.nharm)[0]
                       for o in (3, 6, 9)]
@@ -544,9 +567,15 @@ def main():
                 print(f"                 mass balance [m^3/s]: control volume Phi_C + S_C ="
                       f" {psiB['PhiC'] + psiB['SC']:+.3g};  hull Q_hull + S_WL ="
                       f" {psiB['Qhull'] + psiB['SWL']:+.3g}  (S_WL {psiB['SWL']:+.3g})")
-                print(f"                 check: mass-consistent X - Fstokes_X ="
-                      f" {(noPsi['X'] - psiB['Xstokes'])/den_F:+.4f}  (X with psibar"
-                      f" {(noPsi['X'] + psiB['X'])/den_F:+.4f})")
+                if psiB["addXY"]:
+                    print(f"                 psibar part = X_psi {psiB['X']/den_F:+.4f}"
+                          f" + mass correction rho Uinf (Phi_C + S_C)"
+                          f" {psiB['Xres']/den_F:+.4f}   (Y {psiB['Y']/den_F:+.4f}"
+                          f" {psiB['Yres']/den_F:+.4f})")
+                    print(f"                 uncorrected X + X_psi"
+                          f" {(noPsi['X'] + psiB['X'])/den_F:+.4f};  check, both mass-flux"
+                          f" momenta removed: X + X_psi - (Fmass + Fstokes)_X ="
+                          f" {(noPsi['X'] + psiB['X'] + psiB['Xall'])/den_F:+.4f}")
             else:
                 print(f"                 net flux Q: hull {psiB['Qhull']:+.3g}, free surface"
                       f" {psiB['Qfs']:+.3g} m^3/s (older psiBar.dat: no mass balance)")

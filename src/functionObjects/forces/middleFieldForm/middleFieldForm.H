@@ -81,8 +81,13 @@ Description
       spurious surge force -rho W Q of half the drift force.
 
     Both are conservative surface divergences of the running means (zeta u_h
-    on the free-surface faces; X_n v_t on the hull faces, through point values
-    so the edge fluxes cancel exactly across faces and processors).
+    on the free-surface faces; X_n v_t on the hull faces), each on its patch's
+    own topology through point values, so the edge fluxes cancel exactly
+    across faces and processors.  The free-surface flux across the waterline
+    is zeta of the free-surface face times the velocity of the hull face
+    across the edge, which carries the body condition, rather than the
+    free-surface value half a cell out: a waterline edge is any edge the two
+    patches share, whichever cells they belong to.
 
     Mass balance (psiBar.dat).  With S_C = int_C <zeta u.n> dl the Stokes
     transport out through the control surface (its strip), S_WL the same out
@@ -93,16 +98,20 @@ Description
         Q_hull + S_WL = 0     no net mean mass flux into the hull
 
     (the first reduces to the second here).  The Stokes-transport part of the
-    strip term, Fstokes = -rho int_C <zeta u.n> W dl, cancels the matching
-    psi-bar part, Fmass = -rho int_Sc (grad psibar.n) W dS, when they hold;
-    otherwise their sum is ~ -rho W (Phi_C + S_C).  In a stream along the ship
-    axis the psi-bar surge force IS Fmass (the other terms have no component
-    along W), so it carries any residual of the balance; the mass-consistent
-    surge force is X - Fstokes_X, which needs only the strip.
+    strip term, Fstokes = -rho int_C <zeta u.n> W dl, nearly cancels the
+    matching psi-bar part, Fmass = -rho int_Sc (grad psibar.n) W dS, when they
+    hold; a residual R = Phi_C + S_C adds about -rho Uinf R to the force (a
+    spurious source in the stream), which meanLoads.py takes back out.
 
-    The time average is not taken here: instantaneous values are written every
-    step and averaged in post-processing, which lets the mean be extracted by a
-    harmonic fit rather than by averaging between zero crossings.
+    The time average of force.dat and moment.dat is not taken here:
+    instantaneous values are written every step and averaged in
+    post-processing, which lets the mean be extracted by a harmonic fit rather
+    than by averaging between zero crossings.  psibar needs its forcing
+    averaged first; it is accumulated from the end of the ramp and averaged
+    over the largest whole number of encounter periods, at most psiBarPeriods,
+    that ends at the output time (from snapshots of the running integrals
+    every 1/psiBarSnapshots period, interpolated), which is the window
+    meanLoads.py fits whenever the run ends.
 
     The waterline is walked from the control-volume faces rather than from
     free-surface edges.  Each control-volume face takes the segment it shares
@@ -127,16 +136,19 @@ Usage
       psiBar           | Add the psi-bar terms (psiBar.dat) | no   | false
       psiBarHullPatches | Hull patches                      | no   | (sphere)
       psiBarFarFieldPatches | psibar = 0 here               | no   | (inlet outlet front back)
-      psiBarPeriods    | Average over the last N encounter periods before endTime | no | 6
-      psiBarStartTime  | Start of the average (overrides psiBarPeriods) | no |
+      psiBarPeriods    | Average over at most the last N whole encounter periods | no | 6
+      psiBarStartTime  | Start of the accumulation          | no   | end of the ramp
+      psiBarSnapshots  | Snapshots of the running integrals per encounter period | no | 10
       psiBarRadius     | Free-surface forcing only within this horizontal distance of CofR (<= 0: all) | no | -1
       psiBarRotationCentre | Rotation centre of the body motion | no | (xG 0 0) of bodyMotionProperties
       psiBarSolver     | fvSolution solver entry            | no   | PhiS
-      psiBarCorrectors | Non-orthogonal correctors          | no   | 5
+      psiBarCorrectors | Non-orthogonal correctors          | no   | 10
       psiBarSplit      | Also solve free-surface and hull forcing apart | no | true
     \endtable
 
-    psibar is solved at every field-write time and at the end of the run.
+    psibar is solved at the field-write times in the last psiBarPeriods
+    encounter periods before endTime and at the end of the run, wherever it
+    stops.
 
 SourceFiles
     middleFieldForm.C
@@ -154,6 +166,7 @@ SourceFiles
 #include "surfaceFieldsFwd.H"
 #include "point.H"
 #include "OFstream.H"
+#include "edgeHashes.H"
 
 namespace Foam
 {
@@ -238,6 +251,9 @@ protected:
         word psiBarSolver_;
         label psiBarNCorr_;
         scalar psiBarStartTime_;
+        scalar psiBarPeriods_;
+        label psiBarNSnap_;
+        scalar psiBarSolveFrom_;
         scalar psiBarRadius_;
         Switch psiBarSplit_;
         point psiBarRotRef_;
@@ -266,6 +282,48 @@ protected:
         //  hull patches in order): X_n v_t and -X.(n x omega)
         vectorField hullP_;
         scalarField hullR_;
+
+        //- Waterline edges, the edges the free surface shares with a hull
+        //  face on this processor: the free-surface face, the hull face
+        //  (patch, face), the edge conormal times its length (in the free
+        //  surface, out of it into the hull), and the running time integral
+        //  of zeta (u.m), zeta of the free-surface face and u of the hull face
+        labelList wlFsFace_;
+        labelList wlHullPatch_;
+        labelList wlHullFace_;
+        vectorField wlM_;
+        scalarField wlQ_;
+
+        //- Waterline edge (mesh point labels) -> index in the lists above
+        EdgeMap<label> wlEdges_;
+
+        //- Free-surface points (patch local) that are hull points on any
+        //  processor: an edge between two of them is on the waterline even
+        //  when its hull face is on another processor
+        boolList fsHullPoint_;
+
+        //- Snapshot of the running integrals
+        struct psiSnapshot
+        {
+            scalar t = 0;
+            scalar tAcc = 0;
+            vectorField fsQ;
+            vectorField hullP;
+            scalarField hullR;
+            scalarField wlQ;
+            scalar stokes = 0;
+            vector stokesForce = Zero;
+            vector stokesMoment = Zero;
+        };
+
+        //- Ring buffer of snapshots every 1/psiBarSnapshots encounter
+        //  period, on a grid ending at endTime, covering the last
+        //  psiBarPeriods periods: the next slot, the number held and the
+        //  time of the next snapshot
+        List<psiSnapshot> psiSnaps_;
+        label psiSnapNext_;
+        label psiSnapCount_;
+        scalar psiSnapTime_;
 
         autoPtr<volScalarField> psiBarPtr_;
         autoPtr<OFstream> psiFilePtr_;
@@ -297,14 +355,34 @@ protected:
         void readPsiBar(const dictionary& dict);
         void accumulatePsiBar();
 
+        //- Find the waterline edges (wl* above, fsHullPoint_)
+        void buildWaterline();
+
+        //- Store the running integrals in the ring buffer
+        void takeSnapshot(const scalar t);
+
+        //- Running integrals at time t, interpolated between snapshots
+        psiSnapshot snapshotAt(const scalar t) const;
+
         //- Free-surface forcing div_h <zeta u_h> per free-surface face
-        //  (radius cut applied); sWL returns the Stokes transport across the
+        //  (radius cut applied) from the mean Stokes transport q per face and
+        //  wl per waterline edge; sWL returns the Stokes transport across the
         //  waterline into the hull (reduced)
-        tmp<scalarField> fsKinematicForcing(scalar& sWL) const;
+        tmp<scalarField> fsKinematicForcing
+        (
+            const vectorField& q,
+            const scalarField& wl,
+            scalar& sWL
+        ) const;
 
         //- Hull forcing div_S <X_n v> - <X.(n x omega)> per hull face (all
-        //  hull patches in order)
-        tmp<scalarField> hullDivergenceForcing() const;
+        //  hull patches in order) from the means P = <X_n v_t> and
+        //  R = -<X.(n x omega)>
+        tmp<scalarField> hullDivergenceForcing
+        (
+            const vectorField& P,
+            const scalarField& R
+        ) const;
 
         //- fsGrad, hullGrad: d(psibar)/dn per free-surface / hull face (used
         //  if useFs / useHull).  phiC, Fmass, Mmass: flux of psibar out
