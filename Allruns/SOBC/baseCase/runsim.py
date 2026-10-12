@@ -36,7 +36,7 @@ draft = 11.0/scale
 Ucur = args.Ucur
 rampperiod = 3.0
 Co = 0.2
-Nproc = 52 # Number of processors for parallel run
+Nproc = 56 # Number of processors for parallel run
 procD = [8, 6, 1]
 
 beta = 0.0
@@ -168,7 +168,7 @@ hf.console("Modifying topoSetDict")
 # Box with its sides along the mesh axes, around the rotated hull: the L x B
 # waterplane rectangle about midship (bow along (-cos h, sin h)), plus a
 # clearance of cv_clear*L on each side
-cv_clear = 0.2
+cv_clear = 0.1
 cv_hx = L_2*abs(np.cos(head_ang)) + 0.5*B*abs(np.sin(head_ang)) + cv_clear*2*L_2
 cv_hy = L_2*abs(np.sin(head_ang)) + 0.5*B*abs(np.cos(head_ang)) + cv_clear*2*L_2
 hf.console(f"Control volume: x +-{cv_hx:.3f} m, y +-{cv_hy:.3f} m about the hull")
