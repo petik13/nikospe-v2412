@@ -41,6 +41,14 @@ parser.add_argument("--heading", type=float, default=0.0)
 parser.add_argument("--Ucur", type=float, required=True,
                     help="towing speed [m/s] (Zhao et al.: -0.1, 0, 0.1, 0.2)")
 parser.add_argument("--H", type=float, default=0.1, help="wave height [m] (Zhao et al.: 0.1)")
+# Control-volume placement (sphere_diag tests A-G, 2026-10-15): the midfield drift
+# force is converged at the base resolution only on a control surface ~8 cells or
+# more from the hull and entirely inside the finest refinement box, also in depth.
+# 0.1 L from the hull (3 cells) over-predicted the surge drift by 8 %.
+parser.add_argument("--cvClear", type=float, default=0.25,
+                    help="clearance of the control volume around the hull, sides and below the keel [m]")
+parser.add_argument("--zMargin", type=float, default=0.1,
+                    help="finest refinement boxes at least this much deeper than the control volume [m]")
 args = parser.parse_args()
 
 TANK_B = 10.5        # tank breadth [m]
@@ -236,15 +244,18 @@ hf.console("Modifying topoSetDict")
 # Box with its sides along the mesh axes, around the rotated hull: the L x B
 # waterplane rectangle about midship (bow along (-cos h, sin h)), plus a
 # clearance of cv_clear*L on each side
-cv_clear = 0.1
-cv_hx = L_2*abs(np.cos(head_ang)) + 0.5*B*abs(np.sin(head_ang)) + cv_clear*2*L_2
-cv_hy = L_2*abs(np.sin(head_ang)) + 0.5*B*abs(np.cos(head_ang)) + cv_clear*2*L_2
-hf.console(f"Control volume: x +-{cv_hx:.3f} m, y +-{cv_hy:.3f} m about the hull")
+# clearance args.cvClear [m] on each side and below the keel (was 0.1 L on the
+# sides, bottom at 1.5 draft)
+cv_hx = L_2*abs(np.cos(head_ang)) + 0.5*B*abs(np.sin(head_ang)) + args.cvClear
+cv_hy = L_2*abs(np.sin(head_ang)) + 0.5*B*abs(np.cos(head_ang)) + args.cvClear
+cv_depth = draft + args.cvClear
+hf.console(f"Control volume: x +-{cv_hx:.3f} m, y +-{cv_hy:.3f} m about the hull,"
+           f" down to {-cv_depth:.3f} m (clearance {args.cvClear} m)")
 update_file('xmin', xbody - cv_hx, path=tsdpath)
 update_file('xmax', xbody + cv_hx, path=tsdpath)
 update_file('ymin', -cv_hy, path=tsdpath)
 update_file('ymax', cv_hy, path=tsdpath)
-update_file('zmin', -1.5*draft, path=tsdpath)
+update_file('zmin', -cv_depth, path=tsdpath)
 update_file('zmax', zmax, path=tsdpath)
 
 # -- Modify topoSetDict_2
@@ -320,6 +331,21 @@ update_file('ybox', l4*L_2, path='system/topoSetDict.7')
 update_file('boxstart', xbody - l4*L_2, path='system/topoSetDict.7')
 update_file('boxend', xbody + l4*L_2, path='system/topoSetDict.7')
 update_file('zbox', max(1.2*draft, 0.1*lam), path='system/topoSetDict.7')
+
+# Refinement boxes nested in depth: the finest (.6) below the control volume by
+# zMargin, each coarser one at least zGap deeper than the next finer one.  Equal
+# depths give a two-level jump across one face, which snappyHexMesh (hexRef8,
+# 'Dangling coarse cells') cannot handle: the sphere patch is then not created.
+zGap = max(0.15, 0.04*lam)
+z7 = max(1.2*draft, 0.1*lam)
+z6 = max(1.4*draft, 0.12*lam, cv_depth + args.zMargin, z7 + zGap)
+z5 = max(1.6*draft, 0.16*lam, z6 + zGap)
+z3 = max(2.0*draft, 0.2*lam, z5 + zGap)
+z1 = max(3.0*draft, 0.5*lam, z3 + zGap)
+for _i, _z in ((1, z1), (3, z3), (5, z5), (6, z6)):
+    update_file('zbox', _z, path=f'system/topoSetDict.{_i}')
+hf.console(f"Refinement box depths: .1 {z1:.3f}, .3 {z3:.3f}, .5 {z5:.3f}, .6 {z6:.3f}, .7 {z7:.3f} m"
+           f" (control volume {cv_depth:.3f} m)")
 """
 # -- Modify topoSetDict.6
 l2 = 1.15
