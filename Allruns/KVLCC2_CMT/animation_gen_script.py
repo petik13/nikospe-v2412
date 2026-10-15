@@ -24,11 +24,12 @@ LOAD_STATE = None            # e.g. 'case.pvsm' when running with pvpython; None
 t_start = 8.37               # [s] simulation time at which rotation begins
 omega   = 0.1               # [rad/s] azimuthal rate, in simulation seconds (sign = direction)
 theta0  = -np.pi / 2        # [rad] initial azimuth (measured from +x about the axis)
+u = -np.array([0.33, 0.0, 0.0])
 
-focal   = np.array([11.2, 0.0, 0.0])   # [m] point the camera looks at
+focal_ini   = np.array([11.2, 0.0, 0.0])
 axis    = np.array([0.0, 0.0, 1.0])    # orbit axis (also used as view-up)
-R       = 20.0                        # [m] orbit radius
-h       = 25.0                         # [m] camera height along axis above focal point
+R       = 0.0                        # [m] orbit radius
+h       = 10.0                         # [m] camera height along axis above focal point
 
 # Frame sampling:
 #   None  -> one frame per stored data time step
@@ -90,6 +91,11 @@ for i, t in enumerate(frame_times):
     scene.AnimationTime = float(data_time_at(t))
 
     th  = azimuth(t)
+
+    # the focal point is fixed relative to the earth system, moving in a circle w.r.t. the body-fixed frame
+    # the body-fixed frame is translating with u and rotating with omega, so the focal point is moving in a circle in the body-fixed frame
+    focal = focal_ini + np.array([u[0] *np.cos(th - theta0) * t, -u[0] * np.sin(th - theta0) * t, 0])
+
     pos = focal + R * (np.cos(th) * e1 + np.sin(th) * e2) + h * a
 
     view.CameraPosition   = pos.tolist()

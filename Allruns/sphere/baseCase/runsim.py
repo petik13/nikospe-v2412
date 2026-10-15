@@ -39,6 +39,8 @@ Co = 0.2
 Nproc = 56 # Number of processors for parallel run
 procD = [8, 6, 1]
 
+beta = 0.0
+
 head_ang = heading*np.pi/180
 xsponge = 2 * lam
 Lsponge = 2 * lam
@@ -68,6 +70,7 @@ if lam >= 2.75:
     Nref = 5
 if lam >= 3.5:
     Nref = 6
+
 k = 2 * np.pi / lam
 g = 9.81
 we  = np.sqrt(g*k*np.tanh(k*(-zmin))) + k*Ucur*np.cos(head_ang) # encounter frequency
@@ -137,7 +140,7 @@ update_file('bodyXpos', xbody, path='system/snappyHexMeshDict')
 
 # -- Modify waveCurConditions
 wCpath = os.path.join('constant', 'waveConditions')
-hf.console("Modifying waveCurConditions")
+hf.console("Modifying waveConditions")
 update_file('headingAngle', -head_ang, path=wCpath)
 update_file('steepness', steepness, path=wCpath)
 update_file('waveLength', lam, path=wCpath)
@@ -150,6 +153,7 @@ update_file('LSide', Lydamp, path=wCpath)
 update_file('xInlet', xsponge, path=wCpath)
 update_file('LInlet', Lsponge, path=wCpath)
 update_file('rampPeriods', rampperiod, path=wCpath)
+update_file('swaySpeed', np.tan(np.radians(beta)) * Ucur, path=wCpath)
 
 # -- Modify meanVal.py
 mvpath = 'meanVal.py'
@@ -163,11 +167,17 @@ update_file('Ucur', f' = {Ucur}', path=mvpath, endl='')
 # -- Modify topoSetDict
 tsdpath = os.path.join('system', 'topoSetDict')
 hf.console("Modifying topoSetDict")
-l1 = 1.2
-update_file('xmin', xbody - l1*L_2, path=tsdpath)
-update_file('xmax', xbody + l1*L_2, path=tsdpath)
-update_file('ymin', -l1*L_2, path=tsdpath)
-update_file('ymax', l1*L_2, path=tsdpath)
+# Box with its sides along the mesh axes, around the rotated hull: the L x B
+# waterplane rectangle about midship (bow along (-cos h, sin h)), plus a
+# clearance of cv_clear*L on each side
+cv_clear = 0.1
+cv_hx = L_2*abs(np.cos(head_ang)) + 0.5*B*abs(np.sin(head_ang)) + cv_clear*2*L_2
+cv_hy = L_2*abs(np.sin(head_ang)) + 0.5*B*abs(np.cos(head_ang)) + cv_clear*2*L_2
+hf.console(f"Control volume: x +-{cv_hx:.3f} m, y +-{cv_hy:.3f} m about the hull")
+update_file('xmin', xbody - cv_hx, path=tsdpath)
+update_file('xmax', xbody + cv_hx, path=tsdpath)
+update_file('ymin', -cv_hy, path=tsdpath)
+update_file('ymax', cv_hy, path=tsdpath)
 update_file('zmin', -1.5*draft, path=tsdpath)
 update_file('zmax', zmax, path=tsdpath)
 
@@ -215,19 +225,26 @@ update_file('boxstart', xbody - l4*L_2, path='system/topoSetDict.4')
 update_file('boxend', xbody + l4*L_2, path='system/topoSetDict.4')
 update_file('zbox', max(1.8*draft, 0.18*lam), path='system/topoSetDict.4')
 
+# -- Modify topoSetDict.5 and .6: like the control volume, rectangles with their
+# sides along the mesh axes around the rotated hull, with a clearance of
+# ref_clear*L on each side (.6 keeps the control volume 0.2 L inside it)
 # -- Modify topoSetDict.5
-l4 = 2.0
-update_file('ybox', l4*L_2, path='system/topoSetDict.5')
-update_file('boxstart', xbody - l4*L_2, path='system/topoSetDict.5')
-update_file('boxend', xbody + l4*L_2, path='system/topoSetDict.5')
+ref_clear = 0.5
+ref_hx = L_2*abs(np.cos(head_ang)) + 0.5*B*abs(np.sin(head_ang)) + ref_clear*2*L_2
+ref_hy = L_2*abs(np.sin(head_ang)) + 0.5*B*abs(np.cos(head_ang)) + ref_clear*2*L_2
+update_file('ybox', ref_hy, path='system/topoSetDict.5')
+update_file('boxstart', xbody - ref_hx, path='system/topoSetDict.5')
+update_file('boxend', xbody + ref_hx, path='system/topoSetDict.5')
 update_file('zbox', max(1.6*draft, 0.16*lam), path='system/topoSetDict.5')
 
 
 # -- Modify topoSetDict.6
-l4 = 1.6
-update_file('ybox', l4*L_2, path='system/topoSetDict.6')
-update_file('boxstart', xbody - l4*L_2, path='system/topoSetDict.6')
-update_file('boxend', xbody + l4*L_2, path='system/topoSetDict.6')
+ref_clear = 0.3
+ref_hx = L_2*abs(np.cos(head_ang)) + 0.5*B*abs(np.sin(head_ang)) + ref_clear*2*L_2
+ref_hy = L_2*abs(np.sin(head_ang)) + 0.5*B*abs(np.cos(head_ang)) + ref_clear*2*L_2
+update_file('ybox', ref_hy, path='system/topoSetDict.6')
+update_file('boxstart', xbody - ref_hx, path='system/topoSetDict.6')
+update_file('boxend', xbody + ref_hx, path='system/topoSetDict.6')
 update_file('zbox', max(1.4*draft, 0.12*lam), path='system/topoSetDict.6')
 
 # -- Modify topoSetDict.7
@@ -280,6 +297,11 @@ update_file('endTime', f'{endTime:.2f}', path=cdpath)
 update_file('writeInterval', f'{100.0:.2f}', path=cdpath)
 update_file('cvPoint', f'({xbody} 0 { -draft/2})', path=cdpath)
 update_file('CofR', f'({xbody} 0 0)', path=cdpath)
+# psiBar (middleFieldForm): free-surface forcing only within 2.5 lambda of the
+# hull.  The sponges start 5 lambda from it (inlet xsponge, outlet xdamp, sides
+# ydamp), where the damped disturbance would give spurious forcing.  No-op
+# unless the controlDict sets psiBarRadius.
+update_file('psiBarRadius', f'{2.5*lam:.4g}', path=cdpath)
 
 # -- Modify rigidBodyMotionProperties
 rgpath = os.path.join('constant', 'bodyMotionProperties')
@@ -292,13 +314,14 @@ update_file('heading', f'{np.pi - head_ang:.12}', path = rgpath)
 rgpath = 'linMotions.py'
 update_file('lam', f' = {lam:.2}', path = rgpath,  endl='')
 update_file('zeta', f' = {zeta0:.4}', path = rgpath,  endl='')
-update_file('heading', f' = {heading:.4}', path = rgpath,  endl='')
+update_file('heading', f' = {heading:.12}', path = rgpath,  endl='')
 update_file('Ucur', f' = {Ucur:.4}', path = rgpath,  endl='')
 
 # -- Modify 0.orig/PhiS  (u = +grad(Phi): far field is +U0*x)
 phicurpath = os.path.join('0.orig', 'PhiS')
 update_file('Ucur', f'{Ucur:.4}', path = phicurpath)
-update_file('heading', f'{-heading:.4}', path = phicurpath)
+update_file('heading', f'{-heading:.12}', path = phicurpath)
+update_file('swaySpeed', f'{np.tan(np.radians(beta)) * Ucur:.12}', path = phicurpath)
 
 # -- translate surface
 subprocess.run(['surfaceTransformPoints', '-rotate', f'((-1 0 0) ({-np.cos(head_ang)} {np.sin(head_ang)} 0))', 'constant/triSurface/' + hull + '.stl', 'constant/triSurface/' + hull + '_rotated.stl'])

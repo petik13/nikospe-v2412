@@ -115,7 +115,7 @@ def main():
     nper = min(a.nper, max(int(np.floor((tmax - t_ramp) / Te)), 1))
     lo, hi = tmax - nper * Te, tmax
 
-    fig, ax = plt.subplots(6, 2, figsize=(15, 15), sharex=True,
+    fig, ax = plt.subplots(6, 2, figsize=(12, 12), sharex=True,
                            constrained_layout=True)
 
     case = os.path.basename(os.getcwd())

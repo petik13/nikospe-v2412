@@ -4,7 +4,7 @@ Post-run summary: mean wave drift loads and motion RAOs, in the
 non-dimensional form used by
 
     Seo, Ha, Nam & Kim (2021), "Experimental and Numerical Analysis of Wave
-    Drift Force on KVLCC2 Moving in Oblique Waves", JMSE 9, 136.
+    Drift Force on SOBC Moving in Oblique Waves", JMSE 9, 136.
 
     drift force  (Figs 11, 14)   Fx, Fy / (rho g A^2 B^2 / L)
     drift moment (Fig 16)        Mz     / (rho g A^2 B^2)
@@ -19,21 +19,62 @@ quadratic in a first-order field, so it is DC + 2w only) and RAO amplitudes
 from a fit at omega_e.  Both beat averaging between zero crossings, which
 biases as soon as the DC approaches the oscillation amplitude.
 
-Axes: the function object integrates in mesh axes, where +x is the wave
-propagation direction.  The drift loads are rotated through the heading into
-ship axes before being printed, matching meanVal.py:
+Axes: EVERYTHING REPORTED IS IN MMG AXES (x forward, y starboard, z down,
+origin at midship), the convention of manModel:
 
-    F1 =  Fx cos(psi) - Fy sin(psi)        psi = -headingAngle
-    F2 =  Fx sin(psi) + Fy cos(psi)
+    X > 0 forward (added resistance is X < 0), Y > 0 starboard, Z > 0 down,
+    N about z down, > 0 turns the bow to starboard;
+    encounter angle mu = (360 - h) mod 360, 0 = head sea, 90 = waves from
+    starboard, 270 = waves from port, with h the runsim --heading (0 = head
+    sea, waves along +x; h = 90 has the waves from port).
 
-which puts the bow at -x', so F1 > 0 is added resistance -- directly
-comparable with Seo et al.  Fz and Mz are about the rotation axis and are
-left alone.  In head seas the rotation is 180 deg and only flips signs; at an
-oblique heading it mixes x and y, so it matters.
+The function object integrates in mesh axes, where +x is the wave
+propagation direction and the hull's bow points along (-cos h, sin h).  With
+F1 = Fx cos h - Fy sin h (aft) and F2 = Fx sin h + Fy cos h (starboard):
 
-The motion RAOs come from the solver's own body frame, which is this one
-turned 180 deg about z.  Amplitudes are unaffected; the surge and sway phases
-sit 180 deg from the load axes above.
+    X = -F1,   Y = F2,   Z = -Fz,   N = -Mz.
+
+The printed summary is for the run itself (encounter angle mu).  The sweep
+file (--append) and the collected csv (--csv) are tables for manModel and are
+written for waves from starboard, mu in [0, 180]: a run with the waves from
+port (mu > 180) is written as its mirror image, at 360 - mu with Y and N
+sign-flipped (exact for the port/starboard-symmetric hull).  So a sweep over
+h = 0..180 gives the table mu = 0..180.  Both files carry the marker line
+"# convention: MMG ..."; an existing file without it (written by an older
+meanLoads.py, F1 > 0 added resistance, heading h) is converted once, after a
+backup to <file>.oldConvention, before the new row is added.
+
+Seo et al. plot the added resistance, which is -X.
+
+psi-bar.  When the drift-load function object ran with psiBar on
+(middleFieldForm), postProcessing/<fo>/*/psiBar.dat holds the contribution of
+the mean second-order potential (Grue & Palm 1993), averaged over the same
+last 6 encounter periods; its columns are read by name, so every version of
+the file works.  Its last row gives the psi-bar yaw moment, which is added to
+N: the printed total, the sweep file and the csv include it (--noPsiBar leaves
+it out).  It is listed as a fourth part next to surface / elevation / strip,
+with its free-surface and hull parts.  The psi-bar forces X, Y are added too,
+for files written with the divergence-form hull forcing (middleFieldForm since
+2026-10-10).  X_psi is essential at forward speed: in a stream along the ship
+axis it is the momentum -rho W Phi_C of the mean return flow, which cancels the
+Stokes-transport part of the strip term (without it the SOBC added resistance
+even turns into a thrust at Fn 0.18).  Older, gradient-form files gave a
+spurious X_psi; theirs is printed but not added.
+
+Mass correction.  The numerical psibar does not close the mass balance
+exactly: R = Phi_C + S_C (control volume, = -(Q_hull + S_WL)) is left over, and
+acts as a spurious source in the stream, adding -rho Uinf R to the force.  The
+totals X, Y take it back out, + rho Uinf R (MMG axes); the uncorrected
+X + X_psi is printed next to them.  As a check, the formula that removes the
+whole momentum of both mass fluxes through the control surface,
+X + X_psi - (Fmass + Fstokes)_X, is printed too; it differs from the total by
+the two fluxes weighted with the double-body disturbance W - Uinf at the
+control surface, a physical term (<= 0.06 non-dim on the SOBC runs).
+Z is not corrected -- the vertical psi-bar force needs psibar on the hull
+itself.  Derivation and checks:
+researchQuestions/psibarMidfield.ipynb.
+
+The motion RAOs are amplitudes and do not depend on the axes.
 
 usage:
     python3 meanLoads.py                  # summary for this case
@@ -52,6 +93,39 @@ import numpy as np
 
 RHO = 1000.0
 G = 9.81
+
+PSI_NOTE = ("F1, F2, F6 include the psi-bar terms of runs that computed them with the"
+            " divergence-form hull forcing, F1, F2 with the mass correction"
+            " rho Uinf (Phi_C + S_C); older psiBar runs: F6 only")
+
+MMG_MARKER = ("# convention: MMG body axes (x forward, y starboard, z down, midship);"
+              " heading = encounter angle mu = (waveDirection + 180 - psi) mod 360 [deg],"
+              " 0 head sea, 90 waves from starboard;"
+              " F1mean = X > 0 forward, F2mean = Y > 0 starboard,"
+              " Mzmean = N > 0 bow to starboard; U, V surge and sway at midship (V > 0 starboard)")
+
+
+def to_table(X, Y, N, h_deg):
+    """MMG loads of a run at runsim heading h -> (mu, X, Y, N) for a table
+    written for waves from starboard: a run with the waves from port
+    (mu = 360 - h > 180) is written as its mirror image (360 - mu, X, -Y, -N)."""
+    mu = (360.0 - h_deg) % 360.0
+    if mu > 180.0 + 1e-9:
+        return 360.0 - mu, X, -Y, -N
+    return mu, X, Y, N
+
+
+def old_to_table(F1, F2, F6, h_deg):
+    """Row of an older meanLoads.py file (F1 > 0 added resistance, F2 > 0
+    starboard, F6 about z up, heading h) -> (mu, X, Y, N) in table form."""
+    return to_table(-F1, F2, -F6, h_deg)
+
+
+def has_marker(path):
+    for line in open(path, errors="ignore"):
+        if line.startswith("#") and "convention: MMG" in line:
+            return True
+    return False
 
 
 # ----------------------------------------------------------------- input ----
@@ -89,6 +163,36 @@ def load(pattern):
     return d[keep]
 
 
+def load_psibar(pattern):
+    """Last row of psiBar.dat as (row, {column name: index}, hull forcing),
+    the names from the file's own header, so every version of the file works.
+    Hull forcing "divergence" or "gradient": from the header line where there
+    is one; else the cleaned file (S_WL without Q_fs_dynamic) is divergence and
+    anything older gradient."""
+    best = None
+    for f in sorted(glob.glob(pattern)):
+        names, last, hull = None, None, None
+        for line in open(f, errors="ignore"):
+            if line.startswith("# Time"):
+                names = line[1:].split()
+            elif line.startswith("#") and "hull forcing" in line:
+                hull = line.split(":", 1)[1].strip()
+            elif line.strip() and not line.startswith("#"):
+                last = line
+        if names is None or last is None:
+            continue
+        try:
+            row = np.array([float(v) for v in last.split()])
+        except ValueError:
+            continue
+        if hull is None:
+            hull = ("divergence" if "S_WL" in names and "Q_fs_dynamic" not in names
+                    else "gradient")
+        if best is None or row[0] > best[0][0]:
+            best = (row, {n: i for i, n in enumerate(names) if i < len(row)}, hull)
+    return best
+
+
 # ------------------------------------------------------------- harmonics ----
 def fit(t, y, w, nharm=3):
     """y = a0 + sum_n [an cos(n w t) + bn sin(n w t)].
@@ -121,18 +225,22 @@ def append_row(path, row, case, head, U0, L, B, steep, depth):
     does not leave two rows for the same wavelength, and rows are kept sorted
     by lambda/L so the file plots straight out of the box.
     """
+    h_deg = -np.degrees(head) + 0.0
+    mu_tab = to_table(0.0, 0.0, 0.0, h_deg)[0]
     header = [
-        "# KVLCC2 wave-load sweep",
-        f"#   heading   {np.degrees(head) + 0.0:+.4g} deg"
-        " (0 = head sea, waves along +x)",
+        "# SOBC wave-load sweep",
+        f"#   heading   h {h_deg:+.4g} deg (runsim; 0 = head sea, waves along +x)"
+        f"  ->  table encounter angle mu {mu_tab:.4g} deg",
         f"#   speed     U {U0:+.5g} m/s   Fn {U0/np.sqrt(G*L):.4g}",
         f"#   ship      L {L:.4g} m   B {B:.4g} m"
         "   (water depth is per case, 0.5 lambda)",
         f"#   wave      H/lambda {steep:.5g}",
+        f"#   psibar    {PSI_NOTE} (psiBar.dat; see summary.txt of each case)",
         f"#   non-dim   F1,F2 / (rho g A^2 B^2 / L)   F6 / (rho g A^2 B^2)",
         "#             eta1..3 / A                   eta4..6 / (k A)",
-        "#   axes      loads in ship axes (bow at -x, so F1 > 0 is added"
-        " resistance)",
+        "#   axes      MMG: F1 = X > 0 forward (added resistance is -X), F2 = Y > 0"
+        " starboard, F6 = N > 0 bow to starboard; table form, waves from starboard",
+        MMG_MARKER,
         "#",
         "#" + " ".join(f"{c:>11s}" for c in COLS)[1:],
     ]
@@ -145,8 +253,29 @@ def append_row(path, row, case, head, U0, L, B, steep, depth):
 
     # Rows are keyed on lambda/L -- one heading and speed per file, so it
     # identifies the case on its own now that the name is not carried.
-    lam_L = row["lam/L"]
+    lam_L = float(f"{row['lam/L']:.5g}")        # as written below (11.5g)
     old = []
+    if os.path.exists(path) and not has_marker(path):
+        # written by an older meanLoads.py: convert its rows to MMG table form
+        import shutil
+        shutil.copy2(path, path + ".oldConvention")
+        h_file = h_deg
+        for line in open(path, errors="ignore"):
+            m_ = re.match(r"^#\s+heading\s+([-+\d.eE]+)\s+deg", line)
+            if m_:
+                h_file = -float(m_.group(1))        # old header printed -h
+        conv = []
+        for line in open(path, errors="ignore"):
+            f = line.split()
+            if line.startswith("#") or len(f) != len(COLS):
+                continue
+            v_ = [float(x) for x in f]
+            _, v_[3], v_[4], v_[5] = old_to_table(v_[3], v_[4], v_[5], h_file)
+            conv.append(" ".join(f"{x:11.5g}" for x in v_))
+        with open(path, "w") as fo:
+            fo.write("\n".join(conv) + ("\n" if conv else ""))
+        print(f"  {path}: old convention, {len(conv)} rows converted to MMG"
+              f" (backup {path}.oldConvention)")
     if os.path.exists(path):
         for line in open(path, errors="ignore"):
             f = line.split()
@@ -165,19 +294,24 @@ def append_row(path, row, case, head, U0, L, B, steep, depth):
 
 
 # ------------------------------------------------- collected csv output ----
-CSV_COLS = ["lam/L", "U", "heading", "F1mean", "F2mean", "Mzmean"]
+CSV_COLS = (["lam/L", "U", "heading", "F1mean", "F2mean", "Mzmean"]
+            + [f"eta{i}" for i in range(1, 7)])
+CSV_KEY = 3                                # lam/L, U, heading identify a row
 
 
-def write_csv(path, lam_L, U0, heading, F1, F2, Mz):
+def write_csv(path, lam_L, U0, heading, row):
     """Append one case to a single csv collecting the whole sweep.
 
     Keyed on (lambda/L, U, heading) -- all three are needed.  A sweep over
     headings and speeds at one wavelength has lambda/L constant, so keying on
     it alone would make every case overwrite the last.
 
-    heading is in degrees in the same convention as the case name and the
-    runsim --heading argument (0 = head seas), i.e. -headingAngle.  Loads are
-    non-dimensional and in ship axes, as printed above.
+    heading is the MMG encounter angle mu [deg] of the table (waves from
+    starboard, see the module docstring); loads are non-dimensional and in MMG
+    axes, F1mean = X, F2mean = Y, Mzmean = N.  eta1..3 are divided
+    by A and eta4..6 by kA; they are amplitudes, so the 180 deg between the
+    solver body frame and the load axes does not affect them.  A restrained
+    body writes zeros, and a case with no motion output writes nan.
     """
     if path.endswith(os.sep) or os.path.isdir(path):
         path = os.path.join(path, "meanLoads.csv")
@@ -185,16 +319,38 @@ def write_csv(path, lam_L, U0, heading, F1, F2, Mz):
     if parent:
         os.makedirs(parent, exist_ok=True)
 
-    me = (lam_L, U0, heading)
+    # the key as written (.6g): a full-precision key never matched the rows
+    # read back, so a rerun added a duplicate instead of replacing its row
+    me = tuple(float(f"{v:.6g}") for v in (lam_L, U0, heading))
 
     def key(fields):
-        return tuple(float(v) for v in fields[:3])
+        return tuple(float(v) for v in fields[:CSV_KEY])
 
     def same(a, b):
         return all(abs(x - y) <= 1e-6*max(1.0, abs(x), abs(y))
                    for x, y in zip(a, b))
 
     rows = []
+    if os.path.exists(path) and not has_marker(path):
+        # written by an older meanLoads.py: convert its rows to MMG table form
+        import shutil
+        shutil.copy2(path, path + ".oldConvention")
+        conv = []
+        for line in open(path, errors="ignore"):
+            f = line.strip().split(",")
+            if len(f) != len(CSV_COLS):
+                continue
+            try:
+                v_ = [float(x) for x in f]
+            except ValueError:
+                continue                       # header row
+            v_[2], v_[3], v_[4], v_[5] = old_to_table(v_[3], v_[4], v_[5], v_[2])
+            conv.append(",".join(f"{x:.6g}" for x in v_))
+        with open(path, "w") as fo:
+            fo.write(",".join(CSV_COLS) + "\n" + MMG_MARKER + "\n"
+                     + "\n".join(conv) + ("\n" if conv else ""))
+        print(f"  {path}: old convention, {len(conv)} rows converted to MMG"
+              f" (backup {path}.oldConvention)")
     if os.path.exists(path):
         for line in open(path, errors="ignore"):
             f = line.strip().split(",")
@@ -207,12 +363,16 @@ def write_csv(path, lam_L, U0, heading, F1, F2, Mz):
             if not same(k, me):                # else: drop the previous run
                 rows.append(line.rstrip("\n"))
 
-    rows.append(",".join(f"{v:.6g}" for v in
-                         (lam_L, U0, heading, F1, F2, Mz)))
+    nan = float("nan")
+    vals = ([lam_L, U0, heading, row.get("F1", nan), row.get("F2", nan),
+             row.get("F6", nan)]
+            + [row.get(f"eta{i}", nan) for i in range(1, 7)])
+    rows.append(",".join(f"{v:.6g}" for v in vals))
     rows.sort(key=lambda line: key(line.split(",")))
 
     with open(path, "w") as f:
         f.write(",".join(CSV_COLS) + "\n")
+        f.write(MMG_MARKER + "\n")
         f.write("\n".join(rows) + "\n")
 
     print(f"  wrote {path}  ({len(rows)} cases collected)")
@@ -225,6 +385,8 @@ def main():
                     help="encounter periods to average over")
     ap.add_argument("--nharm", type=int, default=3)
     ap.add_argument("--fo", default="meanLoads", help="drift-load function object")
+    ap.add_argument("--noPsiBar", action="store_true",
+                    help="leave the psi-bar terms (psiBar.dat) out of the totals")
     ap.add_argument("--append", default=None,
                     help="append one summary row to this file, for a sweep")
     ap.add_argument("--csv", default=None, metavar="PATH",
@@ -239,6 +401,7 @@ def main():
     steep = wc["steepness"]
     U0 = wc["currentSpeed"]
     head = wc["headingAngle"]
+    Usway = wc.get("swaySpeed", 0)
     h = wc["waterDepth"]
     ramp_per = wc.get("rampPeriods", 0.0)
 
@@ -247,7 +410,12 @@ def main():
 
     k = 2.0 * np.pi / lam
     w0 = np.sqrt(G * k * np.tanh(k * h))
-    we = w0 + k * U0 * np.cos(head)
+    # Uinf as the solver builds it: surge along the heading, sway 90 deg to it
+    Ux = U0*np.cos(head) - Usway*np.sin(head)
+    Uy = U0*np.sin(head) + Usway*np.cos(head)
+    Umag = np.hypot(Ux, Uy)
+
+    we = w0 + k * Ux          # the wave runs along +x, so only Ux Doppler-shifts it
     Te = 2.0 * np.pi / we
     A = 0.5 * steep * lam
     t_ramp = ramp_per * 2.0 * np.pi / w0
@@ -275,6 +443,8 @@ def main():
     F = load(f"postProcessing/{a.fo}/*/force.dat")
     M = load(f"postProcessing/{a.fo}/*/moment.dat")
     mot = load("postProcessing/bodyMotion/motion.dat")
+    # psi-bar terms: one row per field write and one at the end of the run
+    Pb = None if a.noPsiBar else load_psibar(f"postProcessing/{a.fo}/*/psiBar.dat")
 
     avail = [d for d in (F, M, mot) if d is not None]
     if not avail:
@@ -293,57 +463,142 @@ def main():
 
     row = {"lam/L": lam / L, "T": 2.0 * np.pi / w0, "Te": Te}
 
-    # --- drift loads ------------------------------------------------------
+    # --- drift loads (MMG axes) -------------------------------------------
+    h_deg = -np.degrees(head) + 0.0           # runsim heading, 0 = head sea
+    mu_run = (360.0 - h_deg) % 360.0          # MMG encounter angle of this run
     if F is not None:
-        rule("MEAN WAVE DRIFT LOAD        (Seo et al. Figs 11, 14, 16)")
-        print(f"  {'':<12s} {'value':>13s} {'non-dim':>10s}     contributions"
-              f" (surface / elevation / strip)")
+        rule(f"MEAN WAVE DRIFT LOAD, MMG axes, encounter angle mu {mu_run:.4g} deg")
+        print(f"  {'':<14s} {'value':>13s} {'non-dim':>10s}     contributions"
+              f" (surface / elevation / strip"
+              + (" / psibar)" if Pb is not None else ")"))
         m = (F[:, 0] >= lo) & (F[:, 0] <= hi)
 
         # The function object integrates in mesh axes, where +x is the wave
-        # propagation direction.  The loads are wanted in ship axes, so rotate
-        # the horizontal pair through the heading.  In head seas this is a
-        # 180 deg turn and only flips signs, which is why it went unnoticed;
-        # at an oblique heading it mixes x and y.  Fz and Mz are about the
-        # rotation axis and are unaffected.
-        #
-        # psi = -headingAngle puts the bow at -x', so F1 > 0 is added
-        # resistance -- the convention meanVal.py and Seo et al. use.  Note it
-        # is the solver's body frame turned 180 deg, so the surge/sway phases
-        # in the RAO block below sit 180 deg from these axes.
+        # propagation direction and the bow points along (-cos h, sin h).
+        # F1 = Fx cos h - Fy sin h is aft, F2 = Fx sin h + Fy cos h starboard;
+        # MMG: X = -F1, Y = F2, Z = -Fz, N = -Mz.
         psi = -head
         cps, sps = np.cos(psi), np.sin(psi)
 
         def rot(cx, cy):
-            """Mean of the (x, y) force pair in column cx, cy, in ship axes."""
+            """Mean (X, Y) in MMG axes of the force pair in columns cx, cy."""
             fx = fit(F[m, 0], F[m, cx], 2 * we, a.nharm)[0]
             fy = fit(F[m, 0], F[m, cy], 2 * we, a.nharm)[0]
-            return fx * cps - fy * sps, fx * sps + fy * cps
+            return -(fx * cps - fy * sps), fx * sps + fy * cps
 
         tots = {}
         parts = {}
-        tots["F1"], tots["F2"] = rot(1, 2)
-        parts["F1"], parts["F2"] = zip(*(rot(1 + o, 2 + o) for o in (3, 6, 9)))
-        tots["F3"] = fit(F[m, 0], F[m, 3], 2 * we, a.nharm)[0]
-        parts["F3"] = [fit(F[m, 0], F[m, 3 + o], 2 * we, a.nharm)[0]
-                       for o in (3, 6, 9)]
+        tots["X"], tots["Y"] = rot(1, 2)
+        parts["X"], parts["Y"] = zip(*(rot(1 + o, 2 + o) for o in (3, 6, 9)))
+        parts["X"], parts["Y"] = list(parts["X"]), list(parts["Y"])
+        noPsi = {"X": tots["X"], "Y": tots["Y"]}
 
-        for name, key, unit in (("F1  (added R)", "F1", "N"),
-                                ("F2  (sway)", "F2", "N"),
-                                ("F3", "F3", "N")):
+        # psi-bar terms (last row of psiBar.dat, columns by name), mesh axes ->
+        # MMG as above; the forces are added for divergence-form files only
+        psiB = None
+        if Pb is not None:
+            r_, col, hullForcing = Pb
+
+            def val(name):
+                return r_[col[name]] if name in col else np.nan
+
+            def mmg_v(fx, fy):
+                return -(fx * cps - fy * sps), fx * sps + fy * cps
+
+            def mmg(cx, cy):
+                return mmg_v(val(cx), val(cy))
+
+            psiB = {"t": r_[0], "per": val("periods"), "N": -val("Mpsi_z"),
+                    "Nfs": -val("Mpsi_fs_z"), "Nhull": -val("Mpsi_hull_z"),
+                    "Qhull": val("Q_hull"), "Qfs": val("Q_fs"),
+                    "SWL": val("S_WL"), "SC": val("S_C"), "PhiC": val("Phi_C"),
+                    "Xstokes": mmg("Fstokes_x", "Fstokes_y")[0]}
+            psiB["X"], psiB["Y"] = mmg("Fpsi_x", "Fpsi_y")
+            psiB["addXY"] = hullForcing == "divergence"
+            # mass residual R = Phi_C + S_C: a spurious source in the stream,
+            # force -rho Uinf R (mesh axes), taken back out
+            res = val("Phi_C") + val("S_C")
+            psiB["res"] = res
+            psiB["Xres"], psiB["Yres"] = (mmg_v(RHO * Ux * res, RHO * Uy * res)
+                                          if np.isfinite(res) else (0.0, 0.0))
+            # check: the whole momentum of both mass fluxes removed
+            psiB["Xall"], psiB["Yall"] = mmg_v(
+                -(val("Fmass_x") + val("Fstokes_x")),
+                -(val("Fmass_y") + val("Fstokes_y")))
+            if psiB["addXY"]:
+                for key in ("X", "Y"):
+                    tots[key] += psiB[key] + psiB[key + "res"]
+                    parts[key].append(psiB[key] + psiB[key + "res"])
+        tots["Z"] = -fit(F[m, 0], F[m, 3], 2 * we, a.nharm)[0]
+        parts["Z"] = [-fit(F[m, 0], F[m, 3 + o], 2 * we, a.nharm)[0]
+                      for o in (3, 6, 9)]
+
+        for name, key in (("X  (surge)", "X"), ("Y  (sway)", "Y"), ("Z  (heave)", "Z")):
             tot = tots[key]
-            print(f"  {name:<12s} {tot:+13.6g} {tot/den_F:+10.4f}     "
+            print(f"  {name:<14s} {tot:+13.6g} {tot/den_F:+10.4f}     "
                   + " / ".join(f"{p/den_F:+7.4f}" for p in parts[key])
-                  + f"   [{unit}]")
-            row[key] = tot / den_F
+                  + (" /       -" if psiB is not None and (key == "Z" or not psiB["addXY"])
+                     else "")
+                  + "   [N]")
+        print(f"  {'':<14s} added resistance -X/den = {-tots['X']/den_F:+.4f}")
+        Nz = None
         if M is not None:
             mm = (M[:, 0] >= lo) & (M[:, 0] <= hi)
-            tot = fit(M[mm, 0], M[mm, 3], 2 * we, a.nharm)[0]
-            parts = [fit(M[mm, 0], M[mm, 3 + off], 2 * we, a.nharm)[0]
+            Nz = -fit(M[mm, 0], M[mm, 3], 2 * we, a.nharm)[0]
+            parts = [-fit(M[mm, 0], M[mm, 3 + off], 2 * we, a.nharm)[0]
                      for off in (3, 6, 9)]
-            print(f"  {'F6  (yaw)':<12s} {tot:+13.6g} {tot/den_M:+10.4f}     "
+            noPsi["N"] = Nz
+            if psiB is not None:
+                Nz += psiB["N"]
+                parts.append(psiB["N"])
+            print(f"  {'N  (yaw)':<14s} {Nz:+13.6g} {Nz/den_M:+10.4f}     "
                   + " / ".join(f"{p/den_M:+7.4f}" for p in parts) + "   [N m]")
-            row["F6"] = tot / den_M
+        if psiB is not None:
+            print(f"  psibar         psiBar.dat at t = {psiB['t']:.4g} s, averaged over"
+                  f" {psiB['per']:.2f} encounter periods; N = free surface"
+                  f" {psiB['Nfs']/den_M:+.4f} + hull {psiB['Nhull']/den_M:+.4f}")
+            print("                 without psibar:"
+                  f" X {noPsi['X']/den_F:+.4f}  Y {noPsi['Y']/den_F:+.4f}"
+                  + (f"  N {noPsi['N']/den_M:+.4f}" if 'N' in noPsi else ""))
+            if not psiB["addXY"]:
+                print(f"                 psibar forces NOT added (gradient-form hull forcing,"
+                      f" spurious): X {psiB['X']/den_F:+.4f}  Y {psiB['Y']/den_F:+.4f}")
+            if np.isfinite(psiB["SWL"]):
+                print(f"                 mass balance [m^3/s]: control volume Phi_C + S_C ="
+                      f" {psiB['PhiC'] + psiB['SC']:+.3g};  hull Q_hull + S_WL ="
+                      f" {psiB['Qhull'] + psiB['SWL']:+.3g}  (S_WL {psiB['SWL']:+.3g})")
+                if psiB["addXY"]:
+                    print(f"                 psibar part = X_psi {psiB['X']/den_F:+.4f}"
+                          f" + mass correction rho Uinf (Phi_C + S_C)"
+                          f" {psiB['Xres']/den_F:+.4f}   (Y {psiB['Y']/den_F:+.4f}"
+                          f" {psiB['Yres']/den_F:+.4f})")
+                    print(f"                 uncorrected X + X_psi"
+                          f" {(noPsi['X'] + psiB['X'])/den_F:+.4f};  check, both mass-flux"
+                          f" momenta removed: X + X_psi - (Fmass + Fstokes)_X ="
+                          f" {(noPsi['X'] + psiB['X'] + psiB['Xall'])/den_F:+.4f}")
+            else:
+                print(f"                 net flux Q: hull {psiB['Qhull']:+.3g}, free surface"
+                      f" {psiB['Qfs']:+.3g} m^3/s (older psiBar.dat: no mass balance)")
+            if abs(psiB["t"] - hi) > 0.5 * Te:
+                print(f"  WARNING: psiBar.dat ends at t = {psiB['t']:.4g} s, the fit window"
+                      f" at {hi:.4g} s")
+            if psiB["per"] < nper - 0.5:
+                print(f"  WARNING: psibar averaged over {psiB['per']:.2f} periods only"
+                      f" (fit window {nper})")
+        elif not a.noPsiBar and abs(U0) > 0:
+            print("  psibar         not computed (psiBar off in the function object):"
+                  " N lacks the O(U) psi-bar term")
+
+        # table form (waves from starboard) for the sweep file and the csv
+        mu_tab, Xt, Yt, Nt = to_table(tots["X"] / den_F, tots["Y"] / den_F,
+                                      (Nz / den_M) if Nz is not None else np.nan, h_deg)
+        row["mu"] = mu_tab
+        row["F1"], row["F2"] = Xt, Yt
+        if Nz is not None:
+            row["F6"] = Nt
+        if abs(mu_tab - mu_run) > 1e-6:
+            print(f"  table form (waves from starboard): mu {mu_tab:.4g} deg,"
+                  f"  X {Xt:+.4f}  Y {Yt:+.4f}  N {Nt:+.4f}  (mirror image of this run)")
         print()
         print("  the total is a difference of larger, individually CV-dependent")
         print("  terms, so watch the contributions as well as the sum")
@@ -372,14 +627,16 @@ def main():
 
     # --- convergence ------------------------------------------------------
     if F is not None:
-        rule("STABILITY  (F1 non-dim over successive 2-Te windows)")
+        rule("STABILITY  (X without psibar, non-dim, MMG, over successive 2-Te windows)")
         line = []
         for j in range(2, min(n_avail, 10) + 1):
             a1, b1 = hi - j * Te, hi - (j - 2) * Te
             mm = (F[:, 0] >= a1) & (F[:, 0] <= b1)
             if mm.sum() < 20:
                 continue
-            line.append(f"{fit(F[mm,0],F[mm,1],2*we,a.nharm)[0]/den_F:+.4f}")
+            fx = fit(F[mm, 0], F[mm, 1], 2 * we, a.nharm)[0]
+            fy = fit(F[mm, 0], F[mm, 2], 2 * we, a.nharm)[0]
+            line.append(f"{-(fx*np.cos(-head) - fy*np.sin(-head))/den_F:+.4f}")
         print("  " + "  ".join(reversed(line)) + "   (oldest -> newest)")
 
     print()
@@ -391,8 +648,7 @@ def main():
 
     if a.csv:
         if all(kk in row for kk in ("F1", "F2", "F6")):
-            write_csv(a.csv, lam / L, U0, -np.degrees(head) + 0.0,
-                      row["F1"], row["F2"], row["F6"])
+            write_csv(a.csv, lam / L, U0, row["mu"], row)
             print()
         else:
             print("  no drift loads to write to the csv")
