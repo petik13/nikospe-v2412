@@ -271,14 +271,33 @@ update_file('zbox', max(1.2*draft, 0.1*lam), path='system/topoSetDict.7')
 # 'Dangling coarse cells') cannot handle: the sphere patch is then not created.
 zGap = max(0.15, 0.04*lam)
 z7 = max(1.2*draft, 0.1*lam)
+if lam >= 3.5:   # box .7 (refined from lambda 3.5, helpers.py) encloses the control volume
+    z7 = max(z7, cv_depth + args.zMargin)
 z6 = max(1.4*draft, 0.12*lam, cv_depth + args.zMargin, z7 + zGap)
 z5 = max(1.6*draft, 0.16*lam, z6 + zGap)
 z3 = max(2.0*draft, 0.2*lam, z5 + zGap)
 z1 = max(3.0*draft, 0.5*lam, z3 + zGap)
-for _i, _z in ((1, z1), (3, z3), (5, z5), (6, z6)):
+for _i, _z in ((1, z1), (3, z3), (5, z5), (6, z6), (7, z7)):
     update_file('zbox', _z, path=f'system/topoSetDict.{_i}')
 hf.console(f"Refinement box depths: .1 {z1:.3f}, .3 {z3:.3f}, .5 {z5:.3f}, .6 {z6:.3f}, .7 {z7:.3f} m"
            f" (control volume {cv_depth:.3f} m)")
+
+# For lambda >= 3.5, where helpers.py also refines box .7, the finest box encloses
+# the control volume with zMargin to spare on the sides as well, and .6, .5 grow
+# around it, each at least zGap wider than the next finer one (sphere_diag test J,
+# 2026-10-15: with .7 at +-0.7 m the control volume lay just outside the finest
+# level and the lambda 3.9 m surge drift was 4-6 % low).
+if lam >= 3.5:
+    _b = lambda c: (L_2*abs(np.cos(head_ang)) + 0.5*B*abs(np.sin(head_ang)) + c,
+                    L_2*abs(np.sin(head_ang)) + 0.5*B*abs(np.cos(head_ang)) + c)
+    h7x, h7y = cv_hx + args.zMargin, cv_hy + args.zMargin
+    h6x, h6y = (max(a, b + zGap) for a, b in zip(_b(0.3*2*L_2), (h7x, h7y)))
+    h5x, h5y = (max(a, b + zGap) for a, b in zip(_b(0.5*2*L_2), (h6x, h6y)))
+    for _i, (_hx, _hy) in ((5, (h5x, h5y)), (6, (h6x, h6y)), (7, (h7x, h7y))):
+        update_file('ybox', _hy, path=f'system/topoSetDict.{_i}')
+        update_file('boxstart', xbody - _hx, path=f'system/topoSetDict.{_i}')
+        update_file('boxend', xbody + _hx, path=f'system/topoSetDict.{_i}')
+    hf.console(f"Boxes .7 +-{h7x:.3f}, .6 +-{h6x:.3f}, .5 +-{h5x:.3f} m around the control volume +-{cv_hx:.3f} m")
 """
 # -- Modify topoSetDict.6
 l2 = 1.15
