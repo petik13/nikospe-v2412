@@ -58,6 +58,10 @@ def lam_from_Te(Te, U, heading_deg, h=TANK_DEPTH, g=9.81):
     c = np.cos(np.radians(heading_deg))
     f = lambda k: np.sqrt(g*k*np.tanh(k*h)) + k*U*c - 2*np.pi/Te
     lo, hi = 1e-4, 1e3
+    if U*c < 0:
+        # stream against the waves: omega_e(k) peaks at k = g/(4 U^2) (deep
+        # water); the physical root is the one below the peak
+        hi = min(hi, g/(4*(U*c)**2))
     if f(lo)*f(hi) > 0:
         raise SystemExit(f"sphere_tank: no wave with encounter period {Te} s at U = {U} m/s")
     for _ in range(200):                                   # bisection
@@ -360,11 +364,15 @@ update_file('endTime', f'{endTime:.2f}', path=cdpath)
 update_file('writeInterval', f'{100.0:.2f}', path=cdpath)
 update_file('cvPoint', f'({xbody} 0 { -draft/2})', path=cdpath)
 update_file('CofR', f'({xbody} 0 0)', path=cdpath)
-# psiBar (middleFieldForm): free-surface forcing only within 2.5 lambda of the
-# hull.  The sponges start 5 lambda from it (inlet xsponge, outlet xdamp, sides
-# ydamp), where the damped disturbance would give spurious forcing.  No-op
-# unless the controlDict sets psiBarRadius.
-update_file('psiBarRadius', f'{2.5*lam:.4g}', path=cdpath)
+# psiBar (middleFieldForm): free-surface forcing only within psiBarRadius of the
+# hull, at least 2.5 lambda and at least out to the side walls (no side sponge
+# here); the inlet and outlet sponges start 5 lambda from it, where the damped
+# disturbance would give spurious forcing, so it stays below 4 lambda.
+psi_radius = min(max(2.5*lam, 0.5*TANK_B), 4.0*lam)
+if psi_radius < 0.5*TANK_B:
+    hf.console(f"WARNING: psiBarRadius {psi_radius:.3g} m does not reach the walls"
+               f" ({0.5*TANK_B} m): lambda {lam:.3g} m is short for this tank layout")
+update_file('psiBarRadius', f'{psi_radius:.4g}', path=cdpath)
 
 # -- Modify rigidBodyMotionProperties
 rgpath = os.path.join('constant', 'bodyMotionProperties')
