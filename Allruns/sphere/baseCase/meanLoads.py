@@ -1,18 +1,24 @@
 #!/usr/bin/env python3
 """
-Post-run summary: mean wave drift loads and motion RAOs, in the
+Post-run summary for the SPHERE: mean wave drift loads and motion RAOs, in the
 non-dimensional form used by
 
-    Seo, Ha, Nam & Kim (2021), "Experimental and Numerical Analysis of Wave
-    Drift Force on SOBC Moving in Oblique Waves", JMSE 9, 136.
+    Zhao, Faltinsen, Krokstad & Aanesland (1988), "Wave-current interaction
+    effects on large-volume structures", BOSS '88, pp. 623-638 (hemisphere).
 
-    drift force  (Figs 11, 14)   Fx, Fy / (rho g A^2 B^2 / L)
-    drift moment (Fig 16)        Mz     / (rho g A^2 B^2)
-    motion RAOs  (Figs 9, 10)    xi1..3 / A ,   xi4..6 / (k A)
-    abscissa                     lambda / L
+    drift force  (Figs 4, 5, 9)  Fx, Fy / (1/2 rho g A^2 D)
+    drift moment                 Mz     / (1/2 rho g A^2 D^2)   (not in the paper;
+                                                                 the same form)
+    motion RAOs  (Fig 6)         xi1..3 / A ,   xi4..6 / (k A)
+    abscissa                     omega_e^2 R / g, omega_e the encounter frequency
+    speed                        U / sqrt(g D)
 
-Note the two denominators differ by a factor L -- the moment is NOT divided
-by L.
+with D the diameter (beam in bodyMotionProperties) and R = D/2.  Zhao et al.'s
+U is the stream along the wave propagation direction; for a run at heading
+h = 0 (head sea) it is the currentSpeed U0.  Their F1 is the drift force along
+the waves, which is -X at mu = 0.  This copy differs from the KVLCC2/SOBC
+meanLoads.py (Seo et al. 2021 form) in the non-dimensional form only; the
+sweep file and the csv are keyed on omega_e^2 R/g and U/sqrt(gD).
 
 Means are taken from a least-squares fit at 2*omega_e (a drift load is
 quadratic in a first-order field, so it is DC + 2w only) and RAO amplitudes
@@ -44,7 +50,6 @@ h = 0..180 gives the table mu = 0..180.  Both files carry the marker line
 meanLoads.py, F1 > 0 added resistance, heading h) is converted once, after a
 backup to <file>.oldConvention, before the new row is added.
 
-Seo et al. plot the added resistance, which is -X.
 
 psi-bar.  When the drift-load function object ran with psiBar on
 (middleFieldForm), postProcessing/<fo>/*/psiBar.dat holds the contribution of
@@ -214,32 +219,42 @@ def rule(title, width=78):
 
 
 # ------------------------------------------------------------ sweep file ----
-COLS = ["lam/L", "T", "Te", "F1", "F2", "F6",
+COLS = ["w2R/g", "lam/D", "T", "Te", "F1", "F2", "F6",
         "eta1", "eta2", "eta3", "eta4", "eta5", "eta6"]
 
 
-def append_row(path, row, case, head, U0, L, B, steep, depth):
+def set_aside(path, ok):
+    """An existing table without the Zhao-form columns (written by the Seo-form
+    meanLoads.py, other denominators) cannot be converted: move it to
+    <path>.preZhao and start a new one."""
+    if os.path.exists(path) and not ok(open(path, errors="ignore").read()):
+        import shutil
+        shutil.move(path, path + ".preZhao")
+        print(f"  {path}: older (Seo-form) table, moved to {path}.preZhao")
+
+
+def append_row(path, row, case, head, U0, D, steep, depth):
     """Append one case to the sweep file, writing a header if it is new.
 
     A case already in the file is replaced rather than duplicated, so a rerun
-    does not leave two rows for the same wavelength, and rows are kept sorted
-    by lambda/L so the file plots straight out of the box.
+    does not leave two rows for the same frequency, and rows are kept sorted
+    by omega_e^2 R/g so the file plots straight out of the box.
     """
     h_deg = -np.degrees(head) + 0.0
     mu_tab = to_table(0.0, 0.0, 0.0, h_deg)[0]
     header = [
-        "# SOBC wave-load sweep",
+        "# sphere wave-load sweep, non-dimensional as Zhao, Faltinsen, Krokstad & Aanesland (1988)",
         f"#   heading   h {h_deg:+.4g} deg (runsim; 0 = head sea, waves along +x)"
         f"  ->  table encounter angle mu {mu_tab:.4g} deg",
-        f"#   speed     U {U0:+.5g} m/s   Fn {U0/np.sqrt(G*L):.4g}",
-        f"#   ship      L {L:.4g} m   B {B:.4g} m"
-        "   (water depth is per case, 0.5 lambda)",
+        f"#   speed     U {U0:+.5g} m/s   U/sqrt(gD) {U0/np.sqrt(G*D):+.4g}",
+        f"#   sphere    D {D:.4g} m   R {0.5*D:.4g} m   (water depth is per case, 0.5 lambda)",
         f"#   wave      H/lambda {steep:.5g}",
         f"#   psibar    {PSI_NOTE} (psiBar.dat; see summary.txt of each case)",
-        f"#   non-dim   F1,F2 / (rho g A^2 B^2 / L)   F6 / (rho g A^2 B^2)",
-        "#             eta1..3 / A                   eta4..6 / (k A)",
-        "#   axes      MMG: F1 = X > 0 forward (added resistance is -X), F2 = Y > 0"
-        " starboard, F6 = N > 0 bow to starboard; table form, waves from starboard",
+        "#   non-dim   w2R/g = omega_e^2 R / g (omega_e the encounter frequency)",
+        "#             F1,F2 / (1/2 rho g A^2 D)   F6 / (1/2 rho g A^2 D^2)",
+        "#             eta1..3 / A                 eta4..6 / (k A)",
+        "#   axes      MMG: F1 = X > 0 forward, F2 = Y > 0 starboard, F6 = N > 0 bow to"
+        " starboard; table form, waves from starboard; Zhao et al.'s F1 is -X at mu 0",
         MMG_MARKER,
         "#",
         "#" + " ".join(f"{c:>11s}" for c in COLS)[1:],
@@ -251,37 +266,16 @@ def append_row(path, row, case, head, U0, L, B, steep, depth):
         except ValueError:
             return float("inf")
 
-    # Rows are keyed on lambda/L -- one heading and speed per file, so it
-    # identifies the case on its own now that the name is not carried.
-    lam_L = float(f"{row['lam/L']:.5g}")        # as written below (11.5g)
+    # Rows are keyed on omega_e^2 R/g -- one heading and speed per file
+    x = float(f"{row['w2R/g']:.5g}")            # as written below (11.5g)
+    set_aside(path, lambda txt: "w2R/g" in txt)
     old = []
-    if os.path.exists(path) and not has_marker(path):
-        # written by an older meanLoads.py: convert its rows to MMG table form
-        import shutil
-        shutil.copy2(path, path + ".oldConvention")
-        h_file = h_deg
-        for line in open(path, errors="ignore"):
-            m_ = re.match(r"^#\s+heading\s+([-+\d.eE]+)\s+deg", line)
-            if m_:
-                h_file = -float(m_.group(1))        # old header printed -h
-        conv = []
-        for line in open(path, errors="ignore"):
-            f = line.split()
-            if line.startswith("#") or len(f) != len(COLS):
-                continue
-            v_ = [float(x) for x in f]
-            _, v_[3], v_[4], v_[5] = old_to_table(v_[3], v_[4], v_[5], h_file)
-            conv.append(" ".join(f"{x:11.5g}" for x in v_))
-        with open(path, "w") as fo:
-            fo.write("\n".join(conv) + ("\n" if conv else ""))
-        print(f"  {path}: old convention, {len(conv)} rows converted to MMG"
-              f" (backup {path}.oldConvention)")
     if os.path.exists(path):
         for line in open(path, errors="ignore"):
             f = line.split()
             if line.startswith("#") or len(f) != len(COLS):
                 continue                          # blank, comment or old format
-            if abs(key(line) - lam_L) > 1e-6*max(1.0, abs(lam_L)):
+            if abs(key(line) - x) > 1e-6*max(1.0, abs(x)):
                 old.append(line.rstrip("\n"))     # else: drop the previous run
 
     line = " ".join(f"{row.get(c, float('nan')):11.5g}" for c in COLS)
@@ -289,29 +283,25 @@ def append_row(path, row, case, head, U0, L, B, steep, depth):
     with open(path, "w") as f:
         f.write("\n".join(header + sorted(old + [line], key=key)) + "\n")
 
-    print(f"  wrote row for {case} (lambda/L {lam_L:.4g}) to {path}"
+    print(f"  wrote row for {case} (omega_e^2 R/g {x:.4g}) to {path}"
           f"  ({len(old)+1} case{'s' if old else ''} in the sweep)")
 
 
 # ------------------------------------------------- collected csv output ----
-CSV_COLS = (["lam/L", "U", "heading", "F1mean", "F2mean", "Mzmean"]
+CSV_COLS = (["w2R/g", "U/sqrt(gD)", "heading", "F1mean", "F2mean", "Mzmean"]
             + [f"eta{i}" for i in range(1, 7)])
-CSV_KEY = 3                                # lam/L, U, heading identify a row
+CSV_KEY = 3                                # w2R/g, U/sqrt(gD), heading identify a row
 
 
-def write_csv(path, lam_L, U0, heading, row):
+def write_csv(path, wR, UgD, heading, row):
     """Append one case to a single csv collecting the whole sweep.
 
-    Keyed on (lambda/L, U, heading) -- all three are needed.  A sweep over
-    headings and speeds at one wavelength has lambda/L constant, so keying on
-    it alone would make every case overwrite the last.
-
+    Keyed on (omega_e^2 R/g, U/sqrt(gD), heading) -- all three are needed.
     heading is the MMG encounter angle mu [deg] of the table (waves from
-    starboard, see the module docstring); loads are non-dimensional and in MMG
-    axes, F1mean = X, F2mean = Y, Mzmean = N.  eta1..3 are divided
-    by A and eta4..6 by kA; they are amplitudes, so the 180 deg between the
-    solver body frame and the load axes does not affect them.  A restrained
-    body writes zeros, and a case with no motion output writes nan.
+    starboard, see the module docstring); loads are in MMG axes, F1mean = X,
+    F2mean = Y over 1/2 rho g A^2 D, Mzmean = N over 1/2 rho g A^2 D^2.
+    eta1..3 are divided by A and eta4..6 by kA.  A restrained body writes
+    zeros, and a case with no motion output writes nan.
     """
     if path.endswith(os.sep) or os.path.isdir(path):
         path = os.path.join(path, "meanLoads.csv")
@@ -319,9 +309,7 @@ def write_csv(path, lam_L, U0, heading, row):
     if parent:
         os.makedirs(parent, exist_ok=True)
 
-    # the key as written (.6g): a full-precision key never matched the rows
-    # read back, so a rerun added a duplicate instead of replacing its row
-    me = tuple(float(f"{v:.6g}") for v in (lam_L, U0, heading))
+    me = tuple(float(f"{v:.6g}") for v in (wR, UgD, heading))
 
     def key(fields):
         return tuple(float(v) for v in fields[:CSV_KEY])
@@ -330,27 +318,8 @@ def write_csv(path, lam_L, U0, heading, row):
         return all(abs(x - y) <= 1e-6*max(1.0, abs(x), abs(y))
                    for x, y in zip(a, b))
 
+    set_aside(path, lambda txt: txt.startswith(",".join(CSV_COLS)))
     rows = []
-    if os.path.exists(path) and not has_marker(path):
-        # written by an older meanLoads.py: convert its rows to MMG table form
-        import shutil
-        shutil.copy2(path, path + ".oldConvention")
-        conv = []
-        for line in open(path, errors="ignore"):
-            f = line.strip().split(",")
-            if len(f) != len(CSV_COLS):
-                continue
-            try:
-                v_ = [float(x) for x in f]
-            except ValueError:
-                continue                       # header row
-            v_[2], v_[3], v_[4], v_[5] = old_to_table(v_[3], v_[4], v_[5], v_[2])
-            conv.append(",".join(f"{x:.6g}" for x in v_))
-        with open(path, "w") as fo:
-            fo.write(",".join(CSV_COLS) + "\n" + MMG_MARKER + "\n"
-                     + "\n".join(conv) + ("\n" if conv else ""))
-        print(f"  {path}: old convention, {len(conv)} rows converted to MMG"
-              f" (backup {path}.oldConvention)")
     if os.path.exists(path):
         for line in open(path, errors="ignore"):
             f = line.strip().split(",")
@@ -364,7 +333,7 @@ def write_csv(path, lam_L, U0, heading, row):
                 rows.append(line.rstrip("\n"))
 
     nan = float("nan")
-    vals = ([lam_L, U0, heading, row.get("F1", nan), row.get("F2", nan),
+    vals = ([wR, UgD, heading, row.get("F1", nan), row.get("F2", nan),
              row.get("F6", nan)]
             + [row.get(f"eta{i}", nan) for i in range(1, 7)])
     rows.append(",".join(f"{v:.6g}" for v in vals))
@@ -373,6 +342,8 @@ def write_csv(path, lam_L, U0, heading, row):
     with open(path, "w") as f:
         f.write(",".join(CSV_COLS) + "\n")
         f.write(MMG_MARKER + "\n")
+        f.write("# non-dim (Zhao et al. 1988): w2R/g = omega_e^2 R/g; F1mean, F2mean /"
+                " (1/2 rho g A^2 D); Mzmean / (1/2 rho g A^2 D^2); D diameter, R = D/2\n")
         f.write("\n".join(rows) + "\n")
 
     print(f"  wrote {path}  ({len(rows)} cases collected)")
@@ -390,7 +361,7 @@ def main():
     ap.add_argument("--append", default=None,
                     help="append one summary row to this file, for a sweep")
     ap.add_argument("--csv", default=None, metavar="PATH",
-                    help="also collect lam/L,U,heading,F1,F2,Mz into one csv "
+                    help="also collect w2R/g,U/sqrt(gD),heading,F1,F2,Mz into one csv "
                          "(a directory gets meanLoads.csv inside it)")
     a = ap.parse_args()
 
@@ -420,24 +391,30 @@ def main():
     A = 0.5 * steep * lam
     t_ramp = ramp_per * 2.0 * np.pi / w0
 
-    # Seo et al. denominators: the moment is NOT divided by L
-    den_F = RHO * G * A**2 * B**2 / L
-    den_M = RHO * G * A**2 * B**2
+    # Zhao et al. (1988) form: D the diameter, R = D/2, omega_e the encounter frequency
+    D = B
+    R = 0.5 * D
+    wR = we**2 * R / G                     # abscissa omega_e^2 R / g
+    UgD = U0 / np.sqrt(G * D)              # U / sqrt(g D)
+    den_F = 0.5 * RHO * G * A**2 * D
+    den_M = 0.5 * RHO * G * A**2 * D**2
 
     print()
     print("=" * 78)
     print(f"  {os.path.basename(os.getcwd())}")
     print("=" * 78)
-    print(f"  wave      lambda {lam:.4g} m   lambda/L {lam/L:.4g}   A {A:.5g} m"
-          f"   H/L {2*A/L:.5g}")
+    print(f"  wave      lambda {lam:.4g} m   A {A:.5g} m   H/lambda {2*A/lam:.5g}")
     print(f"            k {k:.4g} 1/m   omega {w0:.5g}   omega_e {we:.5g} rad/s"
           f"   Te {Te:.4g} s")
-    print(f"  ship      L {L:.4g} m   B {B:.4g} m   U {U0:+.4g} m/s"
-          f"   Fn {U0/np.sqrt(G*L):.4g}   tau {we*U0/G:+.4g}")
+    print(f"  sphere    D {D:.4g} m   R {R:.4g} m   U {U0:+.4g} m/s"
+          f"   U/sqrt(gD) {UgD:+.4g}   along the waves {Ux/np.sqrt(G*D):+.4g}"
+          f"   tau {we*U0/G:+.4g}")
+    print(f"            omega_e^2 R/g {wR:.5g}   omega_0^2 R/g {w0**2*R/G:.5g}"
+          f"   lambda/D {lam/D:.4g}")
     print(f"  heading   {np.degrees(head)+0.0:+.4g} deg (0 = head sea)"
           f"   loads rotated into ship axes by {-np.degrees(head)+0.0:+.4g} deg")
-    print(f"  denom     force  rho g A^2 B^2 / L = {den_F:.5g} N")
-    print(f"            moment rho g A^2 B^2     = {den_M:.5g} N m")
+    print(f"  denom     force  1/2 rho g A^2 D   = {den_F:.5g} N")
+    print(f"            moment 1/2 rho g A^2 D^2 = {den_M:.5g} N m")
 
     # --- window ----------------------------------------------------------
     F = load(f"postProcessing/{a.fo}/*/force.dat")
@@ -461,7 +438,7 @@ def main():
     print(f"  window    last {nper} of {n_avail} encounter periods:"
           f"  t = {lo:.4g} .. {hi:.4g} s")
 
-    row = {"lam/L": lam / L, "T": 2.0 * np.pi / w0, "Te": Te}
+    row = {"w2R/g": wR, "lam/D": lam / D, "T": 2.0 * np.pi / w0, "Te": Te}
 
     # --- drift loads (MMG axes) -------------------------------------------
     h_deg = -np.degrees(head) + 0.0           # runsim heading, 0 = head sea
@@ -540,7 +517,8 @@ def main():
                   + (" /       -" if psiB is not None and (key == "Z" or not psiB["addXY"])
                      else "")
                   + "   [N]")
-        print(f"  {'':<14s} added resistance -X/den = {-tots['X']/den_F:+.4f}")
+        print(f"  {'':<14s} drift force along the waves (Zhao et al. F1, at mu 0) -X/den ="
+              f" {-tots['X']/den_F:+.4f}")
         Nz = None
         if M is not None:
             mm = (M[:, 0] >= lo) & (M[:, 0] <= hi)
@@ -605,7 +583,7 @@ def main():
 
     # --- motion RAOs ------------------------------------------------------
     if mot is not None and mot.shape[1] >= 7:
-        rule("MOTION RAO at omega_e       (Seo et al. Figs 9, 10)")
+        rule("MOTION RAO at omega_e       (Zhao et al. Fig. 6: heave)")
         print(f"  {'':<10s} {'amplitude':>12s} {'phase':>9s} {'RAO':>10s}"
               f"   {'normalised by':<14s}")
         m = (mot[:, 0] >= lo) & (mot[:, 0] <= hi)
@@ -643,12 +621,12 @@ def main():
 
     if a.append:
         append_row(a.append, row, os.path.basename(os.getcwd()),
-                   head, U0, L, B, 2 * A / lam, h)
+                   head, U0, D, 2 * A / lam, h)
         print()
 
     if a.csv:
         if all(kk in row for kk in ("F1", "F2", "F6")):
-            write_csv(a.csv, lam / L, U0, row["mu"], row)
+            write_csv(a.csv, wR, UgD, row["mu"], row)
             print()
         else:
             print("  no drift loads to write to the csv")
