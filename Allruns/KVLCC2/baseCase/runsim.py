@@ -36,10 +36,10 @@ draft = 20.8/scale
 Ucur = args.Ucur
 rampperiod = 3.0
 Co = 0.2
-Nproc = 56 # Number of processors for parallel run
+Nproc = 56                          # Number of processors for parallel run
 procD = [8, 6, 1]
 
-beta = 0.0
+beta = 0.0                          # For positive beta the ship sways to port
 
 head_ang = heading*np.pi/180
 xsponge = 2 * lam
@@ -58,10 +58,10 @@ zmin = min(-0.5*lam, -7*draft)
 zmax = 0.0
 
 # Mesh resolution
-discX = 7 # cells per lam
+discX = 7                           # cells per lam
 discY = discX // 1.0
 discZ = int(2.0*discX)
-Nref = 2 # number of refinements for snappyHexMesh in x-direction.
+Nref = 2                            # number of refinements for snappyHexMesh in x-direction.
 if lam >= 1.5:
     Nref = 3
 if lam >= 3.0:

@@ -36,10 +36,10 @@ draft = 11.0/scale
 Ucur = args.Ucur
 rampperiod = 3.0
 Co = 0.2
-Nproc = 56 # Number of processors for parallel run
+Nproc = 56                          # Number of processors for parallel run
 procD = [8, 6, 1]
 
-beta = 0.0
+beta = 0.0                          # For positive beta the ship sways to port
 
 head_ang = heading*np.pi/180
 xsponge = 2 * lam
@@ -58,10 +58,10 @@ zmin = min(-0.5*lam, -7*draft)
 zmax = 0.0
 
 # Mesh resolution
-discX = 7 # cells per lam
+discX = 7                           # cells per lam
 discY = discX // 1.0
 discZ = int(2.0*discX)
-Nref = 2 # number of refinements for snappyHexMesh in x-direction.
+Nref = 2                            # number of refinements for snappyHexMesh in x-direction.
 if lam >= 1.5:
     Nref = 3
 if lam >= 3.0:
@@ -72,11 +72,11 @@ if lam >= 4.5:
 k = 2 * np.pi / lam
 g = 9.81
 we  = np.sqrt(g*k*np.tanh(k*(-zmin))) + k*Ucur*np.cos(head_ang) # encounter frequency
-tau = we * Ucur / g                       # signed; we = omega_encounter
+tau = we * Ucur / g                 # signed; we = omega_encounter
 if tau > 0:
     ratio = ((np.sqrt(1+4*tau) - 1) / (1 - np.sqrt(1-4*tau)))**2
 else:
-    ratio = 1.0                           # opposing current: scattered waves are longer
+    ratio = 1.0                   # opposing current: scattered waves are longer
 lam_mesh = lam
 
 Nx = int(xmax / lam_mesh * discX)
